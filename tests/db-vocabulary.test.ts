@@ -48,7 +48,7 @@ describe("la conversion est TOTALE sur les codes de production", () => {
     }
   });
 
-  it("les douze codes vivants et non ambigus sont traduits", () => {
+  it("les dix codes vivants sont traduits", () => {
     expect(resolveAgeGroup("adult")).toBe("Adulte");
     expect(resolveAgeGroup("juvenil")).toBe("Juvénile");
     expect(resolveAgeGroup("u7")).toBe("U7");
@@ -56,8 +56,6 @@ describe("la conversion est TOTALE sur les codes de production", () => {
     expect(resolveAgeGroup("master_1_2")).toBe("Master 1");
     expect(resolveAgeGroup("master_3_4")).toBe("Master 3");
     expect(resolveAgeGroup("master_5_plus")).toBe("Master 5+");
-    expect(resolveAgeGroup("master1")).toBe("Master 1");
-    expect(resolveAgeGroup("master2")).toBe("Master 2");
   });
 
   it("les codes ambigus et éteints rendent null, SCIEMMENT", () => {
@@ -260,5 +258,90 @@ describe("POURQUOI LA CONVERSION DOIT ÊTRE FINE : les durées de combat", () =>
         `${code} → ${g} : aucune ceinture ne donne de durée, la tranche n'existe pas dans les tables`,
       ).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("ce que la MESURE a réfuté, et qui doit rester réfuté", () => {
+  it("`master2` n'est PAS « Master 2 » — il porte 41 à 66 ans", () => {
+    // Première rédaction : traduit par déduction depuis son NOM. La mesure de
+    // production le réfute (1 149 lignes, âges 41-66, zéro en dessous), alors que
+    // « Master 2 » désigne 35-39. La durée aurait été surévaluée de 60 s (+20 %) en
+    // violette, marron et noire — et un test verrouillait l'erreur, ce qui l'aurait
+    // rendue durable.
+    expect(resolveAgeGroup("master2")).toBeNull();
+  });
+
+  it("`master1` non plus, même si sa population tiendrait", () => {
+    // Ses 30 lignes (31-38 ans) tomberaient dans la bonne classe d'équivalence :
+    // « Master 1 » serait juste. Mais c'est une coïncidence de POPULATION, pas une
+    // règle — et son jumeau prouve que cette paire numérote autrement que le
+    // référentiel. Zéro ligne à venir : le refus ne coûte rien.
+    expect(resolveAgeGroup("master1")).toBeNull();
+  });
+
+  it("la BANDE convertie est exacte, pas seulement le côté enfant/adulte", () => {
+    // `estCoherentEnfant` ne vérifiait que enfant/adulte : une erreur `u9 → "U7"`
+    // l'aurait traversé intacte, en changeant la limite de 30,2 à 24,0 kg en Pena —
+    // c'est-à-dire une élimination à tort. On assère donc la bande NOMMÉMENT.
+    const attendu: ReadonlyArray<readonly [string, string]> = [
+      ["u7", "U7"],
+      ["u9", "U9"],
+      ["u11", "U11"],
+      ["u13", "U13"],
+      ["u15", "U15"],
+    ];
+    for (const [code, bande] of attendu) {
+      expect(resolveAgeGroup(code), code).toBe(bande);
+    }
+    // Et les cinq bandes donnent cinq limites DISTINCTES : si deux coïncidaient, une
+    // erreur de bande serait indétectable par le poids.
+    const limites = attendu.map(([code]) =>
+      resolveWeightLimit({
+        discipline: "gi",
+        storedAgeGroup: code,
+        gender: null,
+        storedWeightClass: "2",
+      }),
+    );
+    const kgs = limites.map((l) => (l.ok ? l.maxKg : null));
+    expect(new Set(kgs).size, `limites: ${JSON.stringify(kgs)}`).toBe(5);
+  });
+
+  it("un enfant n'a PAS besoin de genre pour avoir une limite", () => {
+    // Les tables U7-U15 n'ont aucune dimension de genre. Exiger le genre refusait
+    // 14 358 inscriptions enfants dont il est NULL en base — la population même que
+    // ce module protège.
+    const r = resolveWeightLimit({
+      discipline: "gi",
+      storedAgeGroup: "u11",
+      gender: null,
+      storedWeightClass: "2",
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.maxKg).not.toBeNull();
+  });
+
+  it("« sans limite » n'est PAS « cette classe n'existe pas pour vous »", () => {
+    // Super Pesado n'existe pas pour les femmes non-enfants : 503 inscriptions
+    // mesurées. Les confondre afficherait « sans limite » — et à la balance, cela
+    // laisse passer n'importe quel poids.
+    const femmeSuperPesado = resolveWeightLimit({
+      discipline: "gi",
+      storedAgeGroup: "adult",
+      gender: "female",
+      storedWeightClass: "7",
+    });
+    expect(femmeSuperPesado.ok).toBe(false);
+    if (!femmeSuperPesado.ok) expect(femmeSuperPesado.raison).toBe("classe_absente_pour_ce_groupe");
+
+    // Pesadissimo, elle, est ouverte : « sans limite » est la bonne réponse.
+    const ouverte = resolveWeightLimit({
+      discipline: "gi",
+      storedAgeGroup: "adult",
+      gender: "female",
+      storedWeightClass: "8",
+    });
+    expect(ouverte.ok).toBe(true);
+    if (ouverte.ok) expect(ouverte.maxKg).toBeNull();
   });
 });

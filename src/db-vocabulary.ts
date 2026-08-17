@@ -1,7 +1,7 @@
 import {
   AGE_GROUPS,
-  getMaxWeightKg,
   isChildAgeGroup,
+  listWeightClasses,
   WEIGHT_CLASSES,
   weightClassLabel,
   type AgeGroup,
@@ -82,9 +82,6 @@ const CODE_VERS_AGE_GROUP: Readonly<Record<string, AgeGroup>> = {
   master_1_2: "Master 1",
   master_3_4: "Master 3",
   master_5_plus: "Master 5+",
-  // Deux codes du passé mais NON AMBIGUS : ils nomment une tranche unique.
-  master1: "Master 1",
-  master2: "Master 2",
 };
 
 /**
@@ -99,6 +96,16 @@ const CODE_VERS_AGE_GROUP: Readonly<Record<string, AgeGroup>> = {
  */
 export const CODES_AGE_NON_TRADUISIBLES = [
   "master",
+  // `master1` et `master2` FURENT d'abord traduits, par déduction depuis leur NOM.
+  // La mesure les réfute : `master2` porte 1 149 lignes de 41 à 66 ans, alors que
+  // « Master 2 » désigne 35-39 au référentiel — la durée aurait été surévaluée de
+  // 60 s (+20 %) en violette, marron et noire. `master1` (30 lignes, 31-38 ans)
+  // tiendrait, lui, dans la bonne classe d'équivalence — mais c'est une coïncidence
+  // de population et non une règle, et son jumeau prouve que cette paire numérote
+  // autrement que le référentiel. Zéro ligne sur une compétition à venir : le refus
+  // ne coûte rien et l'approximation aurait coûté une durée fausse.
+  "master1",
+  "master2",
   "child",
   "mirim",
   "premirim",
@@ -140,7 +147,12 @@ export function resolveWeightClass(stored: string | null | undefined): WeightCla
 
 /** Pourquoi une limite n'a pas pu être établie. Destiné à être AFFICHÉ. */
 export type LimiteRefus =
-  "age_inconnu" | "classe_inconnue" | "genre_manquant" | "combinaison_absente";
+  | "age_inconnu"
+  | "classe_inconnue"
+  | "genre_manquant"
+  /** La classe existe au référentiel, mais pas pour cette bande et ce genre. */
+  | "classe_absente_pour_ce_groupe"
+  | "combinaison_absente";
 
 export type LimiteResultat =
   | { ok: true; ageGroup: AgeGroup; weightClass: WeightClassName; maxKg: number | null }
@@ -172,19 +184,39 @@ export function resolveWeightLimit(input: {
   const weightClass = resolveWeightClass(input.storedWeightClass);
   if (!weightClass) return { ok: false, raison: "classe_inconnue" };
 
-  if (!input.gender) return { ok: false, raison: "genre_manquant" };
+  // LE GENRE N'EST REQUIS QUE HORS BANDES ENFANTS. Les tables U7–U15 n'ont aucune
+  // dimension de genre (`ChildWeightRow` ne la porte pas), donc la limite d'un
+  // enfant est entièrement déterminée sans lui. Exiger le genre avant cette
+  // distinction refusait 14 358 inscriptions enfants — dont le genre est NULL sur
+  // 14 358 en base — c'est-à-dire précisément la population que ce module existe
+  // pour protéger.
+  const enfant = isChildAgeGroup(ageGroup);
+  if (!enfant && !input.gender) return { ok: false, raison: "genre_manquant" };
+  // Valeur indifférente pour une bande enfant : la table l'ignore. On la fournit
+  // parce que la signature du référentiel l'exige, pas parce qu'elle compte.
+  const genre: GenderDb = input.gender ?? "male";
 
   // `getMaxWeightKg` LÈVE sur une classe hors vocabulaire (`table[nom]` est alors
   // `undefined`). Les deux résolutions ci-dessus l'excluent, mais on garde la
   // garde : ce module est la frontière, et une frontière qui suppose ses entrées
   // valides n'en est pas une.
-  let maxKg: number | null;
+  // DEUX SITUATIONS OPPOSÉES QUE `getMaxWeightKg` REND TOUTES DEUX `null` :
+  //   - Pesadissimo, classe OUVERTE : « sans limite » est la bonne réponse ;
+  //   - Super Pesado féminin, classe QUI N'EXISTE PAS pour ce groupe.
+  //
+  // Les confondre ferait afficher « sans limite » à 503 femmes inscrites en Super
+  // Pesado (mesuré) — et à la balance, « sans limite » laisse passer n'importe quel
+  // poids. `listWeightClasses` sait déjà les séparer : elle écarte les cases nulles
+  // et garde Pesadissimo à `maxKg: null`.
+  let offertes: ReturnType<typeof listWeightClasses>;
   try {
-    maxKg = getMaxWeightKg(input.discipline, ageGroup, input.gender, weightClass);
+    offertes = listWeightClasses(input.discipline, ageGroup, genre);
   } catch {
     return { ok: false, raison: "combinaison_absente" };
   }
-  return { ok: true, ageGroup, weightClass, maxKg };
+  const trouvee = offertes.find((o) => o.name === weightClass);
+  if (!trouvee) return { ok: false, raison: "classe_absente_pour_ce_groupe" };
+  return { ok: true, ageGroup, weightClass, maxKg: trouvee.maxKg };
 }
 
 /** Le motif de refus, tel qu'il doit s'afficher à la balance. */
@@ -196,6 +228,10 @@ export function limiteRefusMessage(raison: LimiteRefus): string {
       return "Classe de poids non reconnue : pesez selon la feuille de l'organisateur.";
     case "genre_manquant":
       return "Genre du licencié inconnu : impossible d'établir la limite.";
+    case "classe_absente_pour_ce_groupe":
+      // NE JAMAIS dire « sans limite » ici : à la balance, cela laisse passer
+      // n'importe quel poids.
+      return "Cette classe de poids n'existe pas pour cette catégorie : voyez le commissaire.";
     case "combinaison_absente":
       return "Cette catégorie n'existe pas au référentiel : voyez le commissaire.";
   }
