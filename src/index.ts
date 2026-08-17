@@ -29,3 +29,4 @@ export * from "./medals";
 export * from "./bracket-propagation";
 export * from "./control-state";
 export * from "./capabilities";
+export * from "./medido";
