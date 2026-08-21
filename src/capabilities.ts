@@ -74,6 +74,9 @@ export type MutationKind =
   | "weighin.record"
   | "medido.record"
   | "podium.confirm"
+  | "absolut.enter"
+  | "absolut.cancel"
+  | "absolut.close"
   | "tshirt.give"
   | "paper.entry";
 
@@ -123,6 +126,67 @@ export const CAPABILITIES: Record<MutationKind, Capability> = {
   "weighin.record": { roles: ["weighin", "day_commissioner"], tatamiBound: false },
   "medido.record": { roles: ["medido", "day_commissioner"], tatamiBound: false },
   "podium.confirm": { roles: ["podium", "day_commissioner"], tatamiBound: false },
+
+  // ┌─ L'ABSOLUT : TROIS VERBES, ET ILS NE POSENT PAS LA MÊME QUESTION ─────────┐
+  // │ Un absolut porte sur une CATÉGORIE — le quadruplet ceinture × tranche      │
+  // │ d'âge × genre × discipline — et jamais sur un tapis. `tatamiBound` reste   │
+  // │ donc faux pour les trois, exactement comme pour la balance ou la jauge :   │
+  // │ le périmètre tapis n'y est pas VIDE, il est SANS OBJET. Il n'y a pas de    │
+  // │ troisième portée à inventer ; « lié à un tapis » et « pas lié à un tapis » │
+  // │ suffisent à dire ce qu'un absolut est.                                     │
+  // │                                                                            │
+  // │ ⚠ AUCUNE FONCTION `day_absolut_*` N'EXISTE ENCORE. Les tables du lot 2f    │
+  // │ sont écrites, rien ne les écrit : ces trois règles ne recopient donc aucun │
+  // │ SQL, elles énoncent les droits EN PREMIER. C'est l'inverse du reste de la  │
+  // │ matrice, et ça se retourne : le jour où les fonctions arrivent, ce sont    │
+  // │ elles qui doivent s'aligner sur ces listes.                                │
+  // └───────────────────────────────────────────────────────────────────────────┘
+
+  // L'inscription se prend AU MICRO, à la console podium, dans la minute qui suit
+  // la remise des médailles : c'est le seul endroit où le combattant se présente,
+  // et le seul moment où il est éligible (l'inscription à l'avance n'existe pas).
+  // Placer ce verbe ailleurs qu'au poste `podium` reviendrait à demander à
+  // quelqu'un qui n'est pas devant les médaillés de saisir ce qu'ils disent.
+  "absolut.enter": { roles: ["podium", "day_commissioner"], tatamiBound: false },
+
+  // Le désistement est l'INVERSE EXACT de l'inscription : même personne, même
+  // console, même minute, et surtout RÉPARABLE — une ligne passée en `cancelled`
+  // se reprend en en créant une nouvelle. La question qu'il pose est donc bien
+  // celle de `absolut.enter`, et les droits suivent pour cette raison-là, pas par
+  // ressemblance.
+  "absolut.cancel": { roles: ["podium", "day_commissioner"], tatamiBound: false },
+
+  // CLORE N'EST PAS « INSCRIRE À L'ENVERS », et c'est pourquoi les droits
+  // divergent de leurs voisins immédiats.
+  //
+  // La clôture n'est prononcée à la main que pour les CEINTURES NOIRES — les
+  // couleurs se ferment seules quand toutes leurs catégories sources ont médaillé.
+  // Elle est SANS RETOUR : plus aucune inscription, plus aucun désistement, et
+  // aucun verbe de cette union ne la défait (il n'y a pas d'`absolut.reopen`).
+  // Elle engage ensuite le format de la fin de journée : le tableau est généré et
+  // INSÉRÉ dans le programme d'un tapis, ce qui décale des combats déjà annoncés.
+  //
+  // La matrice traite déjà les deux moitiés de cette question, et dans le même
+  // sens :
+  //  - `fight.reopen` retire le geste au poste qui EXÉCUTE (la table de marque)
+  //    et le laisse aux commissaires, parce qu'il dépropage l'aval ;
+  //  - `fight.move` n'appartient qu'au commissaire de journée, parce qu'il porte
+  //    sur des tapis que le poste demandeur ne voit pas.
+  // Clore un absolut cumule exactement ces deux traits. Le poste `podium` est ici
+  // le poste qui exécute, et il n'a aucun tapis dans son périmètre : la
+  // conséquence de son geste tomberait entièrement hors de sa vue.
+  //
+  // ⚠ DIVERGENCE ASSUMÉE AVEC LA SPÉCIFICATION. `docs/spec/patch-absolut`
+  // (RG-A07 et sa matrice d'habilitations § 3.1) donne la clôture manuelle au
+  // commissaire de podium AUTANT qu'au commissaire de journée. On la lui retire
+  // ici, et le choix est fail-closed : une interface trop stricte se voit et se
+  // corrige en une ligne, une clôture prise trop tôt par un bénévole ne se
+  // rattrape pas. Le SQL du lot 2f dit d'ailleurs « leur clôture est prononcée à
+  // la main par le commissaire » sans nommer le poste ; dans ce vocabulaire à
+  // huit postes, `tatami_commissioner` est borné à un tapis et un absolut n'en
+  // est pas un, ce qui ne laisse que le commissaire de journée.
+  "absolut.close": { roles: ["day_commissioner"], tatamiBound: false },
+
   "tshirt.give": { roles: ["tshirt_stand", "day_commissioner"], tatamiBound: false },
 
   // La saisie a posteriori d'une feuille papier réécrit un résultat déjà tenu
