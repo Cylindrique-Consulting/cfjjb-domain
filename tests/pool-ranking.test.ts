@@ -168,6 +168,31 @@ describe("le cycle de confrontation directe", () => {
     ]);
   });
 
+  it("ne réévalue JAMAIS un critère sur un sous-ensemble déjà vu", () => {
+    // L'invariant de terminaison, énoncé plutôt que supposé. Un critère rejoué
+    // sur le même groupe est la forme bornée du bug de boucle : celle-ci se
+    // voit ici, par assertion. Sa forme non bornée, elle, ne peut se manifester
+    // que par un blocage — aucune assertion ne peut l'attraper de l'intérieur.
+    for (const cas of [
+      { ids, bouts },
+      { ids: ["A", "B"], bouts: [bout("A", "B", null)] },
+      {
+        ids: ["A", "B", "C"],
+        bouts: [
+          bout("A", "B", "A", { submission: true }),
+          bout("B", "C", "B"),
+          bout("C", "A", "C"),
+        ],
+      },
+    ]) {
+      const r = rankPool(cas.ids, cas.bouts, OPTS);
+      const vus = r.tieBreakApplied.map(
+        (t) => `${t.criterion}@${[...t.registrationIds].join(",")}`,
+      );
+      expect(new Set(vus).size, `un critère est rejoué : ${vus.join(" / ")}`).toBe(vus.length);
+    }
+  });
+
   it("s'explique en français, tentatives infructueuses comprises", () => {
     const r = rankPool(ids, bouts, OPTS);
     expect(explainTieBreaks(r.tieBreakApplied)).toEqual([
@@ -299,17 +324,27 @@ describe("le tirage au sort", () => {
     expect(premiers.size, "un tirage constant n'est pas un tirage").toBe(2);
   });
 
-  it("ne dépend PAS de l'ordre d'arrivée des lignes", () => {
+  it("ne dépend PAS de l'ordre d'arrivée des lignes, sur DOUZE catégories", () => {
     // La graine canonise l'ENSEMBLE des identifiants. Deux lectures de la base
     // qui rendraient les lignes dans un ordre différent doivent produire le
     // même 2e — sans quoi le podium dépendrait du plan d'exécution SQL.
-    for (const c of ["cat-1", "cat-2", "cat-3", "cat-4"]) {
-      const droit = rankPool(["A", "B"], [bout("A", "B", null)], { ...OPTS, categoryId: c });
-      const inverse = rankPool(["B", "A"], [bout("B", "A", null)], { ...OPTS, categoryId: c });
-      expect(inverse.standings.map((s) => s.registrationId)).toEqual(
-        droit.standings.map((s) => s.registrationId),
-      );
-    }
+    //
+    // Douze catégories, et non trois : une canonisation retirée ne fait diverger
+    // qu'une catégorie sur deux en moyenne, et un test à trois cas la laisserait
+    // passer une fois sur huit. Mesuré : la version à quatre cas survivait à la
+    // mutation, celle-ci non.
+    const cats = Array.from({ length: 12 }, (_, i) => `cat-${i}`);
+    const droit = cats.map(
+      (c) =>
+        rankPool(["A", "B"], [bout("A", "B", null)], { ...OPTS, categoryId: c }).standings[0]
+          ?.registrationId,
+    );
+    const inverse = cats.map(
+      (c) =>
+        rankPool(["B", "A"], [bout("B", "A", null)], { ...OPTS, categoryId: c }).standings[0]
+          ?.registrationId,
+    );
+    expect(inverse).toEqual(droit);
   });
 
   it("est ajouté d'office si l'appelant l'a omis : un classement doit être TOTAL", () => {
