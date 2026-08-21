@@ -52,6 +52,24 @@ export type BracketEntry = {
   rank?: number | null;
   /** Sélection en équipe de France. */
   nationalTeam?: boolean;
+  /**
+   * ABSOLUT — la place obtenue dans la catégorie SOURCE (1, 2 ou 3), telle
+   * qu'elle a été FIGÉE à l'inscription (`competition_absolut_registrations.
+   * source_place`). Figée justement pour qu'un podium source corrigé après coup
+   * ne change pas rétroactivement le tirage de l'absolut.
+   */
+  sourcePlace?: number | null;
+  /**
+   * ABSOLUT — rang de POIDS de la catégorie source, croissant du plus léger au
+   * plus lourd. Un nombre et non un nom de classe : ce paquet n'a pas à savoir
+   * ce qu'est un « Pesadissimo » pour trancher une égalité de place.
+   */
+  sourceWeightRank?: number | null;
+  /**
+   * ABSOLUT — la catégorie SOURCE, clé de la séparation « pas de retrouvailles
+   * au premier tour » (`SeparationKey = "source-category"`).
+   */
+  sourceCategoryId?: string | null;
 };
 
 export type BracketFightType = "BraketFight" | "BraketFightPool3";
