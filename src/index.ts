@@ -41,3 +41,4 @@ export * from "./control-state";
 export * from "./capabilities";
 export * from "./medido";
 export * from "./db-vocabulary";
+export * from "./fight-stats";

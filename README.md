@@ -189,6 +189,51 @@ population dans cinquante ordres différents et exige une seule composition.
 > séparation que l'anti-club ne tient plus. La lettre reste, en deçà, ce qu'elle est
 > aussi : une **étiquette** affichée sur le tableau et sur la TV.
 
+## Les statistiques de combat, et ce qui ne s'en dérive pas
+
+`src/fight-stats.ts` tire du journal de scoring (`competition_fight_events`) et de
+l'état de combat (`competition_fight_states`) tout ce qui s'en tire honnêtement :
+bilan, adversaires, victoires par méthode, points marqués et encaissés, avantages,
+pénalités, soumissions, face-à-face.
+
+**La technique derrière un point ne s'en tire pas.** `+3` est un passage de garde, et
+c'est sûr. Mais `+2` est un renversement **ou** une amenée au sol **ou** un
+genou-ventre : trois gestes, une seule valeur. Une statistique intitulée « balayages »
+construite sur les `+2` est donc fausse pour une part **inconnue** de ses lignes, et
+personne ne peut dire laquelle — un chiffre plausible, affiché avec autorité, qu'aucune
+relecture ne peut infirmer sans remonter à chaque combat. Les seuls libellés autorisés
+pour les points sont les **valeurs**. La seule technique enregistrée est
+`submissionType`, parce qu'elle a été **observée**.
+
+`tests/statistiques-honnetes.test.ts` verrouille cette règle par un balayage de source,
+jumeau de celui de `cfjjb-platform`. Le jumeau n'est pas un doublon : le verrou de la
+plateforme ne lit que `app`, `lib` et `components`, et ce package est consommé depuis
+`node_modules` — il ne lui est donc **jamais** passé sous les yeux. Il lit la source par
+`import.meta.glob` et non par `node:fs`, que la règle de pureté interdit ici, tests
+compris.
+
+Quatre points valent d'être connus avant d'y toucher :
+
+- **L'état vide est de première classe.** La bascule vers le nouvel outil est nette,
+  sans reprise de l'historique : toute statistique vaut zéro pour les 90 000 licenciés
+  jusqu'à la première compétition jouée dessus. `{ aDesCombats: false }` ne porte
+  **aucun** compteur, donc aucun écran ne peut afficher « 0 soumission » à quelqu'un qui
+  n'a jamais combattu. C'est la forme qui l'empêche, pas un commentaire — même
+  raisonnement que `computeFillRate`, qui rend `null` et non `0`.
+- **Le temps jusqu'à la soumission n'est pas dans le journal**, et c'est mesuré :
+  `day_fight_finish` insère son événement `finish` **sans** `fight_clock_ms`. Le prendre
+  sur le dernier événement scoré donnerait l'instant du dernier point — et zéro pour
+  toute soumission portée sans qu'un point ait été marqué, c'est-à-dire le cas courant.
+  `finishClockMs` est donc fourni par l'appelant, ou absent, et l'absence se compte
+  (`tempsNonMesures`) au lieu de valoir zéro.
+- **Le pliage du journal ne filtre pas sur `kind`**, jumeau exact de `jour_j_fold_scores` :
+  `undo` et `score_correction` portent un delta **négatif** de même `(side, scope)`, donc
+  ne garder que `score` / `advantage` / `penalty` recompterait chaque point annulé.
+- **Un combat compté deux fois double un bilan.** Les combats d'un athlète se lisent en
+  deux requêtes (`registration_a`, puis `registration_b`) dont l'union se fait par
+  concaténation côté appelant : le dédoublonnage par `fightId` est dans le module, pas
+  dans la discipline de l'appelant.
+
 ## Pureté, vérifiée et non recommandée
 
 `eslint.config.mjs` interdit `node:*`, `fs`, `path`, `crypto`, `react`, `react-dom`,
