@@ -55,6 +55,39 @@ comme une valeur retirée d'ici casse sa CI.
 > `cfjjb-platform`. C'est la seule règle de ce dépôt qui ne peut pas être vérifiée
 > depuis ce dépôt.
 
+## Le format d'une catégorie : élimination directe ou poule
+
+`competitions.bracket_mode` accepte `'pools'` depuis juin 2026, et **aucun code ne
+lisait cette colonne** : une compétition enregistrée « Poules » produisait une
+élimination directe, en silence. Le moteur manquant vit maintenant ici.
+
+| Module                      | Rôle                                                                   |
+| --------------------------- | ---------------------------------------------------------------------- |
+| `src/competition-format.ts` | le vocabulaire de la colonne, et la table de formats par tranche d'âge |
+| `src/pool-generator.ts`     | le round-robin (méthode du cercle), plafonné à 6                       |
+| `src/pool-ranking.ts`       | le classement de poule et son tuple de départage                       |
+| `src/category-draw.ts`      | l'aiguillage, et le compte-rendu de repli                              |
+
+> **Décision produit du 21/08/2026.** Le moteur est livré et testé, mais **aucun
+> format par défaut ne l'active** : `DEFAULT_FORMAT_BY_AGE_GROUP` rend `single_elim`
+> pour les douze tranches d'âge. La fédération activera catégorie par catégorie.
+> `tests/competition-format.test.ts` gèle ce défaut : une bascule involontaire casse
+> la CI au lieu de changer le format de vraies compétitions.
+
+Trois points valent d'être connus avant d'y toucher :
+
+- **Le plafond n'est pas cosmétique.** Une poule coûte C(n,2) combats : 15 à six,
+  **120 à seize**, contre 15 pour une élimination à seize. Au-delà de six, le format
+  se replie en élimination directe, et le repli est **rapporté** (`DrawFallback`) —
+  un repli muet ferait commander le mauvais nombre de médailles.
+- **Deux tailles n'admettent aucun ordre sans enchaînement**, n = 3 et n = 4 : ce
+  n'est pas une faiblesse du générateur, c'est démontré par énumération exhaustive
+  dans la suite. Le tampon de repos du planning est ce qui compense, et la poule le
+  dit (`PoolWarning`) plutôt que de le masquer.
+- **Les combats de poule sont des lignes de combat ordinaires** (`division = 0`,
+  `indexInDivision` = ordre de passage). C'est ce qui évite un cas particulier dans
+  la TV, l'écran opérateur, le planning et le journal.
+
 ## Pureté, vérifiée et non recommandée
 
 `eslint.config.mjs` interdit `node:*`, `fs`, `path`, `crypto`, `react`, `react-dom`,

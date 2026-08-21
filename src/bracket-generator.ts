@@ -27,6 +27,7 @@
  * l'émission des combats.
  */
 
+import type { DrawFormat } from "./competition-format";
 import type { ThirdPlaceMode } from "./enums";
 import { fnv1a, mulberry32 } from "./prng";
 import {
@@ -197,11 +198,38 @@ export function generateBracket(
 export class BracketEditError extends Error {}
 
 /**
+ * ┌─ UNE POULE N'A PAS DE FEUILLES DE PREMIER TOUR ───────────────────────────┐
+ * │ Les deux fonctions ci-dessous calculent la taille de l'arbre par           │
+ * │ `deepest = max(division)` puis `size = 2 × (combats de cette division)`.   │
+ * │                                                                            │
+ * │ Sur une poule — dont TOUS les combats portent `division = 0`, c'est le     │
+ * │ contrat de `pool-generator.ts` — `deepest` vaut 0, la « première ronde »   │
+ * │ devient la poule ENTIÈRE, et la taille calculée vaut 2 × C(n,2) : un       │
+ * │ nombre qui n'est même pas une puissance de deux. Rien ne planterait. La    │
+ * │ permutation rendrait des emplacements réarrangés, muettement faux, et un   │
+ * │ combat changerait d'adversaire sans que la table de poule en sache rien.   │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ *
+ * La détection est STRUCTURELLE (`division === 0`) : un appelant qui oublie de
+ * passer le format est protégé quand même. Le paramètre `format` reste accepté
+ * pour que celui qui LIT la colonne puisse refuser sans rien charger.
+ */
+function refuseIfPool(fights: readonly GeneratedFight[], format?: DrawFormat): void {
+  if (format === "pools" || fights.some((f) => f.division === 0)) {
+    throw new BracketEditError(
+      "Format poule : il n'y a pas de tableau à permuter. Une poule se joue en entier, " +
+        "et l'ordre de passage se règle sur le planning, pas en déplaçant une tête de série.",
+    );
+  }
+}
+
+/**
  * Read the first-round leaf occupants (registrationId | null) from a set of
  * generated fights. Leaf index l → first-round fight floor(l/2), slot A if l
  * even, slot B if odd. Length = bracket size S.
  */
 export function readLeafOccupants(fights: GeneratedFight[]): (string | null)[] {
+  refuseIfPool(fights);
   const regular = fights.filter((f) => f.type === "BraketFight");
   const deepest = Math.max(0, ...regular.map((f) => f.division));
   const firstRound = regular
@@ -219,13 +247,16 @@ export function readLeafOccupants(fights: GeneratedFight[]): (string | null)[] {
  * type), only slot contents and isBye change.
  *
  * Throws BracketEditError if the swap would leave a first-round fight with
- * two byes (no competitor at all).
+ * two byes (no competitor at all), or if the fights are a POOL (see
+ * `refuseIfPool`).
  */
 export function swapBracketLeafSlots(
   fights: GeneratedFight[],
   leafA: number,
   leafB: number,
+  opts: { format?: DrawFormat } = {},
 ): GeneratedFight[] {
+  refuseIfPool(fights, opts.format);
   const regular = fights.filter((f) => f.type === "BraketFight");
   const deepest = Math.max(0, ...regular.map((f) => f.division));
   const size = regular.filter((f) => f.division === deepest).length * 2;

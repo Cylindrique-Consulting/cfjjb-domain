@@ -1,5 +1,6 @@
 import { AGE_GROUPS, WEIGHT_CLASSES, isChildAgeGroup, type AgeGroup } from "./referential";
 import type { GeneratedFight } from "./bracket-generator";
+import type { DrawFormat } from "./competition-format";
 import type { BeltDb, DisciplineDb } from "./enums";
 import { ALL_BELTS } from "./belts";
 
@@ -270,6 +271,8 @@ export type SchedulableCategory = {
   id: string;
   fightTimeSeconds: number;
   fights: Array<Pick<GeneratedFight, "division" | "indexInDivision" | "type" | "isBye">>;
+  /** Le format RÉELLEMENT appliqué. Absent = `single_elim`, comportement d'avant ce lot. */
+  format?: DrawFormat;
 };
 
 export type FightTimeKey = string; // `${categoryId}:${division}:${indexInDivision}:${type}`
@@ -284,10 +287,29 @@ export function fightTimeKey(
 /**
  * Spectator/fighter friendly running order inside a category:
  * deepest division first (index ascending), then the Pool3, then the final.
+ *
+ * ┌─ POURQUOI CETTE FONCTION PREND MAINTENANT LE FORMAT ──────────────────────┐
+ * │ Les trois seaux ci-dessous partent tous d'une hypothèse : `division ≥ 1`.  │
+ * │ Un combat de POULE porte `division = 0`. Il n'est donc ni dans `final`     │
+ * │ (`=== 1`), ni dans `earlier` (`> 1`), ni dans `pool3` (mauvais type) :     │
+ * │ il DISPARAÎT purement et simplement du tableau rendu.                     │
+ * │                                                                            │
+ * │ Et cette fonction est le calculateur d'horaires : un combat qui n'en sort  │
+ * │ pas n'a pas d'heure de début, et le planning du jour J masque les combats  │
+ * │ sans heure. Une poule entière serait invisible sur la zone d'appel, sans   │
+ * │ une seule erreur. C'est mesuré par un test, pas déduit d'ici.              │
+ * │                                                                            │
+ * │ En poule, `index_in_division` EST l'ordre de passage — c'est le contrat de │
+ * │ `pool-generator.ts` — donc l'ordre s'y lit directement, et la passe        │
+ * │ d'ajustement du repos serait détruite par un autre tri.                    │
+ * └───────────────────────────────────────────────────────────────────────────┘
  */
 export function categoryRunningOrder<
   T extends Pick<GeneratedFight, "division" | "indexInDivision" | "type">,
->(fights: T[]): T[] {
+>(fights: T[], opts: { format?: DrawFormat } = {}): T[] {
+  if (opts.format === "pools") {
+    return [...fights].sort((a, b) => a.indexInDivision - b.indexInDivision);
+  }
   const regular = fights.filter((f) => f.type === "BraketFight");
   const pool3 = fights.filter((f) => f.type === "BraketFightPool3");
   const final = regular.filter((f) => f.division === 1);
@@ -309,6 +331,11 @@ export type ScheduleResult = {
 /**
  * Sequential schedule of one tatami: categories in order, each category's
  * real fights back-to-back (fight time + buffer).
+ *
+ * Le `bufferSeconds` est aussi le TAMPON DE REPOS des deux seules tailles de
+ * poule où un enchaînement est structurellement inévitable (n = 3 et n = 4,
+ * cf. `POOL_SIZES_WITHOUT_REST`). Le raccourcir n'est donc pas qu'un réglage
+ * de fluidité.
  */
 export function computeTatamiSchedule(
   orderedCategories: SchedulableCategory[],
@@ -320,7 +347,7 @@ export function computeTatamiSchedule(
   let cursor = startAtMs;
 
   for (const cat of orderedCategories) {
-    const real = categoryRunningOrder(cat.fights).filter((f) => !f.isBye);
+    const real = categoryRunningOrder(cat.fights, { format: cat.format }).filter((f) => !f.isBye);
     if (real.length > 0) categoryStarts.set(cat.id, cursor);
     for (const fight of real) {
       fightTimes.set(fightTimeKey(cat.id, fight), cursor);
