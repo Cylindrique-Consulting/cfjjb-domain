@@ -327,11 +327,14 @@ describe("gel : le plan par défaut rend le placement d'avant le pipeline", () =
   });
 
   it("le mélange d'entrée change le tableau (sans quoi le gel ne prouverait rien)", () => {
+    // Comparaison de deux sorties VIVANTES, pas d'une sortie vivante avec le
+    // littéral : un pipeline qui trierait ses entrées rendrait les deux
+    // identiques, et c'est exactement ce que cette assertion doit voir.
     for (const seed of Object.keys(GEL_CORPUS)) {
       expect(
         generatedLeaves(CORPUS_TRIE, seed),
-        `graine ${seed} : le corpus trié doit donner un AUTRE tableau que le corpus mélangé`,
-      ).not.toEqual(GEL_CORPUS[seed]);
+        `graine ${seed} : le corpus trié rend le MÊME tableau que le corpus mélangé, donc l'ordre d'entrée n'est plus lu`,
+      ).not.toEqual(generatedLeaves(CORPUS, seed));
     }
   });
 
