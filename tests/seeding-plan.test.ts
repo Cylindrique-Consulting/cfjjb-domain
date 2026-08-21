@@ -523,10 +523,18 @@ describe("classement protégé", () => {
     expect(byeHolders(leaves)).toContain("reg-2");
   });
 
-  it("le rang 1 passe devant le rang 2, quel que soit l'ordre d'entrée", () => {
+  it("le rang 1 passe devant le rang 2, quelle que soit la graine", () => {
+    // Le classement protégé s'applique APRÈS l'entrelacement : c'est bien le
+    // rang, et non le hasard du tourniquet, qui doit trancher.
     const entries = ranked(5, { 1: 9, 5: 3 });
-    const { seedOrder } = seedOnly(entries, "protege-b", planProtege(2, "degrade"));
-    expect(seedOrder.slice(0, 2).map((e) => e.registrationId)).toEqual(["reg-5", "reg-1"]);
+    for (let i = 0; i < 24; i++) {
+      const seed = `protege-b-${i}`;
+      const { seedOrder } = seedOnly(entries, seed, planProtege(2, "degrade"));
+      expect(
+        seedOrder.slice(0, 2).map((e) => e.registrationId),
+        `graine ${seed} : le mieux classé n'est pas la graine 1`,
+      ).toEqual(["reg-5", "reg-1"]);
+    }
   });
 
   it("protéger plus de monde qu'il n'y a de byes : dégradation ANNONCÉE, pas tue", () => {
