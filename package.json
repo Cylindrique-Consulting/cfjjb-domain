@@ -23,6 +23,7 @@
     "./pool-ranking": "./src/pool-ranking.ts",
     "./category-draw": "./src/category-draw.ts",
     "./absolut-seeding": "./src/absolut-seeding.ts",
+    "./squad-composition": "./src/squad-composition.ts",
     "./planning-generator": "./src/planning-generator.ts",
     "./medals": "./src/medals.ts",
     "./capacity": "./src/capacity.ts",
