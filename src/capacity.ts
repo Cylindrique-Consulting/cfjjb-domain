@@ -215,9 +215,17 @@ export type CategoryShape = {
  * ratio doit se replier avec elle. Réimplémenter ce seuil ici ferait dériver
  * la capacité affichée du tirage réel — exactement la duplication que ce
  * paquet existe pour supprimer.
+ *
+ * ⚠ UN GABARIT FRACTIONNAIRE S'ARRONDIT AU-DESSUS. « 4,6 combattants par
+ * catégorie en moyenne » est une entrée légitime, et il faut en faire un
+ * entier : une catégorie contient des personnes. On prend le PLAFOND, parce
+ * que les deux erreurs ne se valent pas — arrondir en dessous sous-estime le
+ * coût par combattant, donc SURÉVALUE la capacité, donc remplit une salle
+ * qu'on n'a pas. En poule, 4,6 arrondi à 4 rendrait 1,5 au lieu de 2,0, soit
+ * un tiers de capacité annoncée en trop.
  */
 export function fightsPerCompetitor(shape: CategoryShape): number {
-  const n = Math.floor(shape.competitorsPerCategory);
+  const n = Math.ceil(shape.competitorsPerCategory);
   if (!Number.isFinite(n) || n < 2) return 0;
 
   const maxPoolSize = shape.maxPoolSize ?? MAX_POOL_SIZE_DEFAULT;
@@ -330,7 +338,9 @@ export function explainCapacity(params: CapacityParams, shape: CategoryShape): C
   const slotSeconds = params.averageFightSeconds + (params.bufferSeconds ?? DEFAULT_BUFFER_SECONDS);
   const fightCapacity = computeFightCapacity(params);
   const ratio = fightsPerCompetitor(shape);
-  const n = Math.floor(shape.competitorsPerCategory);
+  // Même arrondi que `fightsPerCompetitor` : le format expliqué doit être
+  // celui qui a servi au ratio, sans quoi l'explication contredit le calcul.
+  const n = Math.ceil(shape.competitorsPerCategory);
   const decision = resolveDrawFormat(
     shape.format,
     Number.isFinite(n) ? n : 0,

@@ -187,6 +187,25 @@ describe("fightsPerCompetitor", () => {
     expect(fightsPerCompetitor({ ...sept, competitorsPerCategory: 6 })).toBe(2.5);
   });
 
+  it("arrondit un gabarit fractionnaire AU-DESSUS, jamais en dessous", () => {
+    // « 4,6 combattants par catégorie » est une entrée légitime, et une
+    // catégorie contient des personnes. Arrondir en dessous rendrait 1,5 au
+    // lieu de 2,0 en poule — un tiers de capacité annoncée en trop, c'est-à-dire
+    // une salle qu'on n'a pas.
+    const fractionnaire: CategoryShape = { competitorsPerCategory: 4.6, format: "pools" };
+    expect(fightsPerCompetitor(fractionnaire)).toBe(2);
+    expect(fightsPerCompetitor(fractionnaire)).not.toBe(
+      fightsPerCompetitor({ ...fractionnaire, competitorsPerCategory: 4 }),
+    );
+    expect(
+      fightsPerCompetitor({
+        competitorsPerCategory: 4.6,
+        format: "single_elim",
+        thirdPlaceMode: "shared_bronze",
+      }),
+    ).toBe(0.8);
+  });
+
   it("rend 0 sous deux combattants : personne ne combat", () => {
     expect(fightsPerCompetitor({ competitorsPerCategory: 1, format: "pools" })).toBe(0);
     expect(fightsPerCompetitor({ competitorsPerCategory: 0, format: "single_elim" })).toBe(0);
@@ -333,6 +352,19 @@ describe("explainCapacity", () => {
       requestedFormat: "pools",
       appliedFormat: "pools",
     });
+  });
+
+  it("rend des combats par tapis ENTIERS, cohérents avec la capacité qu'ils composent", () => {
+    // 10 000 s ÷ 360 = 27,77. Le champ doit porter 27, le nombre réellement
+    // programmable, et non la division brute : un écran qui montre « 27,8
+    // combats par tapis » à côté de « 108 combats » invite à refaire le calcul
+    // à la main et à trouver 111.
+    const explication = explainCapacity(
+      { ...JOURNEE, usableSecondsPerTatami: 10_000 },
+      ELIMINATION,
+    );
+    expect(explication.fightsPerTatami).toBe(27);
+    expect(explication.fightsPerTatami * explication.tatamiCount).toBe(explication.fightCapacity);
   });
 
   it("nomme le repli quand le gabarit dépasse le plafond de poule", () => {
