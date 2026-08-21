@@ -498,6 +498,33 @@ describe("le temps jusqu'à la soumission", () => {
     expect(r.soumissions.medianeMs).toBe(160_000);
   });
 
+  it("rend une MÉDIANE, et non une moyenne : un combat qui traîne ne déplace pas le centre", () => {
+    // Trouvé par la passe de mutation : sur deux valeurs, médiane et moyenne
+    // coïncident, et le premier jeu d'essai ne séparait donc pas les deux. Il
+    // faut un nombre IMPAIR de temps et un traînard pour que l'écart existe.
+    const F = [
+      gagne("F1", "ANA", "BOB", "ANA", "submission", {
+        submissionType: "armbar",
+        finishClockMs: 20_000,
+      }),
+      gagne("F2", "ANA", "CLE", "ANA", "submission", {
+        submissionType: "triangle",
+        finishClockMs: 60_000,
+      }),
+      gagne("F3", "ANA", "DAN", "ANA", "submission", {
+        submissionType: "kimura",
+        finishClockMs: 400_000,
+      }),
+    ];
+    const r = bilan("ANA", F);
+    expect(r.soumissions.tempsMesures).toBe(3);
+    expect(r.soumissions.medianeMs).toBe(60_000);
+    // La moyenne vaudrait 160 000 ms : le traînard tirerait le « temps typique »
+    // à près du triple de tout ce qui a été observé sauf lui.
+    expect(r.soumissions.medianeMs).not.toBe(160_000);
+    expect(r.soumissions.plusRapideMs).toBe(20_000);
+  });
+
   it("un temps NON RELEVÉ se compte comme tel, jamais comme zéro", () => {
     // C'est l'état du système au jour de la bascule : `day_fight_finish` insère
     // son événement `finish` SANS `fight_clock_ms`. Compter l'absence comme 0 ms
