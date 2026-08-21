@@ -16,6 +16,11 @@ import { ALL_BELTS } from "./belts";
  *   on the mat). Within a category: deepest division first, index
  *   ascending, then the Pool3, then the final (finalists get to rest).
  * - Byes get no start time (Jour J's planning hides fights without one).
+ * - Days: a competition runs over ONE or TWO days (`second_day_date`), and
+ *   les catégories sont réparties entre les jours AVANT le LPT par tatami.
+ *   `planCategories` reste la brique d'un SEUL jour : à un jour,
+ *   `planCategoriesOverDays` lui passe la même liste, dans le même ordre, et
+ *   rend donc exactement le même planning.
  */
 
 export type PlanningCategory = {
@@ -111,6 +116,148 @@ export function planCategories(
       tatamiIndex,
       categoryIds: ordered.map((c) => c.id),
       totalSeconds: loads[tatamiIndex] ?? 0,
+    };
+  });
+}
+
+// ------------------------------------------------------------------
+// Dimension JOUR
+// ------------------------------------------------------------------
+
+/**
+ * Un jour de compétition, en millisecondes epoch.
+ *
+ * POURQUOI CE TYPE EXISTE. Les compétitions sur deux jours sont en production
+ * (`second_day_date`, `second_day_start_time`, `second_day_end_time`, affichées
+ * « Jour 1 / Jour 2 »), et le générateur n'en avait aucune notion : une
+ * compétition de deux jours recevait un planning d'un seul. Le planning pilote
+ * la zone d'appel, l'échauffement et l'ordre de pesée — sans dimension jour,
+ * l'écran de zone d'appel appelle le jour 1 des gens qui combattent le jour 2.
+ *
+ * `endAtMs <= startAtMs` vaut « fin inconnue » : les colonnes d'heure de fin
+ * sont NULLABLES en base. Un jour sans fin connue est alors SANS BORNE — il
+ * absorbe tout ce qu'on lui donne. On ne devine pas une heure de fin, et on ne
+ * perd jamais une catégorie faute de place : elle serait invisible partout.
+ */
+export type PlanningDay = {
+  startAtMs: number;
+  endAtMs: number;
+};
+
+export type MultiDayPlanningParams = PlanningParams & {
+  /** Ordonnés, jour 1 en tête. Un seul jour = comportement historique. */
+  days: PlanningDay[];
+};
+
+export type DayPlan = {
+  dayIndex: number; // 0-based, le jour 1 porte l'indice 0
+  startAtMs: number;
+  endAtMs: number;
+  tatamis: TatamiPlan[];
+  /**
+   * Secondes de dépassement du tatami le plus chargé au-delà de l'heure de
+   * fin. 0 = la journée tient. Le dépassement est RENDU, jamais tu : le
+   * dernier jour absorbe ce qui ne tient nulle part, et l'organisateur doit
+   * pouvoir le lire (ajouter un tatami, allonger la journée).
+   */
+  overrunSeconds: number;
+};
+
+/** Durée d'une journée en secondes ; `Infinity` si l'heure de fin est inconnue. */
+function dayLengthSeconds(day: PlanningDay): number {
+  const ms = day.endAtMs - day.startAtMs;
+  return ms > 0 ? ms / 1000 : Number.POSITIVE_INFINITY;
+}
+
+/**
+ * Répartit les catégories entre les jours, AVANT tout LPT par tatami.
+ *
+ * Règle : on parcourt les catégories dans l'ORDRE CANONIQUE de la compétition
+ * — celui-là même qui ordonne un tatami (`intraTatamiRank` : enfants d'abord,
+ * puis âge, ceinture, poids, discipline) — et on remplit les jours dans
+ * l'ordre. Le jour 1 est donc un PRÉFIXE de cet ordre : un bloc d'âge ou de
+ * ceinture n'est jamais coupé en deux par une petite catégorie repêchée après
+ * coup, et la journée reste lisible pour le public comme pour la pesée.
+ *
+ * Deux conditions pour qu'une catégorie tienne dans un jour :
+ *   1. sa propre durée tient dans la JOURNÉE — une catégorie se déroule sur un
+ *      seul tatami, elle ne peut pas être plus longue que le jour ;
+ *   2. la charge cumulée du jour tient dans `tatamiCount × durée du jour`.
+ *
+ * Le DERNIER jour n'est pas plafonné : il absorbe le reste. Refuser une
+ * catégorie reviendrait à la faire disparaître du planning ; le dépassement
+ * est rendu par `DayPlan.overrunSeconds`.
+ *
+ * Chaque jour rend ses catégories dans l'ORDRE D'ENTRÉE, pas dans l'ordre
+ * canonique : c'est ce qui garantit qu'à un seul jour, `planCategories`
+ * reçoit exactement la liste d'origine et rend exactement le même planning.
+ */
+export function assignCategoriesToDays(
+  categories: PlanningCategory[],
+  params: MultiDayPlanningParams,
+): PlanningCategory[][] {
+  const days = params.days;
+  if (days.length === 0) {
+    throw new Error("planning : au moins un jour de compétition est requis.");
+  }
+  if (days.length === 1) return [[...categories]];
+
+  const buffer = params.bufferSeconds ?? 60;
+  const tatamiCount = Math.max(1, params.tatamiCount);
+  const lengths = days.map(dayLengthSeconds);
+  const capacities = lengths.map((length) => length * tatamiCount);
+  const loads = new Array<number>(days.length).fill(0);
+  const lastIndex = days.length - 1;
+
+  const canonical = [...categories].sort((a, b) =>
+    compareRanks(intraTatamiRank(a), intraTatamiRank(b)),
+  );
+
+  const dayOf = new Map<string, number>();
+  let cursor = 0; // on n'ouvre jamais un jour déjà refermé
+  for (const cat of canonical) {
+    const duration = categoryDurationSeconds(cat, buffer);
+    let target = lastIndex;
+    for (let d = cursor; d < lastIndex; d++) {
+      const tientSurUnTatami = duration <= (lengths[d] ?? 0);
+      const tientDansLaJournee = (loads[d] ?? 0) + duration <= (capacities[d] ?? 0);
+      if (tientSurUnTatami && tientDansLaJournee) {
+        target = d;
+        break;
+      }
+    }
+    loads[target] = (loads[target] ?? 0) + duration;
+    dayOf.set(cat.id, target);
+    cursor = target;
+  }
+
+  return days.map((_day, dayIndex) => categories.filter((c) => dayOf.get(c.id) === dayIndex));
+}
+
+/**
+ * Planning complet : répartition par jour, puis LPT par tatami dans chaque
+ * jour. À UN SEUL jour, la sortie est celle de `planCategories` — même
+ * fonction, même liste, même ordre.
+ *
+ * Les horaires se calculent ensuite jour par jour :
+ * `computeTatamiSchedule(catégories du tatami, day.startAtMs)`.
+ */
+export function planCategoriesOverDays(
+  categories: PlanningCategory[],
+  params: MultiDayPlanningParams,
+): DayPlan[] {
+  const perDay = assignCategoriesToDays(categories, params);
+
+  return params.days.map((day, dayIndex) => {
+    const tatamis = planCategories(perDay[dayIndex] ?? [], params);
+    const busiestSeconds = tatamis.reduce((max, t) => Math.max(max, t.totalSeconds), 0);
+    const length = dayLengthSeconds(day);
+    return {
+      dayIndex,
+      startAtMs: day.startAtMs,
+      endAtMs: day.endAtMs,
+      tatamis,
+      overrunSeconds: Number.isFinite(length) ? Math.max(0, busiestSeconds - length) : 0,
     };
   });
 }
