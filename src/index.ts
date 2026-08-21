@@ -32,6 +32,8 @@ export * from "./pool-ranking";
 export * from "./category-draw";
 export * from "./planning-generator";
 export * from "./medals";
+export * from "./capacity";
+export * from "./sizing";
 export * from "./bracket-propagation";
 export * from "./control-state";
 export * from "./capabilities";

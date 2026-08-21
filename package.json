@@ -24,6 +24,8 @@
     "./category-draw": "./src/category-draw.ts",
     "./planning-generator": "./src/planning-generator.ts",
     "./medals": "./src/medals.ts",
+    "./capacity": "./src/capacity.ts",
+    "./sizing": "./src/sizing.ts",
     "./bracket-propagation": "./src/bracket-propagation.ts",
     "./control-state": "./src/control-state.ts",
     "./capabilities": "./src/capabilities.ts",
