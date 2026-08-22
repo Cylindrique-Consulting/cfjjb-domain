@@ -18,13 +18,39 @@
  *   doubles as the jourj_fight_id allocation order.
  *
  * Pure module: no IO, deterministic for a given seed.
+ *
+ * OÙ VIT LE PLACEMENT. Plus ici. Qui affronte qui au premier tour est décidé
+ * par le pipeline de `seeding-plan.ts` (ordre des graines, placement standard,
+ * réparation sous contraintes pondérées) ; ce module ne fait plus que poser
+ * l'arbre autour des feuilles qu'on lui rend. Les règles de tirage de la
+ * fédération sont donc des DONNÉES, et non plus du code enfoui au milieu de
+ * l'émission des combats.
  */
 
 import type { ThirdPlaceMode } from "./enums";
+import { fnv1a, mulberry32 } from "./prng";
+import {
+  applySeedingPlan,
+  DEFAULT_SEEDING_PLAN,
+  type SeedingPlan,
+  type SeedingWarning,
+} from "./seeding-plan";
 
+/**
+ * Un inscrit, tel que l'APPELANT le décrit. Les trois derniers champs sont les
+ * entrées des règles de placement du pipeline (`seeding-plan.ts`) ; ce paquet
+ * ne les lit nulle part, il les reçoit. Ils sont optionnels : un appelant qui
+ * ne les remplit pas obtient exactement le tableau d'avant le pipeline.
+ */
 export type BracketEntry = {
   registrationId: string;
   clubId: string | null;
+  /** Clé d'ÉQUIPE, au-delà du club (un club peut en aligner plusieurs). */
+  teamId?: string | null;
+  /** Rang de classement, 1 = le meilleur. Entrée du « classement protégé ». */
+  rank?: number | null;
+  /** Sélection en équipe de France. */
+  nationalTeam?: boolean;
 };
 
 export type BracketFightType = "BraketFight" | "BraketFightPool3";
@@ -41,174 +67,28 @@ export type GeneratedFight = {
 export type BracketResult =
   | { kind: "empty" }
   | { kind: "single"; registrationId: string }
-  | { kind: "bracket"; fights: GeneratedFight[]; realFightCount: number };
+  | {
+      kind: "bracket";
+      fights: GeneratedFight[];
+      realFightCount: number;
+      /**
+       * Ce que le plan de placement n'a pas pu tenir. ABSENT quand il n'y a
+       * rien à dire - le plan par défaut n'en produit jamais, et le résultat
+       * reste donc identique au bit à celui d'avant le pipeline. Une règle
+       * qu'on allume et qui déborde le dit ici plutôt que de dégrader en
+       * silence.
+       */
+      warnings?: SeedingWarning[];
+    };
 
 // `ThirdPlaceMode` était déclaré ici ET dans types/supabase.ts de la
 // plateforme : deux unions jumelles. Une seule source désormais.
 export type { ThirdPlaceMode } from "./enums";
 
-// ------------------------------------------------------------------
-// Deterministic PRNG (fnv1a hash -> mulberry32)
-// ------------------------------------------------------------------
-
-function fnv1a(str: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return h >>> 0;
-}
-
-function mulberry32(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-function shuffle<T>(arr: T[], rng: () => number): T[] {
-  const out = [...arr];
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1));
-    [out[i], out[j]] = [out[j] as T, out[i] as T];
-  }
-  return out;
-}
-
-// ------------------------------------------------------------------
-// Standard seed placement
-// ------------------------------------------------------------------
-
-/**
- * Leaf positions of a complete bracket of size S (power of two), so that
- * seed 1 meets seed S in round 1, the top two seeds are in opposite halves
- * and byes (seeds > N) pair with the best seeds in distinct pairs.
- * seedPositions(8) = [1, 8, 4, 5, 2, 7, 3, 6].
- */
-export function seedPositions(size: number): number[] {
-  let arr = [1];
-  while (arr.length < size) {
-    const len = arr.length * 2;
-    const next: number[] = [];
-    for (const s of arr) {
-      next.push(s, len + 1 - s);
-    }
-    arr = next;
-  }
-  return arr;
-}
-
-// ------------------------------------------------------------------
-// Anti-club seeding
-// ------------------------------------------------------------------
-
-/**
- * Order entries as pseudo-seeds 1..N so that competitors of the same club
- * are spread across the bracket: clubs shuffled then interleaved
- * round-robin, biggest clubs first.
- */
-function antiClubSeedOrder(entries: BracketEntry[], rng: () => number): BracketEntry[] {
-  const groups = new Map<string, BracketEntry[]>();
-  entries.forEach((entry, i) => {
-    // null club = singleton group (cannot conflict with anyone).
-    const key = entry.clubId ?? `__solo_${i}`;
-    const group = groups.get(key);
-    if (group) group.push(entry);
-    else groups.set(key, [entry]);
-  });
-
-  const shuffledGroups = shuffle(
-    [...groups.values()].map((g) => shuffle(g, rng)),
-    rng,
-  ).sort((a, b) => b.length - a.length); // stable: keeps shuffled order among equal sizes
-
-  const out: BracketEntry[] = [];
-  let added = true;
-  let round = 0;
-  while (added) {
-    added = false;
-    for (const group of shuffledGroups) {
-      const item = group[round];
-      if (item !== undefined) {
-        out.push(item);
-        added = true;
-      }
-    }
-    round++;
-  }
-  return out;
-}
-
-type Leaf = BracketEntry | null;
-
-function clubOf(leaf: Leaf): string | null {
-  return leaf?.clubId ?? null;
-}
-
-/** Count same-club pairings: round 1 conflicts and potential round 2 conflicts. */
-function conflictScore(leaves: Leaf[]): [number, number] {
-  let round1 = 0;
-  let round2 = 0;
-  for (let f = 0; f < leaves.length / 2; f++) {
-    const a = clubOf(leaves[2 * f] ?? null);
-    const b = clubOf(leaves[2 * f + 1] ?? null);
-    if (a !== null && a === b) round1++;
-  }
-  // Round 2 pods: leaves 4p..4p+3 - count same-club pairs across the two fights.
-  for (let p = 0; p < leaves.length / 4; p++) {
-    const pod = [leaves[4 * p], leaves[4 * p + 1], leaves[4 * p + 2], leaves[4 * p + 3]];
-    const clubs = pod.map((l) => clubOf(l ?? null)).filter((c): c is string => c !== null);
-    const counts = new Map<string, number>();
-    for (const c of clubs) counts.set(c, (counts.get(c) ?? 0) + 1);
-    for (const n of counts.values()) round2 += (n * (n - 1)) / 2;
-  }
-  return [round1, round2];
-}
-
-function isBetter(a: [number, number], b: [number, number]): boolean {
-  return a[0] < b[0] || (a[0] === b[0] && a[1] < b[1]);
-}
-
-/**
- * Local swap pass: while a strictly improving swap of two leaves exists
- * (lexicographic on round-1 then round-2 conflicts), apply it.
- * Byes (null leaves) never move: swapping a competitor into a bye slot
- * would change who gets the bye, which is a seeding fairness decision -
- * we only permute competitors among occupied slots.
- */
-function antiClubSwapPass(leaves: Leaf[]): Leaf[] {
-  const out = [...leaves];
-  const occupied = out.map((l, i) => (l !== null ? i : -1)).filter((i) => i >= 0);
-  let score = conflictScore(out);
-  let improved = true;
-  let guard = out.length * 2;
-
-  while (improved && score[0] + score[1] > 0 && guard-- > 0) {
-    improved = false;
-    outer: for (const i of occupied) {
-      for (const j of occupied) {
-        if (j <= i) continue;
-        const a = out[i] ?? null;
-        const b = out[j] ?? null;
-        if (clubOf(a) === clubOf(b)) continue; // same club (or both solo): no effect
-        [out[i], out[j]] = [b, a];
-        const next = conflictScore(out);
-        if (isBetter(next, score)) {
-          score = next;
-          improved = true;
-          break outer;
-        }
-        [out[i], out[j]] = [a, b]; // revert
-      }
-    }
-  }
-  return out;
-}
+// Le placement vit dans `seeding-plan.ts` : trois étapes nommées plutôt qu'une
+// fonction anti-club et une passe de swap enfouies ici. Réexporté pour que les
+// consommateurs qui importaient `seedPositions` d'ici ne bougent pas.
+export { seedPositions } from "./seeding-plan";
 
 // ------------------------------------------------------------------
 // Generator
@@ -217,7 +97,7 @@ function antiClubSwapPass(leaves: Leaf[]): Leaf[] {
 export function generateBracket(
   entries: BracketEntry[],
   seed: string,
-  opts: { thirdPlaceMode: ThirdPlaceMode },
+  opts: { thirdPlaceMode: ThirdPlaceMode; seedingPlan?: SeedingPlan },
 ): BracketResult {
   const n = entries.length;
   if (n === 0) return { kind: "empty" };
@@ -228,11 +108,11 @@ export function generateBracket(
   const size = 2 ** Math.ceil(Math.log2(n));
   const deepest = Math.log2(size); // division of the first round
 
-  // Pseudo-seeds then standard placement on the leaves.
-  const seeded = antiClubSeedOrder(entries, rng);
-  const positions = seedPositions(size);
-  let leaves: Leaf[] = positions.map((seedNumber) => seeded[seedNumber - 1] ?? null);
-  leaves = antiClubSwapPass(leaves);
+  // Le PIPELINE de placement : ordre des graines, placement standard,
+  // réparation. Le plan par défaut rend exactement les mêmes feuilles que
+  // l'anti-club monolithique d'avant, pour la même graine.
+  const seeding = applySeedingPlan(entries, size, rng, opts.seedingPlan ?? DEFAULT_SEEDING_PLAN);
+  const leaves = seeding.leaves;
 
   // Emit the complete tree, deepest division first (= id allocation order).
   const fights: GeneratedFight[] = [];
@@ -304,6 +184,9 @@ export function generateBracket(
     kind: "bracket",
     fights,
     realFightCount: realFights + (pool3 ? 1 : 0),
+    // Clé ABSENTE quand il n'y a rien à dire : le plan par défaut doit rendre
+    // un objet identique à celui d'avant le pipeline.
+    ...(seeding.warnings.length > 0 ? { warnings: [...seeding.warnings] } : {}),
   };
 }
 
