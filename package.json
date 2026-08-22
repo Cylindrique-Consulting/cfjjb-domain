@@ -32,7 +32,8 @@
     "./control-state": "./src/control-state.ts",
     "./capabilities": "./src/capabilities.ts",
     "./medido": "./src/medido.ts",
-    "./db-vocabulary": "./src/db-vocabulary.ts"
+    "./db-vocabulary": "./src/db-vocabulary.ts",
+    "./fight-stats": "./src/fight-stats.ts"
   },
   "files": [
     "src"
