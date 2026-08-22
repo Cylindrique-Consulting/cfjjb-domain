@@ -41,7 +41,7 @@ export class SeedingPlanError extends Error {}
  * l'appelant l'a remplie ; une clé absente vaut « pas de contrainte » et
  * n'entre dans aucun décompte.
  */
-export type SeparationKey = "club" | "team" | "national-team";
+export type SeparationKey = "club" | "team" | "national-team" | "source-category";
 
 export function separationKeyOf(entry: BracketEntry | null, key: SeparationKey): string | null {
   if (entry === null) return null;
@@ -52,6 +52,8 @@ export function separationKeyOf(entry: BracketEntry | null, key: SeparationKey):
       return entry.teamId ?? null;
     case "national-team":
       return entry.nationalTeam === true ? "national-team" : null;
+    case "source-category":
+      return entry.sourceCategoryId ?? null;
   }
 }
 
@@ -103,9 +105,14 @@ export type SeparationConstraint = {
  *   graines 1..count. Le placement standard appariant DÉJÀ les graines
  *   1..(taille−N) avec les byes, « le classé saute un tour » ne demande rien
  *   de plus. Voir `whenExceedingByes` pour le seul cas réellement neuf.
+ * - `source-place` : l'ordre d'un ABSOLUT — d'abord la place obtenue dans la
+ *   catégorie source, puis, à place égale, la catégorie de poids la plus
+ *   lourde. C'est la seule règle d'ordre qui ne consomme AUCUN tirage : un
+ *   absolut ne se tire pas au sort, il se classe.
  */
 export type SeedOrderStep =
   | { readonly kind: "interleave"; readonly enabled: boolean; readonly key: SeparationKey }
+  | { readonly kind: "source-place"; readonly enabled: boolean }
   | {
       readonly kind: "rank-bonus";
       readonly enabled: boolean;
@@ -208,6 +215,9 @@ export const DEFAULT_SEEDING_PLAN: SeedingPlan = {
     { kind: "rank-bonus", enabled: false, key: "national-team", bonus: 4 },
     // Classement protégé.
     { kind: "protected-ranking", enabled: false, count: 0, whenExceedingByes: "degrade" },
+    // Ordre d'absolut. Éteint ici : une catégorie ordinaire n'a pas de place
+    // source, et la règle y serait donc un tri sur des champs vides.
+    { kind: "source-place", enabled: false },
   ],
   constraints: [
     // Les deux contraintes historiques, et leurs deux paliers : d'abord
@@ -256,6 +266,18 @@ export const DEFAULT_SEEDING_PLAN: SeedingPlan = {
       tier: 2,
       weight: 1,
     },
+    // Absolut : deux médaillés de la MÊME catégorie source viennent de se
+    // rencontrer, parfois en finale. Les réapparier au premier tour de
+    // l'absolut est la même famille de faute que l'anti-club, et se répare donc
+    // par le même mécanisme.
+    {
+      name: "meme-categorie-source-premier-tour",
+      enabled: false,
+      key: "source-category",
+      scope: { kind: "round", round: 1 },
+      tier: 0,
+      weight: 1,
+    },
   ],
   pins: [{ kind: "empty-leaves" }],
 };
@@ -270,6 +292,8 @@ export function describeSeedingPlan(plan: SeedingPlan = DEFAULT_SEEDING_PLAN): s
       switch (step.kind) {
         case "interleave":
           return `1. ordre des graines / entrelacement par ${step.key} (${state(step.enabled)})`;
+        case "source-place":
+          return `1. ordre des graines / place source puis catégorie la plus lourde (${state(step.enabled)})`;
         case "rank-bonus":
           return `1. ordre des graines / bonus de rang ${step.bonus} pour ${step.key} (${state(step.enabled)})`;
         case "protected-ranking":
@@ -360,6 +384,45 @@ function interleaveByKey(
     round++;
   }
   return out;
+}
+
+/**
+ * L'ORDRE D'UN ABSOLUT : place source d'abord, catégorie la plus lourde ensuite.
+ *
+ * Les deux champs sont FOURNIS par l'appelant sur l'entrée (`sourcePlace`,
+ * `sourceWeightRank`) : ce module ne connaît ni les podiums ni le référentiel
+ * des poids, exactement comme il ne devine ni le club ni le classement.
+ *
+ * Les deux absences se traitent en sens OPPOSÉ, et ce n'est pas un détail :
+ *
+ * - `sourcePlace` absente = le combattant n'a pas de podium source (une ceinture
+ *   noire entre à l'absolut sans condition de podium). Elle passe DERRIÈRE
+ *   toutes les places connues : lui inventer une place le ferait passer devant
+ *   des médaillés sur la foi d'une donnée manquante ;
+ * - `sourceWeightRank` absent = poids source inconnu. Il passe derrière tous les
+ *   poids connus À PLACE ÉGALE, c'est-à-dire qu'il est traité comme le plus
+ *   LÉGER — même raison, en sens inverse : le traiter comme le plus lourd lui
+ *   offrirait la meilleure graine faute d'information.
+ *
+ * À égalité complète, l'ordre d'arrivée tranche, comme dans `applyRankBonus` et
+ * `applyProtectedRanking`. Le cas est rare et il est nommé : deux personnes ne
+ * peuvent partager une place QUE si elles viennent de deux catégories sources
+ * différentes de même rang de poids (deux ceintures, un même poids).
+ */
+function applySourcePlaceOrder(order: readonly BracketEntry[]): BracketEntry[] {
+  // Comparaison explicite plutôt qu'une soustraction : les absences valent
+  // ±Infinity, et `Infinity - Infinity` est `NaN`, qu'un comparateur de tri lit
+  // comme « égal » de façon instable.
+  const cmp = (x: number, y: number) => (x < y ? -1 : x > y ? 1 : 0);
+  return order
+    .map((entry, index) => ({
+      entry,
+      index,
+      place: entry.sourcePlace ?? Number.POSITIVE_INFINITY,
+      weight: entry.sourceWeightRank ?? Number.NEGATIVE_INFINITY,
+    }))
+    .sort((a, b) => cmp(a.place, b.place) || cmp(b.weight, a.weight) || a.index - b.index)
+    .map((x) => x.entry);
 }
 
 /** Chaque porteur de la clé remonte de `bonus` places ; à égalité, l'ordre d'arrivée tranche. */
@@ -582,6 +645,9 @@ export function applySeedingPlan(
     switch (step.kind) {
       case "interleave":
         order = interleaveByKey(order, step.key, rng);
+        break;
+      case "source-place":
+        order = applySourcePlaceOrder(order);
         break;
       case "rank-bonus":
         order = applyRankBonus(order, step.key, step.bonus);

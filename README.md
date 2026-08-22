@@ -139,6 +139,56 @@ journée ») donnerait un nombre plausible et faux — elle ignorerait le LPT, l
 intra-tapis et le fait qu'une catégorie ne se coupe pas en deux — et serait libre de
 diverger du planning au premier changement de l'un ou de l'autre.
 
+## L'absolut et les équipes A/B/C
+
+Deux lots dont le **schéma** vit dans `cfjjb-platform` (PR #756 et #754) et dont la
+**règle** est pure, donc ici.
+
+| Module                     | Rôle                                                               |
+| -------------------------- | ------------------------------------------------------------------ |
+| `src/absolut-seeding.ts`   | l'ordre des graines d'un absolut, et sa contrainte de séparation   |
+| `src/squad-composition.ts` | l'auto-composition des équipes A/B/C passé le délai de composition |
+
+**Les deux règles s'expriment dans le pipeline de `seeding-plan.ts`**, jamais à côté.
+L'ordre par place source est une règle d'étape 1 (`source-place`) ; « pas de
+retrouvailles au premier tour » est une contrainte d'étape 3 sur une nouvelle clé de
+séparation (`source-category`), exactement de la même famille que l'anti-club. Un
+second placement écrit en parallèle aurait sa propre notion de bye et sa propre façon
+de compter les paires, et les deux divergeraient sans que rien ne les confronte.
+
+Quatre points valent d'être connus avant d'y toucher :
+
+- **Un absolut se classe, il ne se tire pas au sort.** `ABSOLUT_SEEDING_PLAN` n'active
+  aucune règle qui consomme le tirage : deux graines de compétition différentes rendent
+  le même absolut. C'est ce qui rend le tirage contestable sur les places plutôt que sur
+  une graine.
+- **La séparation coûte des places, et le prix est mesuré.** Elle est au palier 0, donc
+  plus forte que l'anti-club : sur le cas à trois catégories sources, la réparation
+  déplace la tête de série n° 1 et lui retire son bye pour défaire l'appariement
+  interdit. La consigne classe la séparation comme une exigence, pas comme une
+  préférence ; le test l'affirme au lieu de le taire.
+- **Une source unique reste un rejeu.** Un absolut alimenté par une seule catégorie
+  _est_ le podium de cette catégorie : ses finalistes doivent se rencontrer. La sortie le
+  montre plutôt que de laisser croire à une séparation.
+- **Au-delà de trois combattants d'un club dans une catégorie, les lettres tournent**
+  (A, B, C, A…). Refuser de composer rendrait à un club la capacité de bloquer la
+  génération, c'est-à-dire exactement ce que le délai ferme vient de lui retirer.
+
+**L'auto-composition ne dépend pas de l'ordre de lecture.** Chaque inscription reçoit
+une clé de tirage dérivée de `(graine de compétition, identifiant)` : un flux unique
+consommé dans l'ordre des lignes aurait été déterministe _sur le papier_ et faux en
+pratique, puisqu'une lecture PostgREST ne garantit aucun ordre. La suite rejoue la même
+population dans cinquante ordres différents et exige une seule composition.
+
+> **Mesure qui corrige une intuition.** « Répartir les combattants d'un club maximise
+> leur séparation » est vrai comme intention et faux comme mécanisme jusqu'à un certain
+> effectif : à trois ou moins, les lettres sont toutes différentes, donc les contraintes
+> d'équipe ne voient **aucune** paire et toute la séparation vient de l'anti-club, actif
+> sans la moindre lettre. À quatre, une paire apparaît mais l'anti-club la sépare encore
+> seul (mesuré sur cinq graines). C'est à partir de **cinq** que la lettre récupère de la
+> séparation que l'anti-club ne tient plus. La lettre reste, en deçà, ce qu'elle est
+> aussi : une **étiquette** affichée sur le tableau et sur la TV.
+
 ## Pureté, vérifiée et non recommandée
 
 `eslint.config.mjs` interdit `node:*`, `fs`, `path`, `crypto`, `react`, `react-dom`,
