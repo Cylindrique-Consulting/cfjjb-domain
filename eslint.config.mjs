@@ -45,6 +45,22 @@ export default tseslint.config(
           ],
         },
       ],
+      // `Math.random()` était PROSCRIT par trois commentaires (prng.ts,
+      // pool-generator.ts, pool-ranking.ts) et par AUCUNE vérification. Une
+      // passe de mutation l'a glissé dans la composition des équipes A/B/C : ni
+      // le lint, ni les types, ni la CI n'ont bronché - seul un test l'a vu, et
+      // seulement dans ce module-là. Un tirage non rejouable est indéfendable
+      // devant le club qui le conteste ; l'interdit vit donc là où il est
+      // vérifié, pas là où il est écrit.
+      "no-restricted-properties": [
+        "error",
+        {
+          object: "Math",
+          property: "random",
+          message:
+            "Tirage non rejouable : passer par `src/prng.ts` (fnv1a + mulberry32), le seul mélange dont on puisse dire « voici la graine, rejouez ».",
+        },
+      ],
       "no-restricted-globals": [
         "error",
         {

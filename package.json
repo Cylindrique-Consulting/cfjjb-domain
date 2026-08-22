@@ -1,7 +1,7 @@
 {
   "name": "@cfjjb/domain",
-  "version": "0.2.0",
-  "description": "Noyau métier CFJJB : référentiel poids/durées/ceintures, générateur de brackets, planning, médailles. TypeScript pur, sans IO.",
+  "version": "0.5.0",
+  "description": "Noyau m\u00e9tier CFJJB : r\u00e9f\u00e9rentiel poids/dur\u00e9es/ceintures, g\u00e9n\u00e9rateur de brackets, planning, m\u00e9dailles. TypeScript pur, sans IO.",
   "license": "UNLICENSED",
   "private": false,
   "type": "module",
@@ -15,11 +15,25 @@
     "./enums": "./src/enums.ts",
     "./belts": "./src/belts.ts",
     "./referential": "./src/referential.ts",
+    "./prng": "./src/prng.ts",
+    "./seeding-plan": "./src/seeding-plan.ts",
     "./bracket-generator": "./src/bracket-generator.ts",
+    "./competition-format": "./src/competition-format.ts",
+    "./pool-generator": "./src/pool-generator.ts",
+    "./pool-ranking": "./src/pool-ranking.ts",
+    "./category-draw": "./src/category-draw.ts",
+    "./absolut-seeding": "./src/absolut-seeding.ts",
+    "./squad-composition": "./src/squad-composition.ts",
     "./planning-generator": "./src/planning-generator.ts",
     "./medals": "./src/medals.ts",
+    "./capacity": "./src/capacity.ts",
+    "./sizing": "./src/sizing.ts",
     "./bracket-propagation": "./src/bracket-propagation.ts",
-    "./control-state": "./src/control-state.ts"
+    "./control-state": "./src/control-state.ts",
+    "./capabilities": "./src/capabilities.ts",
+    "./medido": "./src/medido.ts",
+    "./db-vocabulary": "./src/db-vocabulary.ts",
+    "./fight-stats": "./src/fight-stats.ts"
   },
   "files": [
     "src"
