@@ -25,7 +25,7 @@ describe("la matrice couvre tout et ne s'ouvre pas par défaut", () => {
     // Ce test attrape l'autre moitié : une règle qui cite un poste inexistant
     // n'autoriserait JAMAIS personne, en silence.
     const kinds = Object.keys(CAPABILITIES) as MutationKind[];
-    expect(kinds.length).toBeGreaterThanOrEqual(11);
+    expect(kinds.length).toBeGreaterThanOrEqual(14);
     for (const k of kinds) {
       expect(CAPABILITIES[k].roles.length, `${k} n'autorise aucun poste`).toBeGreaterThan(0);
       for (const r of CAPABILITIES[k].roles) {
@@ -121,6 +121,87 @@ describe("les décisions de conception que la matrice porte", () => {
     for (const r of ["checkin_desk", "weighin", "medido", "podium", "tshirt_stand"] as const) {
       expect(canPerform("fight.score", [poste(r, "all")], T1), r).toBe(false);
     }
+  });
+});
+
+describe("l'absolut : trois verbes, et deux questions différentes", () => {
+  const ABSOLUT = ["absolut.cancel", "absolut.close", "absolut.enter"] as const;
+
+  it("les trois verbes existent dans la matrice, et rien d'autre en `absolut.`", () => {
+    // Le `Record<MutationKind, …>` couvre le compilateur. Ce test couvre l'autre
+    // sens, celui qu'aucun type n'attrape : un QUATRIÈME verbe d'absolut. La
+    // clôture est sans retour PARCE QUE rien ne la défait ; si un jour un
+    // `absolut.reopen` apparaît, les droits de `absolut.close` ne se justifient
+    // plus tels quels et doivent être rediscutés, pas hérités.
+    const verbes = (Object.keys(CAPABILITIES) as MutationKind[])
+      .filter((k) => k.startsWith("absolut."))
+      .sort();
+    expect(
+      verbes,
+      "la famille `absolut.` a changé : si un verbe défait la clôture, relisez les droits de absolut.close avant de l'ajouter",
+    ).toEqual([...ABSOLUT]);
+  });
+
+  it("l'inscription et le désistement se prennent à la console podium", () => {
+    // L'inscription n'existe que sur place, après le podium : le poste qui est
+    // devant les médaillés est le seul qui puisse la saisir.
+    expect(
+      canPerform("absolut.enter", [poste("podium")], null),
+      "le podium ne peut pas inscrire à l'absolut : personne d'autre n'est devant le combattant au moment où il se présente",
+    ).toBe(true);
+    expect(
+      canPerform("absolut.cancel", [poste("podium")], null),
+      "le podium ne peut pas désister : un désistement se prend au même endroit et à la même minute que l'inscription",
+    ).toBe(true);
+    expect(canPerform("absolut.enter", [poste("day_commissioner")], null)).toBe(true);
+    expect(canPerform("absolut.cancel", [poste("day_commissioner")], null)).toBe(true);
+  });
+
+  it("clore un absolut n'appartient QU'AU commissaire de journée", () => {
+    // La décision, énoncée : clore est sans retour et fait générer puis INSÉRER
+    // un tableau dans le programme d'un tapis. Le poste podium est ici le poste
+    // qui exécute et n'a aucun tapis dans son périmètre — même raisonnement que
+    // `fight.reopen` retiré à la table de marque, et que `fight.move` laissé au
+    // seul poste qui voit plusieurs tapis.
+    expect(
+      canPerform("absolut.close", [poste("podium", "all")], null),
+      "le podium peut clore un absolut : le geste est sans retour et décale des combats déjà annoncés sur un tapis qu'il ne voit pas",
+    ).toBe(false);
+    expect(
+      canPerform("absolut.close", [poste("tatami_commissioner", "all")], T1),
+      "un commissaire de tapis peut clore un absolut : un absolut n'est pas un tapis, son périmètre ne dit rien de cette décision",
+    ).toBe(false);
+    expect(
+      canPerform("absolut.close", [poste("day_commissioner")], null),
+      "le commissaire de journée ne peut plus clore : personne ne pourrait clore un absolut de ceinture noire, qui ne se ferme jamais tout seul",
+    ).toBe(true);
+  });
+
+  it("aucun poste de tapis n'inscrit ni ne désiste", () => {
+    for (const r of ["table_operator", "tatami_commissioner"] as const) {
+      for (const k of ["absolut.enter", "absolut.cancel"] as const) {
+        expect(canPerform(k, [poste(r, "all")], T1), `${r} peut ${k}`).toBe(false);
+      }
+    }
+  });
+
+  it("les trois verbes ignorent le périmètre tapis, parce qu'ils portent sur une catégorie", () => {
+    for (const k of ABSOLUT) {
+      expect(
+        CAPABILITIES[k].tatamiBound,
+        `${k} est déclaré lié à un tapis : un absolut est un quadruplet ceinture × âge × genre × discipline, il n'a pas de tapis`,
+      ).toBe(false);
+    }
+    // Conséquence concrète : un poste podium sans aucun tapis inscrit quand même.
+    expect(canPerform("absolut.enter", [poste("podium", "none")], null)).toBe(true);
+  });
+
+  it("allowedKinds : le podium propose l'entrée et le désistement, jamais la clôture", () => {
+    expect(allowedKinds([poste("podium")]).sort()).toEqual([
+      "absolut.cancel",
+      "absolut.enter",
+      "podium.confirm",
+    ]);
   });
 });
 

@@ -189,6 +189,35 @@ population dans cinquante ordres différents et exige une seule composition.
 > séparation que l'anti-club ne tient plus. La lettre reste, en deçà, ce qu'elle est
 > aussi : une **étiquette** affichée sur le tableau et sur la TV.
 
+### Qui a le droit d'inscrire, de désister, de clore
+
+`src/capabilities.ts` porte trois verbes d'absolut. Ils ne sont **liés à aucun tapis** :
+un absolut est un quadruplet ceinture × âge × genre × discipline, donc une catégorie.
+`tatamiBound: false` n'y est pas un périmètre vide, c'est un périmètre sans objet, et
+c'est le mécanisme que la matrice utilise déjà pour la balance et la jauge.
+
+| Verbe            | Postes                       | Pourquoi                                                                            |
+| ---------------- | ---------------------------- | ----------------------------------------------------------------------------------- |
+| `absolut.enter`  | `podium`, `day_commissioner` | l'inscription se prend sur place, au micro, dans la minute qui suit la remise       |
+| `absolut.cancel` | `podium`, `day_commissioner` | inverse exact de l'inscription, et réparable : on reprend en créant une ligne neuve |
+| `absolut.close`  | `day_commissioner`           | sans retour, et la conséquence tombe sur des tapis que le poste podium ne voit pas  |
+
+**La clôture ne suit pas ses deux voisines, et c'est la seule décision de ce lot.** Elle
+n'est manuelle que pour les **ceintures noires** (les couleurs se ferment seules quand
+toutes leurs sources ont médaillé), aucun verbe de l'union ne la défait, et elle
+déclenche la génération du tableau puis son **insertion dans le programme d'un tapis**,
+ce qui décale des combats déjà annoncés. La matrice traite déjà les deux moitiés de
+cette question dans le même sens : `fight.reopen` retire le geste au poste qui exécute
+et le laisse aux commissaires, `fight.move` n'appartient qu'au commissaire de journée
+parce qu'il porte sur des tapis que le demandeur ne voit pas. Clore un absolut cumule
+les deux traits.
+
+> **Divergence assumée avec la spécification.** `docs/spec/patch-absolut` (RG-A07 et sa
+> matrice d'habilitations § 3.1) donne la clôture manuelle au commissaire de podium
+> autant qu'au commissaire de journée. On la lui retire ici : une interface trop stricte
+> se voit au premier essai et se corrige en une ligne, une clôture prise trop tôt par un
+> bénévole ne se rattrape pas. À trancher côté produit si l'usage dit l'inverse.
+
 ## Les statistiques de combat, et ce qui ne s'en dérive pas
 
 `src/fight-stats.ts` tire du journal de scoring (`competition_fight_events`) et de
