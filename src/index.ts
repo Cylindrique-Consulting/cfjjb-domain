@@ -28,3 +28,6 @@ export * from "./planning-generator";
 export * from "./medals";
 export * from "./bracket-propagation";
 export * from "./control-state";
+export * from "./capabilities";
+export * from "./medido";
+export * from "./db-vocabulary";
