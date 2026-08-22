@@ -88,6 +88,57 @@ Trois points valent d'être connus avant d'y toucher :
   `indexInDivision` = ordre de passage). C'est ce qui évite un cas particulier dans
   la TV, l'écran opérateur, le planning et le journal.
 
+## La capacité d'une compétition, et son dimensionnement
+
+`competitions` n'a **aucune notion de capacité** : elle porte `tatami_count` (un
+entier 1..99, déclaré), des horaires, et rien qui dise combien de gens tiennent dans
+la journée. Deux modules purs comblent ce trou.
+
+| Module            | Rôle                                                                        |
+| ----------------- | --------------------------------------------------------------------------- |
+| `src/capacity.ts` | capacité CALCULÉE (jamais saisie) et taux de remplissage                    |
+| `src/sizing.ts`   | projection virtuelle des inscriptions, médailles et recommandation de tapis |
+
+**La capacité se dérive, elle ne se saisit pas.** Un plafond saisi est un chiffre que
+personne ne recalcule quand la compétition change ; il vieillit en silence et reste
+affiché.
+
+```
+combats     = tatamis × heures exploitables ÷ (durée moyenne + espacement)
+combattants = combats ÷ ratio combats-par-combattant
+```
+
+Trois points valent d'être connus :
+
+- **Le format pèse plus que l'effectif.** Une poule de quatre coûte SIX combats pour
+  quatre combattants (1,5 chacun), une élimination directe en coûte TROIS (0,75).
+  Basculer une tranche d'âge en poule divise la capacité par deux, à tatamis
+  constants. `explainCapacity` rend les termes du calcul un par un, pour que cette
+  chute soit lisible à l'écran plutôt que prise pour un bug.
+- **`computeFillRate` rend `null` quand la capacité est nulle, jamais `0`.** Un zéro
+  se lit comme un fait mesuré (« la compétition est vide ») alors que l'information
+  réelle est « on ne sait pas ». À l'écran, `null` s'affiche « - ».
+- **Le numérateur est EXACTEMENT `isActiveBracketStatus`** (`registered`, `validated`,
+  `paid`) : le taux répond à « à quel point les tapis sont-ils remplis », et les tapis
+  sont remplis par les combattants que le générateur placera. Or
+  `competition_registration_counts.total` compte « tout sauf retiré », donc **inclut
+  les pré-inscrits et les absents** — le brancher sur le numérateur double-compterait
+  le pipeline commercial dans une mesure d'occupation physique. Les pré-inscrits
+  s'affichent séparément, et `tests/capacity.test.ts` verrouille la non-dérive des
+  deux ensembles : élargir l'un des deux échoue sur le **nom** du statut absorbé.
+
+**Le panneau de dimensionnement doit marcher AVANT la génération.** `computeMedalNeed`
+est alimenté par des catégories, c'est-à-dire par des lignes de `competition_categories`
+qui n'existent qu'après le tirage. `projectCategories` rejoue donc les étapes 1 à 3 du
+générateur — sélection, regroupement par tuple, tirage — **sans une seule écriture**.
+
+Et `recommendTatamiCount` **exécute réellement** `planCategories` puis
+`computeTatamiSchedule` pour chaque nombre de tapis candidat. Aucune estimation
+parallèle n'est écrite : une formule fermée (« charge totale divisée par la durée de
+journée ») donnerait un nombre plausible et faux — elle ignorerait le LPT, l'ordre
+intra-tapis et le fait qu'une catégorie ne se coupe pas en deux — et serait libre de
+diverger du planning au premier changement de l'un ou de l'autre.
+
 ## Pureté, vérifiée et non recommandée
 
 `eslint.config.mjs` interdit `node:*`, `fs`, `path`, `crypto`, `react`, `react-dom`,
