@@ -8,7 +8,18 @@ export default tseslint.config(
   {
     rules: {
       "@typescript-eslint/consistent-type-imports": "error",
-      "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }],
+      // Même convention que `cfjjb-platform` : le préfixe `_` marque un liant
+      // délibérément ignoré. Utile notamment pour écarter une clé par
+      // déstructuration (`const { fightId: _id, ...reste } = patch`), qui est la
+      // façon la plus lisible de retirer un champ d'un objet.
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+        },
+      ],
       // Ce package est le NOYAU MÉTIER : il doit rester pur. Ces trois interdits
       // sont la frontière, et elle est vérifiée par la CI plutôt que par la
       // vigilance : la valeur du package tient entièrement au fait que le même
