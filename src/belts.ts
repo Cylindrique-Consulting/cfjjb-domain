@@ -1,19 +1,26 @@
 import type { BeltDb } from "./enums";
 
-export const ADULT_BELTS: ReadonlyArray<BeltDb> = [
-  "white",
-  "blue",
-  "purple",
-  "brown",
-  "black",
-  "coral",
-  "red",
-];
+/**
+ * Grades PRÉSENTS dans l'enum `belt` de la base mais HORS PÉRIMÈTRE de la
+ * confédération (CYL-483) : corail et rouge relèvent de l'IBJJF. Ils sont
+ * masqués partout dans l'interface et ne peuvent plus être ni choisis ni
+ * attribués. Les valeurs restent dans l'enum, et les tables exhaustives
+ * ci-dessous (libellés, couleurs, bornes d'âge) continuent de les couvrir :
+ * une donnée héritée doit s'afficher, pas rendre `undefined`.
+ */
+export const HIDDEN_BELTS: ReadonlyArray<BeltDb> = ["coral", "red"];
 
-// TODO: confirm exact kids belts list against Jour J once tokens repo is available.
-export const KIDS_BELTS: ReadonlyArray<BeltDb> = ["white", "grey", "yellow", "orange", "green"];
-
-export const ALL_BELTS: ReadonlyArray<BeltDb> = [
+/**
+ * Échelle COMPLÈTE des 11 grades, dans l'ordre — POUR LE RANG UNIQUEMENT
+ * (`indexOf`, comparaison de deux grades, parité avec l'échelle de l'ETL).
+ *
+ * NE JAMAIS s'en servir pour peupler un choix, un filtre ou un enum Zod :
+ * c'est `ALL_BELTS` qui porte les grades gérés. La distinction est le fond de
+ * CYL-483 — une liste de RANG amputée rendrait `-1` en silence sur une donnée
+ * héritée, tandis qu'une liste de CHOIX trop large ferait réapparaître le
+ * corail à l'écran.
+ */
+export const BELT_RANK_ORDER: ReadonlyArray<BeltDb> = [
   "white",
   "grey",
   "yellow",
@@ -25,6 +32,28 @@ export const ALL_BELTS: ReadonlyArray<BeltDb> = [
   "black",
   "coral",
   "red",
+];
+
+// TODO: confirm exact kids belts list against Jour J once tokens repo is available.
+export const KIDS_BELTS: ReadonlyArray<BeltDb> = ["white", "grey", "yellow", "orange", "green"];
+
+/**
+ * Grades GÉRÉS par la confédération : source unique des listes déroulantes,
+ * des filtres, des enums Zod et des libellés acceptés à l'import. L'échelle
+ * s'arrête à la NOIRE (CYL-483). Sous-ensemble de `BELT_RANK_ORDER` dans le
+ * même ordre — écrit en toutes lettres, et non dérivé par filtrage, pour que
+ * `tests/belts.test.ts` ait quelque chose à vérifier.
+ */
+export const ALL_BELTS: ReadonlyArray<BeltDb> = [
+  "white",
+  "grey",
+  "yellow",
+  "orange",
+  "green",
+  "blue",
+  "purple",
+  "brown",
+  "black",
 ];
 
 export const BELT_LABELS: Record<BeltDb, string> = {
@@ -107,8 +136,9 @@ export function beltBannerTheme(belt: BeltDb): {
  * (cf. `ageInYears`) :
  *   - ceintures enfants : grise 4-15, jaune 7-15, orange 10-15, verte 13-15 ;
  *   - blanche : tout âge ;
- *   - adultes : bleue et violette ≥ 16, marron ≥ 18, noire ≥ 19,
- *     corail et rouge ≥ 50.
+ *   - adultes : bleue et violette ≥ 16, marron ≥ 18, noire ≥ 19.
+ * Corail et rouge y figurent encore (≥ 50) parce que la table est exhaustive
+ * sur `BeltDb`, mais ces grades ne sont plus attribuables (cf. HIDDEN_BELTS).
  * La grille s'applique à la CRÉATION d'une fiche ; l'ÉDITION reste libre
  * (autorité de correction du club / de la fédération).
  */

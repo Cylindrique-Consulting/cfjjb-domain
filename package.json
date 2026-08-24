@@ -1,6 +1,6 @@
 {
   "name": "@cfjjb/domain",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Noyau m\u00e9tier CFJJB : r\u00e9f\u00e9rentiel poids/dur\u00e9es/ceintures, g\u00e9n\u00e9rateur de brackets, planning, m\u00e9dailles. TypeScript pur, sans IO.",
   "license": "UNLICENSED",
   "private": false,

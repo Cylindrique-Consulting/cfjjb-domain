@@ -2,7 +2,7 @@ import { AGE_GROUPS, WEIGHT_CLASSES, isChildAgeGroup, type AgeGroup } from "./re
 import type { GeneratedFight } from "./bracket-generator";
 import type { DrawFormat } from "./competition-format";
 import type { BeltDb, DisciplineDb } from "./enums";
-import { ALL_BELTS } from "./belts";
+import { BELT_RANK_ORDER } from "./belts";
 
 /**
  * Planning generator: distributes categories over the physical tatamis and
@@ -47,11 +47,15 @@ export type TatamiPlan = {
   totalSeconds: number;
 };
 
-// CYL-434 — c'était une DUPLICATION LITTÉRALE d'`ALL_BELTS`
+// CYL-434 — c'était une DUPLICATION LITTÉRALE de l'échelle des grades
 // (`lib/licensees/belts.ts`), au caractère près. Deux listes de grades
 // finissent toujours par diverger, et la divergence serait muette : un
 // planning trierait les catégories dans un ordre, l'éligibilité dans un autre.
-const BELT_ORDER: ReadonlyArray<BeltDb> = ALL_BELTS;
+//
+// CYL-483 — c'est bien l'échelle de RANG, pas la liste des grades gérés : une
+// catégorie héritée portant un grade masqué doit garder sa place dans le tri,
+// et non retomber en tête sur un `indexOf` à -1.
+const BELT_ORDER: ReadonlyArray<BeltDb> = BELT_RANK_ORDER;
 
 function categoryDurationSeconds(cat: PlanningCategory, bufferSeconds: number): number {
   return cat.realFightCount * (cat.fightTimeSeconds + bufferSeconds);
