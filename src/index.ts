@@ -32,6 +32,7 @@ export * from "./pool-ranking";
 export * from "./category-draw";
 export * from "./absolut-seeding";
 export * from "./squad-composition";
+export * from "./separation-equipe";
 export * from "./planning-generator";
 export * from "./medals";
 export * from "./capacity";
