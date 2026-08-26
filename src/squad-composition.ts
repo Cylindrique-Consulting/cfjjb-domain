@@ -77,6 +77,22 @@ export type SquadCandidate = {
   readonly registrationId: string;
   /** Sans club, pas d'équipe : `competition_squads` est unique par (compétition, club, lettre). */
   readonly clubId: string | null;
+  /**
+   * L'ÉQUIPE du club pour cette saison, quand il en a une (CYL-502).
+   *
+   * FOURNIE, JAMAIS DEVINÉE — même contrat que `categoryKey`. Le noyau ne sait
+   * pas lire d'affiliation ; c'est l'appelant qui résout, et lui seul sait de
+   * quelle saison il parle.
+   *
+   * ┌─ POURQUOI ELLE CHANGE LE GROUPEMENT ─────────────────────────────────────┐
+   * │ La règle fédérale est « deux combattants au plus par ÉQUIPE et par        │
+   * │ catégorie ». Une team fédère plusieurs clubs : équilibrer par club        │
+   * │ laisserait deux combattants de deux clubs d'une même équipe recevoir la   │
+   * │ lettre A chacun, et le tirage les tiendrait pour deux sous-équipes        │
+   * │ différentes — c'est-à-dire ne les séparerait pas.                         │
+   * └──────────────────────────────────────────────────────────────────────────┘
+   */
+  readonly teamId?: string | null;
   readonly categoryKey: string;
   /** La lettre déjà posée, s'il y en a une. */
   readonly letter?: SquadLetter | null;
@@ -87,6 +103,13 @@ export type SquadCandidate = {
 export type SquadAssignment = {
   readonly registrationId: string;
   readonly clubId: string;
+  /**
+   * L'ENTITÉ SUR LAQUELLE LA LETTRE A ÉTÉ ÉQUILIBRÉE : l'équipe, ou le club à
+   * défaut. Rendue parce que l'appelant en a besoin pour deux choses qu'il ne
+   * peut pas redéduire : écrire `competition_squads.team_id`, et fabriquer la
+   * clé de séparation du tirage.
+   */
+  readonly ownerId: string;
   readonly categoryKey: string;
   readonly letter: SquadLetter;
   /** `auto` ⟺ cette lettre vient d'être composée par le système. */
@@ -96,8 +119,19 @@ export type SquadAssignment = {
 export type SquadComposition = {
   /** TOUTE la population composable, lettres existantes comprises, dans l'ordre d'entrée. */
   readonly assignments: readonly SquadAssignment[];
-  /** Les équipes (club, lettre) qu'il faut faire exister pour porter ces lettres. */
-  readonly squads: readonly { readonly clubId: string; readonly letter: SquadLetter }[];
+  /**
+   * Les sous-équipes qu'il faut faire exister pour porter ces lettres.
+   *
+   * `clubId` reste rendu parce que la ligne en base le porte encore — c'est
+   * l'écran de répartition du club qui la lit. Mais l'IDENTITÉ de la
+   * sous-équipe est `teamId` quand il est présent : deux clubs d'une même
+   * équipe qui partagent une lettre forment UNE sous-équipe, pas deux.
+   */
+  readonly squads: readonly {
+    readonly clubId: string;
+    readonly teamId: string | null;
+    readonly letter: SquadLetter;
+  }[];
   /**
    * Les inscriptions SANS CLUB, qui ne peuvent pas recevoir de lettre. Rendues
    * plutôt que tues : un combattant sans club rattaché est une anomalie de
@@ -188,10 +222,10 @@ export function autoComposeSquads(
   // La charge par (club, catégorie), alimentée D'ABORD par les lettres déjà
   // posées : l'équilibrage se fait AUTOUR d'elles, il ne les recalcule pas.
   const load = new Map<string, Map<SquadLetter, number>>();
-  const loadOf = (clubId: string, categoryKey: string): Map<SquadLetter, number> => {
+  const loadOf = (ownerId: string, categoryKey: string): Map<SquadLetter, number> => {
     // Clé PRÉFIXÉE PAR LA LONGUEUR : « ab » + « c » et « a » + « bc » sont deux
     // groupes différents, et une concaténation nue les confondrait en silence.
-    const key = clubId.length + ":" + clubId + ":" + categoryKey;
+    const key = ownerId.length + ":" + ownerId + ":" + categoryKey;
     const existing = load.get(key);
     if (existing) return existing;
     const fresh = new Map<SquadLetter, number>();
@@ -204,9 +238,20 @@ export function autoComposeSquads(
   const withClub = (c: SquadCandidate): c is SquadCandidate & { clubId: string } =>
     typeof c.clubId === "string" && c.clubId.length > 0;
 
+  /**
+   * L'ENTITÉ DE RATTACHEMENT : l'équipe si le club en a une, le club sinon.
+   *
+   * C'est la même règle que partout ailleurs dans le produit, et elle n'est
+   * pas un repli par défaut : un club sans équipe se voit appliquer « deux au
+   * plus » à son propre niveau, ce qui est exactement ce que la fédération
+   * demande.
+   */
+  const owner = (c: SquadCandidate & { clubId: string }): string =>
+    typeof c.teamId === "string" && c.teamId.length > 0 ? c.teamId : c.clubId;
+
   for (const c of candidates) {
     if (!withClub(c) || !c.letter) continue;
-    const l = loadOf(c.clubId, c.categoryKey);
+    const l = loadOf(owner(c), c.categoryKey);
     l.set(c.letter, (l.get(c.letter) ?? 0) + 1);
   }
 
@@ -228,7 +273,7 @@ export function autoComposeSquads(
 
   const composed = new Map<string, SquadLetter>();
   for (const { candidate } of aComposer) {
-    const l = loadOf(candidate.clubId, candidate.categoryKey);
+    const l = loadOf(owner(candidate), candidate.categoryKey);
     const letter = leastLoadedLetter(l);
     l.set(letter, (l.get(letter) ?? 0) + 1);
     composed.set(candidate.registrationId, letter);
@@ -237,7 +282,7 @@ export function autoComposeSquads(
   // Restitution dans l'ORDRE D'ENTRÉE : l'appelant relit sa propre liste. Les
   // lettres, elles, ne doivent rien à cet ordre - c'est la garantie du point 2.
   const assignments: SquadAssignment[] = [];
-  const squads: { clubId: string; letter: SquadLetter }[] = [];
+  const squads: { clubId: string; teamId: string | null; letter: SquadLetter }[] = [];
   const seen = new Set<string>();
 
   for (const c of candidates) {
@@ -247,17 +292,27 @@ export function autoComposeSquads(
     }
     const letter = c.letter ?? composed.get(c.registrationId);
     if (!letter) continue;
+    const ownerId = owner(c);
     assignments.push({
       registrationId: c.registrationId,
       clubId: c.clubId,
+      ownerId,
       categoryKey: c.categoryKey,
       letter,
       source: c.letter ? (c.source ?? "club") : "auto",
     });
-    const squadKey = squadTeamId(c.clubId, letter);
+    // LA CLÉ DE SOUS-ÉQUIPE EST CELLE DE L'ENTITÉ, pas du club : deux clubs
+    // d'une même équipe qui partagent une lettre forment UNE sous-équipe, et
+    // c'est tout l'objet de CYL-502. La clé du `seen` doit donc l'être aussi,
+    // sans quoi on créerait deux lignes pour la même sous-équipe.
+    const squadKey = squadTeamId(ownerId, letter);
     if (!seen.has(squadKey)) {
       seen.add(squadKey);
-      squads.push({ clubId: c.clubId, letter });
+      squads.push({
+        clubId: c.clubId,
+        teamId: ownerId === c.clubId ? null : ownerId,
+        letter,
+      });
     }
   }
 
@@ -277,8 +332,8 @@ export function autoComposeSquads(
  * (unique (competition_id, club_id, letter)) ; cette fonction est ce qu'on
  * utilise quand on compose AVANT d'avoir écrit les lignes.
  */
-export function squadTeamId(clubId: string, letter: SquadLetter): string {
-  return `${clubId}#${letter}`;
+export function squadTeamId(ownerId: string, letter: SquadLetter): string {
+  return `${ownerId}#${letter}`;
 }
 
 /**
@@ -305,3 +360,58 @@ export const SQUAD_SEEDING_PLAN: SeedingPlan = {
   ),
   pins: DEFAULT_SEEDING_PLAN.pins,
 };
+
+/** Une entité qui aligne plus de combattants qu'une catégorie n'en tolère. */
+export type DepassementParEquipe = {
+  readonly ownerId: string;
+  readonly categoryKey: string;
+  readonly registrationIds: readonly string[];
+};
+
+/**
+ * OÙ LA RÈGLE « DEUX AU PLUS » EST DÉPASSÉE (CYL-502).
+ *
+ * ┌─ POURQUOI CE CONSTAT NE SE DÉDUIT PAS DE LA COMPOSITION ──────────────────┐
+ * │ `autoComposeSquads` répartit au mieux : à sept combattants d'une même      │
+ * │ équipe, il rend trois lettres et deux d'entre elles en portent trois. Il   │
+ * │ ne se plaint pas — ce n'est pas son rôle, un tirage doit sortir.           │
+ * │                                                                           │
+ * │ Mais l'écran de répartition du club doit pouvoir SURLIGNER ces groupes-là, │
+ * │ et la génération doit pouvoir les rapporter. Sans ce constat, un club      │
+ * │ découvre au bord du tapis que la règle n'a pas pu être tenue pour lui.     │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ *
+ * Le seuil est un PARAMÈTRE et non une constante cachée : la fédération l'a
+ * fixé à deux, mais c'est une décision, pas une propriété du tirage.
+ */
+export function detecterDepassementsParEquipe(
+  candidates: readonly SquadCandidate[],
+  seuil = 2,
+): DepassementParEquipe[] {
+  const groupes = new Map<string, { ownerId: string; categoryKey: string; ids: string[] }>();
+
+  for (const c of candidates) {
+    if (typeof c.clubId !== "string" || c.clubId.length === 0) continue;
+    const ownerId = typeof c.teamId === "string" && c.teamId.length > 0 ? c.teamId : c.clubId;
+    // Même clé préfixée par la longueur qu'ailleurs dans ce module : « ab »+« c »
+    // et « a »+« bc » sont deux groupes différents.
+    const key = ownerId.length + ":" + ownerId + ":" + c.categoryKey;
+    const g = groupes.get(key) ?? { ownerId, categoryKey: c.categoryKey, ids: [] };
+    g.ids.push(c.registrationId);
+    groupes.set(key, g);
+  }
+
+  return (
+    [...groupes.values()]
+      .filter((g) => g.ids.length > seuil)
+      .map((g) => ({ ownerId: g.ownerId, categoryKey: g.categoryKey, registrationIds: g.ids }))
+      // Ordre STABLE : le plus gros dépassement d'abord. Un rapport qui change
+      // d'une exécution à l'autre ne se compare pas.
+      .sort(
+        (a, b) =>
+          b.registrationIds.length - a.registrationIds.length ||
+          a.ownerId.localeCompare(b.ownerId) ||
+          a.categoryKey.localeCompare(b.categoryKey),
+      )
+  );
+}
