@@ -134,6 +134,7 @@ describe("controlStateOf — BALAYAGE du produit cartésien complet", () => {
       "attente_pointage",
       "attente_pesee",
       "attente_medido",
+      "attente_recontrole",
       "ok",
     ];
     let n = 0;
@@ -168,6 +169,40 @@ describe("controlStateOf — BALAYAGE du produit cartésien complet", () => {
   });
 });
 
+describe("controlStateOf — le re-contrôle après combat (retours module)", () => {
+  it("un combattant en règle qui a combattu passe « à re-contrôler », pas `ok`", () => {
+    expect(controlStateOf(entree({ recheckPending: true }))).toBe("attente_recontrole");
+  });
+
+  it("le re-contrôle NE domine PAS l'élimination : un éliminé reste éliminé", () => {
+    expect(controlStateOf(entree({ recheckPending: true, presence: "absent" }))).toBe("elimine");
+    expect(controlStateOf(entree({ recheckPending: true, weighIn: "failed" }))).toBe("elimine");
+    expect(controlStateOf(entree({ recheckPending: true, forfeited: true }))).toBe("elimine");
+  });
+
+  it("les attentes de poste passent AVANT le re-contrôle : un poste dû se voit d'abord", () => {
+    expect(controlStateOf(entree({ recheckPending: true, presence: "expected" }))).toBe(
+      "attente_pointage",
+    );
+    expect(controlStateOf(entree({ recheckPending: true, weighIn: "pending" }))).toBe(
+      "attente_pesee",
+    );
+    expect(controlStateOf(entree({ recheckPending: true, medido: "pending" }))).toBe(
+      "attente_medido",
+    );
+  });
+
+  it("sans le flag, rien ne change : le nominal reste `ok`", () => {
+    expect(controlStateOf(entree({ recheckPending: false }))).toBe("ok");
+    expect(controlStateOf(entree())).toBe("ok");
+  });
+
+  it("un combat ne démarre pas tant qu'un côté est « à re-contrôler »", () => {
+    expect(canStartFight("attente_recontrole", "ok")).toBe(false);
+    expect(canStartFight("ok", "attente_recontrole")).toBe(false);
+  });
+});
+
 describe("canStartFight", () => {
   it("exige que les DEUX combattants soient en état `ok`", () => {
     expect(canStartFight("ok", "ok")).toBe(true);
@@ -186,6 +221,7 @@ describe("controlStateReason", () => {
       "attente_pointage",
       "attente_pesee",
       "attente_medido",
+      "attente_recontrole",
     ] as const) {
       const motif = controlStateReason(etat);
       // Le motif s'affiche sur la table de marque : un refus muet ferait

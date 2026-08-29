@@ -44,6 +44,17 @@ export type ControlInput = {
   medido: MedidoStatus;
   /** Forfait prononcé par le commissaire, quelle qu'en soit la raison. */
   forfeited?: boolean;
+  /**
+   * A COMBATTU, ET DOIT RE-CONTRÔLER AVANT LE PROCHAIN COMBAT (retours module).
+   *
+   * Après un combat joué, quiconque a un combat suivant (le vainqueur qui monte,
+   * le perdant d'une demie qui descend en petite finale) peut avoir quitté la
+   * zone ou changé de kimono : il repasse « à re-contrôler » au guichet. Le flag
+   * est posé par `day_fight_finish`/`day_paper_entry` et levé par
+   * `day_recheck_confirm`. Sa lecture — la colonne `recheck_required_at` — reste
+   * côté serveur ; ici c'est un booléen déjà résolu.
+   */
+  recheckPending?: boolean;
 };
 
 export type ControlState =
@@ -54,6 +65,13 @@ export type ControlState =
   | "attente_pointage"
   | "attente_pesee"
   | "attente_medido"
+  /**
+   * A COMBATTU : re-contrôle au guichet requis avant le prochain combat (retours
+   * module). Après les attentes de poste, AVANT `ok` : un combattant qui doit
+   * encore pointer/peser voit d'abord ce poste-là ; une fois en règle, s'il a
+   * combattu, il repasse par le re-contrôle.
+   */
+  | "attente_recontrole"
   | "ok";
 
 /**
@@ -88,6 +106,13 @@ export function controlStateOf(input: ControlInput): ControlState {
   if (medidoApplicable && (input.medido === "pending" || input.medido === "non_presente"))
     return "attente_medido";
 
+  // A COMBATTU (retours module) : dernière porte avant `ok`. Le combattant a déjà
+  // passé les contrôles ci-dessus — c'est justement parce qu'il a combattu qu'il
+  // doit les repasser (il a pu quitter la zone, changer de gi). `day_fight_start`
+  // teste `<> 'ok'`, donc cet état bloque le lancement du combat aval sans qu'on
+  // touche à sa garde.
+  if (input.recheckPending) return "attente_recontrole";
+
   return "ok";
 }
 
@@ -111,5 +136,7 @@ export function controlStateReason(state: ControlState): string | null {
       return "Pas encore pesé";
     case "attente_medido":
       return "Gabarit de kimono pas encore contrôlé";
+    case "attente_recontrole":
+      return "A combattu : re-contrôle au guichet requis";
   }
 }
