@@ -1,6 +1,6 @@
 {
   "name": "@cfjjb/domain",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Noyau métier CFJJB : référentiel poids/durées/ceintures, générateur de brackets, planning, médailles. TypeScript pur, sans IO.",
   "license": "UNLICENSED",
   "private": false,

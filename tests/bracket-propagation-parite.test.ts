@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import { generateBracket, type BracketEntry } from "../src/bracket-generator";
 import {
   computePodium,
+  deepestDivision,
+  findFeederFight,
   findNextSlot,
   fromGenerated,
+  isSlotImpossible,
   planByeCascade,
   planFinish,
   planForfeit,
@@ -386,5 +389,126 @@ describe("PREUVE 6 — le podium", () => {
     const podium = computePodium([], { thirdPlaceMode: "pool3" });
     expect(podium.complete).toBe(false);
     expect(podium.missing).toContain("Aucun combat dans cette catégorie");
+  });
+});
+
+// ------------------------------------------------------------------
+// PREUVE 7 — la cascade v2 dénoue les WO fantômes
+// ------------------------------------------------------------------
+
+/** Un combat par (division, index), quel que soit son type de tableau. */
+function braket(
+  fights: readonly PropagationFight[],
+  division: number,
+  index: number,
+): PropagationFight {
+  const f = fights.find(
+    (x) => x.type === "BraketFight" && x.division === division && x.indexInDivision === index,
+  );
+  if (!f) throw new Error(`pas de combat (${division}, ${index})`);
+  return f;
+}
+
+describe("PREUVE 7 — la cascade v2 dénoue les WO fantômes", () => {
+  it("SÉQUENTIEL : un WO de cascade dont le vainqueur est ensuite éliminé est révoqué", () => {
+    // Le bug erreur-1 : Lucie éliminée à T1 → son adversaire monte par WO ; puis
+    // ce vainqueur est éliminé à T2. La v1 ne revisitait jamais le quart déjà
+    // `finished` → le fantôme montait jusqu'en finale. La v2 le révoque.
+    const depart = bracket(8);
+    const quart = depart.find(
+      (f) => f.division === 3 && !f.isBye && f.slotA !== null && f.slotB !== null,
+    )!;
+    const rx = quart.slotA!;
+    const ry = quart.slotB!;
+    const suivant = findNextSlot(depart, quart)!;
+
+    // T1 : rx éliminé → ry gagne le quart par WO de cascade et monte.
+    const etat1 = appliquerNavigateur(depart, planForfeit(depart, new Set([rx])));
+    const q1 = etat1.find((f) => f.id === quart.id)!;
+    expect(q1.state).toBe("finished");
+    expect(q1.winMethod).toBe("wo");
+    expect(q1.winner).toBe(ry);
+    expect(q1.cascadeForfeit).toBe(true);
+    const semi1 = etat1.find((f) => f.id === suivant.fightId)!;
+    expect(suivant.slot === "A" ? semi1.slotA : semi1.slotB).toBe(ry);
+
+    // T2 : ry éliminé à son tour → révocation. Les deux côtés éliminés → double_wo,
+    // et ry est RETIRÉ de la demie, qui demande un arbitrage.
+    const etat2 = appliquerNavigateur(etat1, planForfeit(etat1, new Set([rx, ry])));
+    const q2 = etat2.find((f) => f.id === quart.id)!;
+    expect(q2.state).toBe("finished");
+    expect(q2.winMethod).toBe("double_wo");
+    expect(q2.winner).toBeNull();
+    const semi2 = etat2.find((f) => f.id === suivant.fightId)!;
+    expect(suivant.slot === "A" ? semi2.slotA : semi2.slotB).toBeNull();
+    expect(semi2.needsArbitration).toBe(true);
+  });
+
+  it("ADVERSAIRE IMPOSSIBLE : le bronze se décerne par WO quand la demie fut un WO", () => {
+    const depart = bracket(4);
+    const semi0 = braket(depart, 2, 0);
+    const semi1 = braket(depart, 2, 1);
+    const perdantBronze = semi0.slotB!; // ira au combat de 3e place
+
+    // La demie 0 se joue normalement : son perdant descend au bronze.
+    let etat = appliquerNavigateur(depart, planFinish(depart, semi0.id, semi0.slotA!, "points"));
+    // La demie 1 est un WO (un côté éliminé) : son perdant NE descend PAS.
+    etat = appliquerNavigateur(etat, planForfeit(etat, new Set([semi1.slotB!])));
+
+    // Le bronze a un occupant valide et un slot désormais impossible → il se
+    // décerne par WO, sans rester ouvert toute la journée.
+    const p3 = etat.find((f) => f.type === "BraketFightPool3")!;
+    expect(p3.state).toBe("finished");
+    expect(p3.winMethod).toBe("wo");
+    expect(p3.winner).toBe(perdantBronze);
+    expect(p3.cascadeForfeit).toBe(true);
+  });
+
+  it("I1 : une victoire DISPUTÉE (submission) n'est jamais révoquée, même vainqueur éliminé", () => {
+    const depart = bracket(8);
+    const quart = depart.find(
+      (f) => f.division === 3 && !f.isBye && f.slotA !== null && f.slotB !== null,
+    )!;
+    const etat = appliquerNavigateur(
+      depart,
+      planFinish(depart, quart.id, quart.slotA!, "submission"),
+    );
+    const plan = planForfeit(etat, new Set([quart.slotA!]));
+    expect(plan.patches.map((p) => p.fightId)).not.toContain(quart.id);
+    const apres = appliquerNavigateur(etat, plan);
+    const q = apres.find((f) => f.id === quart.id)!;
+    expect(q.winMethod).toBe("submission");
+    expect(q.winner).toBe(quart.slotA);
+  });
+
+  it("I2 : un WO d'ARBITRE (non marqué cascade) survit à l'élimination de son vainqueur", () => {
+    const depart = bracket(8);
+    const quart = depart.find(
+      (f) => f.division === 3 && !f.isBye && f.slotA !== null && f.slotB !== null,
+    )!;
+    // L'arbitre prononce un WO à la main : pas un WO de cascade.
+    const etat = appliquerNavigateur(depart, planFinish(depart, quart.id, quart.slotA!, "wo"));
+    expect(etat.find((f) => f.id === quart.id)!.cascadeForfeit).toBeFalsy();
+
+    const plan = planForfeit(etat, new Set([quart.slotA!]));
+    expect(plan.patches.map((p) => p.fightId)).not.toContain(quart.id);
+    const apres = appliquerNavigateur(etat, plan);
+    const q = apres.find((f) => f.id === quart.id)!;
+    expect(q.winMethod).toBe("wo");
+    expect(q.winner).toBe(quart.slotA);
+  });
+
+  it("les helpers d'impossibilité miroir du SQL : nourricier wo/double_wo/cancelled", () => {
+    const depart = bracket(4);
+    const semi1 = braket(depart, 2, 1);
+    const pool3 = depart.find((f) => f.type === "BraketFightPool3")!;
+    // Tant que la demie n'est pas jouée, rien n'est impossible : on attend.
+    expect(isSlotImpossible(depart, pool3, "B")).toBe(false);
+    // Une fois la demie tranchée par WO, plus aucun perdant ne descend.
+    const etat = appliquerNavigateur(depart, planForfeit(depart, new Set([semi1.slotB!])));
+    expect(isSlotImpossible(etat, pool3, "B")).toBe(true);
+    // Le nourricier d'une tête de série (division la plus haute) n'existe pas.
+    const premierTour = depart.filter((f) => f.division === deepestDivision(depart));
+    expect(findFeederFight(depart, premierTour[0]!, "A")).toBeNull();
   });
 });
