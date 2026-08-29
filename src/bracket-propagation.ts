@@ -61,6 +61,17 @@ export type PropagationFight = {
    * L'alternative — faire avancer quelqu'un d'office — inventerait un résultat.
    */
   needsArbitration: boolean;
+  /**
+   * Ce `wo`/`double_wo` a été PRONONCÉ PAR LA CASCADE, pas par un arbitre.
+   *
+   * Seul un WO de cascade est révocable : si son vainqueur devient à son tour
+   * éliminé (élimination séquentielle), la cascade le dénoue. Un `wo` d'arbitre
+   * (jamais marqué) reste acquis — c'est l'invariant I2. Optionnel et par défaut
+   * absent : un combat qui n'a jamais été touché par la cascade ne le porte pas,
+   * et le client hors ligne, qui ne connaît pas l'ensemble des éliminés, ne
+   * révoque jamais (le serveur fait foi à la relecture).
+   */
+  cascadeForfeit?: boolean;
   version: number;
 };
 
@@ -197,6 +208,59 @@ export function loserOf(fight: PropagationFight): string | null {
   return null;
 }
 
+/**
+ * Le combat AMONT qui alimente un emplacement — l'INVERSE de `findNextSlot` /
+ * `findPool3Slot`. Miroir de `jour_j_feeder_fight` côté SQL.
+ *
+ *   BraketFight (div d, idx i, slot A|B) ← BraketFight (div d+1, idx 2i + (B?1:0))
+ *   Pool3       (slot A|B)               ← demie (div 2, idx 0|1)
+ *
+ * `null` s'il n'y a pas de nourricier (le slot est alimenté par une tête de
+ * série, pas par un combat amont).
+ */
+export function findFeederFight(
+  fights: readonly PropagationFight[],
+  fight: Pick<PropagationFight, "type" | "division" | "indexInDivision">,
+  slot: Slot,
+): PropagationFight | null {
+  if (fight.type === "BraketFightPool3") {
+    return at(fights, 2, slot === "A" ? 0 : 1);
+  }
+  return at(fights, fight.division + 1, fight.indexInDivision * 2 + (slot === "A" ? 0 : 1));
+}
+
+/**
+ * Un emplacement est-il STRUCTURELLEMENT impossible à remplir ? Son nourricier
+ * ne produira JAMAIS l'occupant attendu. Miroir de `jour_j_slot_impossible`.
+ *
+ *   · montée (cible BraketFight) : impossible si le nourricier est `double_wo`
+ *     (aucun vainqueur ne monte) ou `cancelled`. Un `wo` NORMAL fait monter un
+ *     vainqueur → PAS impossible.
+ *   · descente du perdant (cible Pool3) : impossible si la demie nourricière est
+ *     `wo`/`double_wo`/`cancelled` (aucun perdant réel), ou si son perdant est
+ *     éliminé (il ne descend pas au combat de médaille).
+ *
+ * Un nourricier `scheduled`/`in_progress` n'est PAS impossible : on attend.
+ */
+export function isSlotImpossible(
+  fights: readonly PropagationFight[],
+  fight: Pick<PropagationFight, "type" | "division" | "indexInDivision">,
+  slot: Slot,
+  eliminated: ReadonlySet<string> = new Set(),
+): boolean {
+  const feeder = findFeederFight(fights, fight, slot);
+  if (!feeder) return false;
+  if (feeder.state === "cancelled") return true;
+  if (feeder.state !== "finished") return false;
+
+  if (fight.type === "BraketFightPool3") {
+    if (feeder.winMethod === "wo" || feeder.winMethod === "double_wo") return true;
+    const perdant = loserOf(feeder);
+    return perdant === null || eliminated.has(perdant);
+  }
+  return feeder.winMethod === "double_wo";
+}
+
 // ------------------------------------------------------------------
 // Moteur interne
 // ------------------------------------------------------------------
@@ -322,45 +386,188 @@ export function planFinish(
   return { ...plan, expected: plan.expected.filter((e) => !e.fightId.startsWith("elimine:")) };
 }
 
+/**
+ * Retire un FANTÔME (vainqueur d'un WO révoqué) de l'emplacement aval.
+ *
+ * Aval non démarré (`scheduled`) → on vide l'emplacement ET on signale
+ * l'arbitrage : le tour suivant (b)/(b') tranchera peut-être, sinon un humain.
+ * Aval déjà joué ou en cours → on ne lui RETIRE PAS son occupant (invariant I5),
+ * on se contente de signaler l'arbitrage.
+ */
+function desavancerFantome(
+  b: Brouillon,
+  suivant: { fightId: string; slot: Slot } | null,
+  fantome: string | null,
+): void {
+  if (!suivant || fantome === null) return;
+  const aval = b.fights.find((f) => f.id === suivant.fightId);
+  if (!aval) return;
+  const present = suivant.slot === "A" ? aval.slotA : aval.slotB;
+  if (present !== fantome) return;
+  if (aval.state === "scheduled") ecrire(b, { ...suivant, registrationId: null });
+  patcher(b, suivant.fightId, { needsArbitration: true });
+}
+
+/**
+ * LE POINT FIXE DE LA CASCADE. Un seul combat tranché par tour de boucle, par
+ * ORDRE DE PRIORITÉ — miroir de `jour_j_forfait_cascade` (v2) côté SQL :
+ *
+ *   (a) révocation d'un WO de cascade dont le vainqueur est devenu éliminé
+ *   (classique) un combat aux deux côtés connus dont au moins un est éliminé
+ *   (b) avancement quand l'adversaire est structurellement impossible
+ *   (b') annulation quand plus AUCUN participant n'est possible
+ *
+ * Chaque action retire son propre déclencheur (un `finished`/`cancelled` n'est
+ * plus `scheduled`, un `wo` re-prononcé n'a plus de vainqueur éliminé), donc la
+ * boucle converge ; la garde-compteur est une défense.
+ */
 function forfaitsEnPointFixe(b: Brouillon, eliminated: ReadonlySet<string>): void {
+  const estElimine = (r: string | null): boolean => r !== null && eliminated.has(r);
   let bouge = true;
-  let garde = b.fights.length * 4;
+  let garde = b.fights.length * 6;
 
   while (bouge && garde-- > 0) {
     bouge = false;
-    for (const f of b.fights) {
-      if (f.type !== "BraketFight" || f.state !== "scheduled") continue;
-      const aElimine = f.slotA !== null && eliminated.has(f.slotA);
-      const bElimine = f.slotB !== null && eliminated.has(f.slotB);
-      if (!aElimine && !bElimine) continue;
 
-      if (aElimine && bElimine) {
-        // DOUBLE FORFAIT : aucun vainqueur. Rien ne propage, et le combat aval
-        // se retrouve avec un emplacement définitivement vide — il demande un
-        // arbitrage plutôt qu'un avancement inventé.
-        patcher(b, f.id, { state: "finished", winner: null, winMethod: "double_wo" });
-        const suivant = findNextSlot(b.fights, f);
+    // ── (a) RÉVOCATION d'un WO fantôme ─────────────────────────────────────
+    // Un `wo` PRONONCÉ PAR LA CASCADE dont le vainqueur est DÉSORMAIS éliminé
+    // (élimination séquentielle). Du plus profond vers la finale, la chaîne se
+    // dénoue d'elle-même. Un `wo` d'arbitre (jamais marqué) reste acquis (I2).
+    const revoquable = b.fights
+      .filter(
+        (f) =>
+          f.type === "BraketFight" &&
+          f.state === "finished" &&
+          f.winMethod === "wo" &&
+          f.cascadeForfeit === true &&
+          estElimine(f.winner),
+      )
+      .sort((x, y) => y.division - x.division || x.indexInDivision - y.indexInDivision)[0];
+    if (revoquable) {
+      const fantome = revoquable.winner;
+      const perdant = revoquable.slotA === fantome ? revoquable.slotB : revoquable.slotA;
+      const suivant = findNextSlot(b.fights, revoquable);
+      if (perdant !== null && !estElimine(perdant)) {
+        // FLIP (défensif) : l'autre côté redevenu valide gagne le WO à sa place.
+        patcher(b, revoquable.id, { winner: perdant, winMethod: "wo", cascadeForfeit: true });
+        if (suivant) {
+          const aval = b.fights.find((f) => f.id === suivant.fightId);
+          const present = aval ? (suivant.slot === "A" ? aval.slotA : aval.slotB) : undefined;
+          if (aval && present === fantome) {
+            if (aval.state === "scheduled") ecrire(b, { ...suivant, registrationId: perdant });
+            else patcher(b, suivant.fightId, { needsArbitration: true });
+          }
+        }
+      } else if (perdant === null) {
+        // ANNULATION : l'adversaire était structurellement impossible (WO (b)),
+        // il n'y a personne d'autre — le combat n'aura jamais lieu.
+        patcher(b, revoquable.id, { state: "cancelled", winner: null, winMethod: null });
+        desavancerFantome(b, suivant, fantome);
+      } else {
+        // DOUBLE FORFAIT : les deux côtés éliminés, aucun vainqueur.
+        patcher(b, revoquable.id, { winner: null, winMethod: "double_wo" });
+        desavancerFantome(b, suivant, fantome);
+      }
+      bouge = true;
+      continue;
+    }
+
+    // ── (classique) un combat non résolu, DEUX côtés connus, ≥ 1 éliminé ────
+    const classique = b.fights.find(
+      (f) =>
+        f.type === "BraketFight" &&
+        f.state === "scheduled" &&
+        f.slotA !== null &&
+        f.slotB !== null &&
+        (estElimine(f.slotA) || estElimine(f.slotB)),
+    );
+    if (classique) {
+      if (estElimine(classique.slotA) && estElimine(classique.slotB)) {
+        // DOUBLE FORFAIT : aucun vainqueur, l'aval demande un arbitrage.
+        patcher(b, classique.id, { state: "finished", winner: null, winMethod: "double_wo" });
+        const suivant = findNextSlot(b.fights, classique);
         if (suivant) {
           ecrire(b, { ...suivant, registrationId: null });
           patcher(b, suivant.fightId, { needsArbitration: true });
         }
-        bouge = true;
-        continue;
+      } else {
+        const survivant = estElimine(classique.slotA) ? classique.slotB : classique.slotA;
+        patcher(b, classique.id, {
+          state: "finished",
+          winner: survivant,
+          winMethod: "wo",
+          cascadeForfeit: true,
+        });
+        propager(
+          b,
+          b.fights.find((x) => x.id === classique.id)!,
+        );
       }
+      bouge = true;
+      continue;
+    }
 
-      const survivant = aElimine ? f.slotB : f.slotA;
-      if (survivant === null) {
-        // Adversaire encore inconnu : le combat amont n'est pas joué. On
-        // n'invente rien, on attendra que l'emplacement se remplisse — d'où le
-        // point fixe plutôt qu'un unique balayage.
-        continue;
-      }
-      patcher(b, f.id, { state: "finished", winner: survivant, winMethod: "wo" });
+    // ── (b) AVANCEMENT sur adversaire structurellement impossible ──────────
+    // Un côté occupé et valide, l'autre slot vide et IMPOSSIBLE → la personne
+    // présente gagne par WO (décision produit). Vaut aussi pour le bronze (Pool3).
+    const avancable = b.fights.find(
+      (f) =>
+        !f.isBye &&
+        f.state === "scheduled" &&
+        ((f.slotA !== null &&
+          f.slotB === null &&
+          !estElimine(f.slotA) &&
+          isSlotImpossible(b.fights, f, "B", eliminated)) ||
+          (f.slotB !== null &&
+            f.slotA === null &&
+            !estElimine(f.slotB) &&
+            isSlotImpossible(b.fights, f, "A", eliminated))),
+    );
+    if (avancable) {
+      const gagnant = avancable.slotA ?? avancable.slotB;
+      patcher(b, avancable.id, {
+        state: "finished",
+        winner: gagnant,
+        winMethod: "wo",
+        cascadeForfeit: true,
+      });
       propager(
         b,
-        b.fights.find((x) => x.id === f.id)!,
+        b.fights.find((x) => x.id === avancable.id)!,
       );
       bouge = true;
+      continue;
+    }
+
+    // ── (b') ANNULATION : aucun participant possible ───────────────────────
+    // Occupant éliminé face à un slot impossible, ou deux slots vides et
+    // impossibles → le combat n'aura JAMAIS lieu.
+    const annulable = b.fights.find(
+      (f) =>
+        !f.isBye &&
+        f.state === "scheduled" &&
+        ((f.slotA !== null &&
+          estElimine(f.slotA) &&
+          f.slotB === null &&
+          isSlotImpossible(b.fights, f, "B", eliminated)) ||
+          (f.slotB !== null &&
+            estElimine(f.slotB) &&
+            f.slotA === null &&
+            isSlotImpossible(b.fights, f, "A", eliminated)) ||
+          (f.slotA === null &&
+            f.slotB === null &&
+            isSlotImpossible(b.fights, f, "A", eliminated) &&
+            isSlotImpossible(b.fights, f, "B", eliminated))),
+    );
+    if (annulable) {
+      patcher(b, annulable.id, {
+        state: "cancelled",
+        winner: null,
+        winMethod: null,
+        needsArbitration: false,
+      });
+      bouge = true;
+      continue;
     }
   }
 }
