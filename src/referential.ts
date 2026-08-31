@@ -362,7 +362,11 @@ export function computeAgeGroup(birthDateIso: string, competitionDateIso: string
   if (age <= 8) return "U9";
   if (age <= 10) return "U11";
   if (age <= 12) return "U13";
-  if (age <= 14) return "U15";
+  // DEV-086 : U15 absorbe l'âge civil 15 ; Juvénile ne commence qu'à 16 ans
+  // (règle IBJJF), en phase avec la bascule ceinture bleue automatique
+  // (BELT_AGE_BOUNDS blue minAge 16). Auparavant un athlète de 15 ans était
+  // « Juvénile » un an avant que sa ceinture ne passe bleue.
+  if (age <= 15) return "U15";
   if (age <= 17) return "Juvénile";
   if (age <= 29) return "Adulte";
   if (age <= 34) return "Master 1";

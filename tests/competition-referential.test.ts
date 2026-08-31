@@ -24,10 +24,14 @@ describe("computeAgeGroup", () => {
     expect(computeAgeGroup("2017-01-01", "2026-06-10")).toBe("U11"); // 9
     expect(computeAgeGroup("2015-06-15", "2026-06-10")).toBe("U13"); // 11
     expect(computeAgeGroup("2013-01-01", "2026-06-10")).toBe("U15"); // 13
+    expect(computeAgeGroup("2012-01-01", "2026-06-10")).toBe("U15"); // 14
+    // DEV-086 : l'âge civil 15 reste en U15 (auparavant « Juvénile »).
+    expect(computeAgeGroup("2011-12-31", "2026-06-10")).toBe("U15"); // 15
   });
 
   it("computes juvenile / adult / master boundaries (IBJJF 5-year bands)", () => {
-    expect(computeAgeGroup("2011-12-31", "2026-06-10")).toBe("Juvénile"); // 15
+    // DEV-086 : Juvénile ne commence qu'à 16 ans (année civile).
+    expect(computeAgeGroup("2010-12-31", "2026-06-10")).toBe("Juvénile"); // 16
     expect(computeAgeGroup("2009-01-01", "2026-06-10")).toBe("Juvénile"); // 17
     expect(computeAgeGroup("2008-12-31", "2026-06-10")).toBe("Adulte"); // 18
     expect(computeAgeGroup("1997-06-01", "2026-06-10")).toBe("Adulte"); // 29
@@ -173,16 +177,17 @@ describe("nextAgeCategoryChange", () => {
   });
 
   it("U15 → Juvénile au prochain 1er janvier", () => {
-    // Né 2012 : en 2026 âge 14 (U15) ; au 1er janvier 2027 âge 15 (Juvénile).
+    // DEV-086 : né 2012, âge 14 en 2026, encore U15 en 2027 (âge 15) ; il ne
+    // passe Juvénile qu'au 1er janvier 2028 (âge 16).
     const res = nextAgeCategoryChange("2012-06-15", new Date("2026-06-10T00:00:00Z"));
-    expect(res).toEqual({ nextGroup: "Juvénile", changeDate: "2027-01-01" });
+    expect(res).toEqual({ nextGroup: "Juvénile", changeDate: "2028-01-01" });
   });
 
   it("bascule un mineur né un 1er janvier le jour même (année civile)", () => {
-    // Né le 1er janvier 2012 : au 1er janvier 2027 il a 15 (Juvénile) ; la
-    // recherche démarre à l'année suivant `on` et trouve bien 2027.
+    // DEV-086 : né le 1er janvier 2012, il a 16 ans (Juvénile) au 1er janvier
+    // 2028 ; la recherche démarre à l'année suivant `on` et trouve bien 2028.
     const res = nextAgeCategoryChange("2012-01-01", new Date("2026-01-01T00:00:00Z"));
-    expect(res).toEqual({ nextGroup: "Juvénile", changeDate: "2027-01-01" });
+    expect(res).toEqual({ nextGroup: "Juvénile", changeDate: "2028-01-01" });
   });
 
   it("Juvénile → Adulte", () => {
