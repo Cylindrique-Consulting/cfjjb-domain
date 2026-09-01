@@ -265,7 +265,7 @@ describe("ce que la MESURE a réfuté, et qui doit rester réfuté", () => {
   it("`master2` n'est PAS « Master 2 » — il porte 41 à 66 ans", () => {
     // Première rédaction : traduit par déduction depuis son NOM. La mesure de
     // production le réfute (1 149 lignes, âges 41-66, zéro en dessous), alors que
-    // « Master 2 » désigne 35-39. La durée aurait été surévaluée de 60 s (+20 %) en
+    // « Master 2 » désigne 36-40. La durée aurait été surévaluée de 60 s (+20 %) en
     // violette, marron et noire — et un test verrouillait l'erreur, ce qui l'aurait
     // rendue durable.
     expect(resolveAgeGroup("master2")).toBeNull();

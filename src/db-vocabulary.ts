@@ -98,7 +98,7 @@ export const CODES_AGE_NON_TRADUISIBLES = [
   "master",
   // `master1` et `master2` FURENT d'abord traduits, par déduction depuis leur NOM.
   // La mesure les réfute : `master2` porte 1 149 lignes de 41 à 66 ans, alors que
-  // « Master 2 » désigne 35-39 au référentiel — la durée aurait été surévaluée de
+  // « Master 2 » désigne 36-40 au référentiel — la durée aurait été surévaluée de
   // 60 s (+20 %) en violette, marron et noire. `master1` (30 lignes, 31-38 ans)
   // tiendrait, lui, dans la bonne classe d'équivalence — mais c'est une coïncidence
   // de population et non une règle, et son jumeau prouve que cette paire numérote

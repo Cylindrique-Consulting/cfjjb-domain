@@ -349,26 +349,31 @@ export function listEligibleAgeGroups(actual: AgeGroup): AgeGroup[] {
 
 /**
  * Age group from the age reached during the calendar year of the competition
- * (IBJJF rule). Master bands are the IBJJF 5-year bands:
- * Master 1 = 30-34, Master 2 = 35-39, Master 3 = 40-44, Master 4 = 45-49,
- * Master 5+ = 50+.
+ * (IBJJF rule for the reference date). Bornes CFJJB :
+ * U7 <=7, U9 8-9, U11 10-11, U13 12-13, U15 14-15, Juvénile 16-17,
+ * Adulte 18-29, Master 1 = 30-35, Master 2 = 36-40, Master 3 = 41-45,
+ * Master 4 = 46-50, Master 5+ = 51+.
  */
 export function computeAgeGroup(birthDateIso: string, competitionDateIso: string): AgeGroup {
   const birthYear = new Date(birthDateIso).getFullYear();
   const competitionYear = new Date(competitionDateIso).getFullYear();
   const age = competitionYear - birthYear;
 
-  if (age <= 6) return "U7";
-  if (age <= 8) return "U9";
-  if (age <= 10) return "U11";
-  if (age <= 12) return "U13";
-  if (age <= 14) return "U15";
+  // Bornes CFJJB (DEV-086 étendu). U15 absorbe l'âge civil 15 ; Juvénile ne
+  // commence qu'à 16 ans, en phase avec la bascule ceinture bleue automatique
+  // (BELT_AGE_BOUNDS blue minAge 16). Auparavant un athlète de 15 ans était
+  // « Juvénile » un an avant que sa ceinture ne passe bleue.
+  if (age <= 7) return "U7";
+  if (age <= 9) return "U9";
+  if (age <= 11) return "U11";
+  if (age <= 13) return "U13";
+  if (age <= 15) return "U15";
   if (age <= 17) return "Juvénile";
   if (age <= 29) return "Adulte";
-  if (age <= 34) return "Master 1";
-  if (age <= 39) return "Master 2";
-  if (age <= 44) return "Master 3";
-  if (age <= 49) return "Master 4";
+  if (age <= 35) return "Master 1";
+  if (age <= 40) return "Master 2";
+  if (age <= 45) return "Master 3";
+  if (age <= 50) return "Master 4";
   return "Master 5+";
 }
 
@@ -394,10 +399,10 @@ export function nextAgeCategoryChange(
 
   // Le prochain 1er janvier après `on` (borne minimale de recherche).
   const startYear = on.getUTCFullYear() + 1;
-  // Borne haute : le 1er janvier de l'année des 50 ans suffit à atteindre la
-  // dernière tranche (Master 5+ = 50+). +1 par sécurité d'arrondi.
+  // Borne haute : le 1er janvier de l'année des 51 ans suffit à atteindre la
+  // dernière tranche (Master 5+ = 51+). +1 par sécurité d'arrondi.
   const birthYear = new Date(birthDateIso).getUTCFullYear();
-  const maxYear = birthYear + 51;
+  const maxYear = birthYear + 52;
 
   for (let year = startYear; year <= maxYear; year += 1) {
     const changeDate = `${year}-01-01`;
