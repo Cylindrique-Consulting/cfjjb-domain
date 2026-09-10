@@ -17,7 +17,7 @@ type SimFight = {
   id: number;
   category_id: number;
   division: number;
-  type: "BraketFight" | "BraketFightPool3";
+  type: "BraketFight" | "BraketFightPool3" | "BraketFightRepechage3";
   competitor_1_id: string | null;
   competitor_2_id: string | null;
   winner_id: string | null;
@@ -56,6 +56,7 @@ function toSim(fights: GeneratedFight[]): SimFight[] {
 
 function simulateDay(fights: SimFight[]): void {
   const pool3 = fights.find((f) => f.type === "BraketFightPool3") ?? null;
+  const repechage = fights.find((f) => f.type === "BraketFightRepechage3") ?? null;
   for (let guard = 0; guard < 200; guard++) {
     const ready = fights
       .filter((f) => f.status === "scheduled" && f.competitor_1_id && f.competitor_2_id)
@@ -69,6 +70,14 @@ function simulateDay(fights: SimFight[]): void {
       if (next.slot === 1) next.fight.competitor_1_id = fight.winner_id;
       else next.fight.competitor_2_id = fight.winner_id;
     }
+    // À TROIS : le perdant de la demie descend au REPÊCHAGE, toujours en
+    // emplacement 1 — le générateur pose celui qui attend en 2.
+    if (repechage && fight.division === 2 && fight.type === "BraketFight") {
+      const loser =
+        fight.competitor_1_id === fight.winner_id ? fight.competitor_2_id : fight.competitor_1_id;
+      if (loser) repechage.competitor_1_id = loser;
+    }
+
     if (pool3 && fight.division === 2 && fight.type === "BraketFight") {
       const loser =
         fight.competitor_1_id === fight.winner_id ? fight.competitor_2_id : fight.competitor_1_id;

@@ -40,12 +40,15 @@ describe("computeMedalNeed — 2 competitors → or + argent, jamais de bronze",
 });
 
 describe("computeMedalNeed — pool3 (miroir du générateur : Pool3 seulement pour n≥4)", () => {
-  it("n=3 → bronze=0 (aucun fight Pool3 généré)", () => {
+  it("n=3 → bronze=1 : le REPÊCHAGE le décerne, quel que soit le mode", () => {
+    // Avant le 10/09/2026 : bronze=0. Trois compétiteurs, deux médailles, et une
+    // troisième marche vide sur le podium — c'était un défaut, pas une règle.
+    // Le repêchage tranche la 3e place par un COMBAT, et son perdant l'occupe.
     expect(computeMedalNeed([cat(3)], POOL3)).toEqual({
       gold: 1,
       silver: 1,
-      bronze: 0,
-      total: 2,
+      bronze: 1,
+      total: 3,
     });
   });
   it("n=4 → bronze=1", () => {
@@ -88,12 +91,12 @@ describe("computeMedalNeed — agrégation multi-catégories", () => {
     const need = computeMedalNeed(
       [
         cat(4), // pool3 → 3 médailles (1+1+1)
-        cat(3), // → 2 médailles (1+1)
+        cat(3), // repêchage → 3 médailles (1+1+1)
         cat(1), // → 1 médaille (or)
       ],
       POOL3,
     );
-    expect(need).toEqual({ gold: 3, silver: 2, bronze: 1, total: 6 });
+    expect(need).toEqual({ gold: 3, silver: 2, bronze: 2, total: 7 });
   });
 
   it("somme correctement plusieurs catégories (shared_bronze)", () => {

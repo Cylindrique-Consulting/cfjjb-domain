@@ -31,9 +31,15 @@ function generatedLeaves(
 ): (string | null)[] {
   const result = generateBracket(entries, seed, { thirdPlaceMode: "pool3", seedingPlan: plan });
   if (result.kind !== "bracket") throw new Error("bracket attendu");
-  const regular = result.fights.filter((f: GeneratedFight) => f.type === "BraketFight");
-  const deepest = Math.max(...regular.map((f) => f.division));
-  return regular
+  // LE REPÊCHAGE COMPTE COMME UNE POSITION DE PREMIER TOUR, parce qu'il EN EST
+  // une : à trois inscrits, il occupe exactement la case où était le bye. Le
+  // gel éprouve OÙ chaque graine est placée ; l'exclure ferait disparaître un
+  // combattant du corpus et le verrou cesserait de voir la moitié du placement.
+  const arbre = result.fights.filter(
+    (f: GeneratedFight) => f.type === "BraketFight" || f.type === "BraketFightRepechage3",
+  );
+  const deepest = Math.max(...arbre.map((f) => f.division));
+  return arbre
     .filter((f) => f.division === deepest)
     .sort((a, b) => a.indexInDivision - b.indexInDivision)
     .flatMap((f) => [f.slotA, f.slotB]);
@@ -231,8 +237,13 @@ const GEL_TAILLES: Record<number, (string | null)[]> = {
 const GEL_BALAYAGE: string[] = [
   "02/alpha 1,2",
   "02/beta 2,1",
-  "03/alpha 3,.,1,2",
-  "03/beta 3,.,1,2",
+  // À TROIS, LE CÔTÉ CHANGE — ET LUI SEUL (10/09/2026). Le bye est devenu un
+  // repêchage, dont l'emplacement LIBRE est toujours `A` : celui qui attend
+  // passe donc de `slotA` à `slotB` du MÊME combat, à la MÊME position de
+  // premier tour. Le placement des graines n'a pas bougé d'un cran ; c'est
+  // pourquoi ces deux lignes-ci changent et aucune autre.
+  "03/alpha .,3,1,2",
+  "03/beta .,3,1,2",
   "04/alpha 4,3,2,1",
   "04/beta 3,2,1,4",
   "05/alpha 1,.,2,3,4,.,5,.",
