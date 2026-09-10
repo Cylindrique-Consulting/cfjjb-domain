@@ -80,8 +80,10 @@ describe("le besoin en médailles d'une poule", () => {
     expect(computeMedalNeed(cats, { thirdPlaceMode: "pool3" })).toEqual({
       gold: 5,
       silver: 4,
-      bronze: 0 + 1 + 1,
-      total: 11,
+      // n=3 passe de 0 à 1 depuis le repêchage (10/09/2026) : c'est le SEUL
+      // terme qui bouge, et les modes se rejoignent enfin sur cette taille-là.
+      bronze: 1 + 1 + 1,
+      total: 12,
     });
   });
 

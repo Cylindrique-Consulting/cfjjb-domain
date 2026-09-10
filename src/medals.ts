@@ -41,16 +41,27 @@ type MedalOpts = {
 
 /**
  * Bronze count for a category, mirroring the fights the generator actually
- * produces (bracket-generator.ts ~l.287) and how the podium is materialized
- * (jourj/pull-results.ts computeCategoryPodium):
+ * produces and how the podium is materialized.
  *
+ *   - n = 3         → le REPÊCHAGE, quel que soit le mode → 1 bronze.
  *   - pool3         → one Pool3 fight only when n ≥ 4 → 1 bronze, else 0.
- *   - shared_bronze → the semi-final losers share bronze:
- *                     n ≥ 4 → 2 losers, n = 3 → 1 loser, n < 3 → 0.
+ *   - shared_bronze → the semi-final losers share bronze: n ≥ 4 → 2 losers.
+ *
+ * ┌─ POURQUOI TROIS INSCRITS NE CONSULTENT PLUS LE MODE (10/09/2026) ─────────┐
+ * │ Le mode de 3e place répond à « que faire des DEUX perdants de demies ? ».  │
+ * │ À trois, cette question ne se pose pas : il n'y a qu'une demie, et depuis  │
+ * │ le repêchage le troisième est décidé par un combat — le perdant de ce      │
+ * │ combat-là, et lui seul.                                                    │
+ * │                                                                            │
+ * │ Ce qui disparaît au passage est un DÉFAUT, pas une règle : en mode         │
+ * │ « pool3 », une catégorie à trois ne décernait AUCUN bronze. Trois          │
+ * │ compétiteurs, deux médailles, et une troisième marche vide sur le podium.  │
+ * └───────────────────────────────────────────────────────────────────────────┘
  */
 function bronzeNeed(mode: ThirdPlaceModeDb, n: number): number {
+  if (n === 3) return 1;
   if (mode === "shared_bronze") {
-    return n >= 4 ? 2 : n === 3 ? 1 : 0;
+    return n >= 4 ? 2 : 0;
   }
   // "pool3": a dedicated third-place fight is generated only for n ≥ 4.
   return n >= 4 ? 1 : 0;

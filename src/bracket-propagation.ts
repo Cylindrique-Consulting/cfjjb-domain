@@ -47,7 +47,7 @@ export type PropagationFight = {
   id: string;
   division: number;
   indexInDivision: number;
-  type: "BraketFight" | "BraketFightPool3";
+  type: "BraketFight" | "BraketFightPool3" | "BraketFightRepechage3";
   slotA: string | null;
   slotB: string | null;
   isBye: boolean;
@@ -169,6 +169,32 @@ export function pool3Of(fights: readonly PropagationFight[]): PropagationFight |
   return fights.find((f) => f.type === "BraketFightPool3") ?? null;
 }
 
+/**
+ * LE REPÊCHAGE D'UNE CATÉGORIE À TROIS, s'il existe.
+ *
+ * ┌─ POURQUOI IL PREND LA PLACE DU BYE, ET NON UNE DIVISION À LUI ────────────┐
+ * │ À trois inscrits, l'arbre de taille 4 portait un bye : un combattant       │
+ * │ passait GRATUITEMENT en finale, et la catégorie ne comptait que deux       │
+ * │ combats réels. Décision produit du 10/09/2026 : ce passage gratuit         │
+ * │ disparaît. Le troisième n'attend plus la finale, il attend le PERDANT de   │
+ * │ la demie, et le vainqueur de ce combat-là monte en finale.                 │
+ * │                                                                            │
+ * │ Il se pose donc EXACTEMENT là où était le bye — même division, même index  │
+ * │ — et cela n'est pas un détail d'implémentation : `findNextSlot` route      │
+ * │ alors son vainqueur vers la finale SANS UNE LIGNE DE PLUS, par la même     │
+ * │ arithmétique que tous les autres combats. Une division à part aurait       │
+ * │ demandé une règle de propagation parallèle, c'est-à-dire une cinquième     │
+ * │ implémentation à tenir d'accord avec les quatre autres.                    │
+ * │                                                                            │
+ * │ SON EMPLACEMENT VIDE EST TOUJOURS `A`, par construction du générateur : le │
+ * │ combattant qui attend est posé en `B`. La règle du perdant n'a donc pas à  │
+ * │ deviner de quel côté écrire.                                               │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+export function repechage3Of(fights: readonly PropagationFight[]): PropagationFight | null {
+  return fights.find((f) => f.type === "BraketFightRepechage3") ?? null;
+}
+
 /** L'emplacement suivant d'un vainqueur, ou `null` s'il n'y en a pas. */
 export function findNextSlot(
   fights: readonly PropagationFight[],
@@ -189,6 +215,27 @@ export function findNextSlot(
  * dans sa spécification : la demie d'index 0 alimente l'emplacement A, celle
  * d'index 1 l'emplacement B — même convention que la propagation du vainqueur.
  */
+/**
+ * L'emplacement du PERDANT de la demie dans le REPÊCHAGE d'une catégorie à trois.
+ *
+ * Le pendant de `findPool3Slot`, pour l'autre « perdant de » du système. La
+ * demie est l'unique combat ordinaire de la division 2 : le repêchage occupe
+ * l'autre index, et son emplacement libre est toujours `A`.
+ */
+export function findRepechage3Slot(
+  fights: readonly PropagationFight[],
+  demie: PropagationFight,
+): { fightId: string; slot: Slot } | null {
+  if (demie.type !== "BraketFight" || demie.division !== 2) return null;
+  const rep = repechage3Of(fights);
+  if (!rep) return null;
+  // Un repêchage ne se nourrit pas de lui-même, et une demie d'un autre index
+  // que celui qui reste n'existe pas à trois : on le vérifie plutôt que de le
+  // supposer, parce que la supposition tiendrait jusqu'au jour où elle tombe.
+  if (rep.indexInDivision === demie.indexInDivision) return null;
+  return { fightId: rep.id, slot: "A" };
+}
+
 export function findPool3Slot(
   fights: readonly PropagationFight[],
   semi: PropagationFight,
@@ -672,9 +719,21 @@ export function computePodium(
   const gold = finale.state === "finished" ? finale.winner : null;
   const silver = finale.state === "finished" ? loserOf(finale) : null;
 
+  const rep = repechage3Of(fights);
   const p3 = pool3Of(fights);
   let bronze: string[] = [];
-  if (p3) {
+  if (rep) {
+    // CATÉGORIE À TROIS : le bronze est le PERDANT DU REPÊCHAGE, et il n'y en a
+    // qu'un. Il a perdu son dernier combat et n'est pas en finale ; le perdant
+    // de la demie, lui, peut très bien être en finale par le repêchage. Prendre
+    // « les perdants des demies » ici décernerait donc un bronze à un finaliste.
+    if (rep.state === "finished" && rep.winner) {
+      const perdant = loserOf(rep);
+      bronze = perdant === null ? [] : [perdant];
+    } else {
+      missing.push("Repêchage non terminé");
+    }
+  } else if (p3) {
     if (p3.state === "finished" && p3.winner) {
       bronze = [p3.winner];
     } else {

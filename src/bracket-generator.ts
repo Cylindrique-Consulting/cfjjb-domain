@@ -72,7 +72,7 @@ export type BracketEntry = {
   sourceCategoryId?: string | null;
 };
 
-export type BracketFightType = "BraketFight" | "BraketFightPool3";
+export type BracketFightType = "BraketFight" | "BraketFightPool3" | "BraketFightRepechage3";
 
 export type GeneratedFight = {
   division: number;
@@ -167,6 +167,39 @@ export function generateBracket(
     byDivision.set(division, divisionFights);
   }
 
+  // ┌─ TROIS INSCRITS : LE BYE DEVIENT UN REPÊCHAGE ───────────────────────────┐
+  // │ L'arbre de taille 4 portait un bye, donc un combattant montait           │
+  // │ GRATUITEMENT en finale et la catégorie ne comptait que deux combats      │
+  // │ réels. Décision produit du 10/09/2026 : ce passage gratuit disparaît.     │
+  // │ Celui qui attendait n'attend plus la finale, il attend le PERDANT de la  │
+  // │ demie, et le vainqueur de ce combat-là monte en finale.                   │
+  // │                                                                          │
+  // │ ON NE TOUCHE PAS AU PLACEMENT DES GRAINES. Le bye reste où le plan l'a   │
+  // │ mis, et l'occupant qu'il avait reste le sien : il passe simplement de    │
+  // │ `slotA` à `slotB`, et `slotA` attend le perdant de la demie. La          │
+  // │ hiérarchie des têtes de série est donc EXACTEMENT celle d'avant — ce qui │
+  // │ change, c'est que la tête de série doit maintenant gagner un combat pour │
+  // │ atteindre la finale, au lieu d'y être portée.                             │
+  // │                                                                          │
+  // │ ET IL RESTE À LA PLACE DU BYE, ce qui n'est pas cosmétique :             │
+  // │ `findNextSlot` route alors son vainqueur vers la finale par la même      │
+  // │ arithmétique que tous les autres combats, sans une ligne de plus. Une    │
+  // │ division à part aurait demandé une cinquième implémentation de la        │
+  // │ propagation à tenir d'accord avec les quatre existantes.                  │
+  // │                                                                          │
+  // │ POURQUOI n === 3 ET NON « il y a un bye » : à 5, 6 ou 7 inscrits les     │
+  // │ byes sont plusieurs et vivent au premier tour d'un arbre plus profond ;  │
+  // │ les repêcher demanderait un format, pas une exception. La demande porte  │
+  // │ sur la catégorie à trois, et le code dit exactement cela.                 │
+  // └──────────────────────────────────────────────────────────────────────────┘
+  const repechage3 = n === 3 ? (byDivision.get(2) ?? []).find((f) => f.isBye) : undefined;
+  if (repechage3) {
+    repechage3.type = "BraketFightRepechage3";
+    repechage3.isBye = false;
+    repechage3.slotB = repechage3.slotA ?? repechage3.slotB;
+    repechage3.slotA = null;
+  }
+
   // Pre-place bye winners into the next division (Jour J only propagates
   // through the UI when a fight is finished by an operator; bye fights are
   // pushed already finished, so the placement must be materialized here).
@@ -185,6 +218,9 @@ export function generateBracket(
 
   // Third-place fight: only when two REAL semi-final losers will exist
   // (n >= 4). Jour J's podium falls back to "semi losers" otherwise.
+  //
+  // À TROIS, LE REPÊCHAGE DÉCERNE DÉJÀ LE BRONZE — son perdant est troisième —
+  // et `n >= 4` l'excluait déjà du combat de 3e place. Rien à ajouter ici.
   const realFights = fights.filter((f) => !f.isBye).length;
   let pool3 = false;
   if (opts.thirdPlaceMode === "pool3" && n >= 4) {

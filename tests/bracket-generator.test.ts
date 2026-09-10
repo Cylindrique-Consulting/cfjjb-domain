@@ -5,6 +5,12 @@ import {
   type BracketEntry,
   type GeneratedFight,
 } from "../src/bracket-generator";
+import {
+  findNextSlot,
+  findRepechage3Slot,
+  fromGenerated,
+  repechage3Of,
+} from "../src/bracket-propagation";
 
 // ===================================================================
 // Faithful replica of Jour J's runtime model
@@ -17,7 +23,7 @@ type SimFight = {
   id: number;
   category_id: number;
   division: number;
-  type: "BraketFight" | "BraketFightPool3";
+  type: "BraketFight" | "BraketFightPool3" | "BraketFightRepechage3";
   competitor_1_id: string | null;
   competitor_2_id: string | null;
   winner_id: string | null;
@@ -57,6 +63,20 @@ function computePodium(fights: SimFight[]): Map<number, string[]> {
       final.competitor_1_id === final.winner_id ? final.competitor_2_id : final.competitor_1_id;
     if (loserId) podium.set(2, [loserId]);
   }
+  // À TROIS, LE BRONZE EST LE PERDANT DU REPÊCHAGE. Surtout pas « le perdant de
+  // la demie » : celui-là peut très bien être en finale, justement PARCE QU'il
+  // a gagné son repêchage. Le décerner ici mettrait un finaliste sur la
+  // troisième marche.
+  const repechage = fights.find((f) => f.type === "BraketFightRepechage3");
+  if (repechage?.status === "finished" && repechage.winner_id) {
+    const loserId =
+      repechage.competitor_1_id === repechage.winner_id
+        ? repechage.competitor_2_id
+        : repechage.competitor_1_id;
+    if (loserId) podium.set(3, [loserId]);
+    return podium;
+  }
+
   const thirdPlaceFight = fights.find((f) => f.type === "BraketFightPool3");
   if (thirdPlaceFight?.status === "finished" && thirdPlaceFight.winner_id) {
     podium.set(3, [thirdPlaceFight.winner_id]);
@@ -111,6 +131,7 @@ function simulateDay(fights: SimFight[], rngSeed: number): void {
   };
 
   const pool3 = fights.find((f) => f.type === "BraketFightPool3") ?? null;
+  const repechage = fights.find((f) => f.type === "BraketFightRepechage3") ?? null;
 
   for (let guard = 0; guard < 1000; guard++) {
     const ready = fights.filter(
@@ -128,6 +149,16 @@ function simulateDay(fights: SimFight[], rngSeed: number): void {
     if (next && fight.winner_id) {
       if (next.slot === 1) next.fight.competitor_1_id = fight.winner_id;
       else next.fight.competitor_2_id = fight.winner_id;
+    }
+
+    // À TROIS : le perdant de la demie descend au REPÊCHAGE, où l'attend le
+    // troisième. C'est le pendant exact de la règle du Pool3 ci-dessous — un
+    // « perdant de », et le second du système.
+    if (repechage && fight.division === 2 && fight.type === "BraketFight") {
+      const loser =
+        fight.competitor_1_id === fight.winner_id ? fight.competitor_2_id : fight.competitor_1_id;
+      // Toujours l'emplacement 1 : le générateur pose celui qui attend en 2.
+      if (loser) repechage.competitor_1_id = loser;
     }
 
     // Companion patch: semi-final loser feeds the Pool3.
@@ -183,18 +214,84 @@ describe("generateBracket - edge cases", () => {
     expect(result.realFightCount).toBe(1);
   });
 
-  it("N=3 → one real semi + bye + final, no Pool3 (bronze = semi loser fallback)", () => {
+  it("N=3 → demie + REPÊCHAGE + finale, personne ne monte gratuitement", () => {
+    /**
+     * ┌─ CE QUE CE CAS PROUVE, ET CE QU'IL REMPLACE ────────────────────────────┐
+     * │ Il éprouvait l'inverse : « une demie réelle, un BYE, une finale », donc  │
+     * │ deux combats et un combattant porté en finale sans combattre. Décision   │
+     * │ produit du 10/09/2026 : ce passage gratuit disparaît. Le bye devient un  │
+     * │ repêchage où le troisième attend le PERDANT de la demie, et le vainqueur │
+     * │ de ce combat-là monte en finale.                                          │
+     * │                                                                          │
+     * │ LE REPÊCHAGE RESTE À LA PLACE DU BYE, et c'est la propriété qui compte : │
+     * │ `findNextSlot` route alors son vainqueur vers la finale par la même      │
+     * │ arithmétique que tous les autres combats, sans règle de plus.            │
+     * └──────────────────────────────────────────────────────────────────────────┘
+     */
     const result = generateBracket(makeEntries(3), "s", { thirdPlaceMode: "pool3" });
     if (result.kind !== "bracket") throw new Error("expected bracket");
-    expect(result.fights).toHaveLength(3); // 2 semis (1 bye) + final
-    const byes = result.fights.filter((f) => f.isBye);
-    expect(byes).toHaveLength(1);
+
+    expect(result.fights).toHaveLength(3); // demie + repêchage + finale
+    expect(
+      result.fights.filter((f) => f.isBye),
+      "plus personne ne passe gratuitement",
+    ).toHaveLength(0);
+    expect(result.realFightCount, "trois combats se jouent, contre deux avant").toBe(3);
     expect(result.fights.some((f) => f.type === "BraketFightPool3")).toBe(false);
-    expect(result.realFightCount).toBe(2); // N-1
-    // The bye winner is pre-placed in the final.
-    const final = result.fights.find((f) => f.division === 1);
-    const byeWinner = byes[0]?.slotA ?? byes[0]?.slotB;
-    expect([final?.slotA, final?.slotB]).toContain(byeWinner);
+
+    const rep = result.fights.find((f) => f.type === "BraketFightRepechage3");
+    const demie = result.fights.find((f) => f.type === "BraketFight" && f.division === 2);
+    const finale = result.fights.find((f) => f.division === 1);
+    if (!rep || !demie || !finale) throw new Error("structure attendue");
+
+    // Le repêchage occupe la case du bye : même division, l'autre index.
+    expect(rep.division).toBe(2);
+    expect(rep.indexInDivision).not.toBe(demie.indexInDivision);
+
+    // Il attend le perdant en A, et le troisième y est DÉJÀ posé en B.
+    expect(rep.slotA, "l'emplacement du perdant est libre à la génération").toBeNull();
+    expect(rep.slotB).not.toBeNull();
+
+    // LA FINALE EST VIDE : elle n'a plus d'occupant pré-placé, puisqu'il n'y a
+    // plus de bye. C'est exactement ce que le lot enlève.
+    expect([finale.slotA, finale.slotB]).toEqual([null, null]);
+
+    // Les trois inscrits sont présents une fois, demie et repêchage confondus.
+    const places = [demie.slotA, demie.slotB, rep.slotB].filter((x): x is string => x !== null);
+    expect(places.sort()).toEqual(
+      makeEntries(3)
+        .map((e) => e.registrationId)
+        .sort(),
+    );
+  });
+
+  it("N=3 : le vainqueur du repêchage monte en finale, et son perdant est bronze", () => {
+    // ÉPROUVÉ CONTRE LA VRAIE PROPAGATION, pas contre la réplique de l'ancienne
+    // application : c'est `bracket-propagation` que le module exécute.
+    const result = generateBracket(makeEntries(3), "s", { thirdPlaceMode: "pool3" });
+    if (result.kind !== "bracket") throw new Error("expected bracket");
+    const fights = fromGenerated(result.fights);
+
+    const demie = fights.find((f) => f.type === "BraketFight" && f.division === 2)!;
+    const rep = repechage3Of(fights)!;
+    const finale = fights.find((f) => f.division === 1 && f.type === "BraketFight")!;
+
+    expect(findNextSlot(fights, demie), "le vainqueur de la demie va en finale").toEqual({
+      fightId: finale.id,
+      slot: demie.indexInDivision % 2 === 0 ? "A" : "B",
+    });
+    expect(findNextSlot(fights, rep), "le vainqueur du repêchage AUSSI").toEqual({
+      fightId: finale.id,
+      slot: rep.indexInDivision % 2 === 0 ? "A" : "B",
+    });
+    expect(
+      findRepechage3Slot(fights, demie),
+      "le perdant de la demie descend au repêchage",
+    ).toEqual({ fightId: rep.id, slot: "A" });
+    expect(
+      findRepechage3Slot(fights, rep),
+      "un repêchage ne se nourrit pas de lui-même",
+    ).toBeNull();
   });
 
   it("N=4 → 2 semis + final + Pool3", () => {
@@ -230,11 +327,19 @@ describe("generateBracket - structural properties (N=2..33)", () => {
         const regular = result.fights.filter((f) => f.type === "BraketFight");
         const pool3s = result.fights.filter((f) => f.type === "BraketFightPool3");
 
-        // Complete tree: division d has exactly 2^(d-1) regular fights.
+        const repechages = result.fights.filter((f) => f.type === "BraketFightRepechage3");
+        // À TROIS, LE BYE EST DEVENU UN REPÊCHAGE : l'arbre garde sa forme —
+        // trois combats aux mêmes coordonnées — mais l'un d'eux n'est plus un
+        // combat « ordinaire ». On le remet dans le compte pour éprouver la
+        // FORME, qui elle n'a pas bougé.
+        expect(repechages).toHaveLength(n === 3 ? 1 : 0);
+        const structurels = [...regular, ...repechages];
+
+        // Complete tree: division d has exactly 2^(d-1) fights of the tree.
         for (let d = 1; d <= deepest; d++) {
-          expect(regular.filter((f) => f.division === d)).toHaveLength(2 ** (d - 1));
+          expect(structurels.filter((f) => f.division === d)).toHaveLength(2 ** (d - 1));
         }
-        expect(regular).toHaveLength(size - 1);
+        expect(structurels).toHaveLength(size - 1);
 
         // Pool3 present iff n >= 4, always division 2 index 2, emitted LAST
         // (highest id under sequential allocation).
@@ -244,27 +349,32 @@ describe("generateBracket - structural properties (N=2..33)", () => {
         }
 
         // Byes: only in the deepest division, exactly one slot, never two.
+        // À TROIS il n'y en a PLUS : le seul qu'il y avait est devenu le
+        // repêchage, et c'est tout l'objet du lot — personne ne monte
+        // gratuitement en finale.
         const byes = result.fights.filter((f) => f.isBye);
-        expect(byes).toHaveLength(size - n);
+        expect(byes).toHaveLength(n === 3 ? 0 : size - n);
         for (const bye of byes) {
           expect(bye.division).toBe(deepest);
           expect([bye.slotA, bye.slotB].filter(Boolean)).toHaveLength(1);
         }
         // No first-round fight with two empty slots (bye-vs-bye).
-        for (const f of regular.filter((f) => f.division === deepest)) {
+        for (const f of structurels.filter((f) => f.division === deepest)) {
           expect(f.slotA !== null || f.slotB !== null).toBe(true);
         }
 
         // Every entry appears exactly once in the first round.
-        const firstRoundIds = regular
+        const firstRoundIds = structurels
           .filter((f) => f.division === deepest)
           .flatMap((f) => [f.slotA, f.slotB])
           .filter((s): s is string => s !== null)
           .sort();
         expect(firstRoundIds).toEqual(entries.map((e) => e.registrationId).sort());
 
-        // realFightCount invariant.
-        expect(result.realFightCount).toBe(n - 1 + (n >= 4 ? 1 : 0));
+        // realFightCount invariant. À TROIS il passe de 2 à 3 : le bye qui ne se
+        // jouait pas est devenu un combat qui se joue, et c'est la mesure même
+        // du lot — un combattant de moins qui monte gratuitement.
+        expect(result.realFightCount).toBe(n === 3 ? 3 : n - 1 + (n >= 4 ? 1 : 0));
 
         // Determinism: same inputs → identical bracket.
         const again = generateBracket(entries, seed, { thirdPlaceMode: "pool3" });
@@ -302,7 +412,7 @@ describe("generateBracket - Jour J propagation simulation", () => {
         if (n >= 4) {
           expect(bronze).toHaveLength(1); // Pool3 winner
         } else if (n === 3) {
-          expect(bronze).toHaveLength(1); // single semi loser fallback
+          expect(bronze).toHaveLength(1); // perdant du repêchage
         } else {
           expect(bronze).toHaveLength(0);
         }
