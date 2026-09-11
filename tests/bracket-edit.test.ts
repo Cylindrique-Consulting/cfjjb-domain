@@ -129,7 +129,9 @@ describe("swapBracketLeafSlots - invariants", () => {
           try {
             out = swapBracketLeafSlots(fights, a, b);
           } catch (e) {
-            expect(e).toBeInstanceOf(BracketEditError); // only double-bye rejections
+            // Two legitimate rejections: a double bye, and the repechage slot
+            // that is reserved for the semi-final loser.
+            expect(e).toBeInstanceOf(BracketEditError);
             continue;
           }
           expect(multiset(out)).toEqual(multiset(fights));
@@ -167,6 +169,80 @@ describe("swapBracketLeafSlots - invariants", () => {
     const out = swapBracketLeafSlots(fights, 0, 2);
     const key = (f: GeneratedFight) => `${f.division}:${f.indexInDivision}:${f.type}`;
     expect(out.map(key).sort()).toEqual(fights.map(key).sort());
+  });
+});
+
+describe("à trois inscrits, le repêchage est une case du premier tour", () => {
+  /**
+   * ┌─ LE TROISIÈME INSCRIT AVAIT DISPARU ─────────────────────────────────────┐
+   * │ `readLeafOccupants` filtrait sur `type === "BraketFight"`. Quand le bye   │
+   * │ de la catégorie à trois est devenu un repêchage, ce filtre a retiré sa    │
+   * │ case du premier tour : la liste des feuilles est passée de quatre à       │
+   * │ deux, et celui qui attend au repêchage est devenu INDÉPLAÇABLE par        │
+   * │ l'admin. La suite est restée verte de bout en bout, parce qu'elle         │
+   * │ mesurait « tout échange valide se résout » sans jamais mesurer COMBIEN    │
+   * │ d'échanges sont valides.                                                   │
+   * │                                                                            │
+   * │ Les deux sondes ci-dessous ferment ce trou par les deux bouts : le        │
+   * │ nombre de feuilles, et la présence nominative des trois inscrits.          │
+   * └───────────────────────────────────────────────────────────────────────────┘
+   */
+  it("les trois inscrits sont tous atteignables par l'admin", () => {
+    const occ = readLeafOccupants(gen(3));
+    expect(occ).toHaveLength(4);
+    expect(occ.filter((x) => x !== null).sort()).toEqual(["r1", "r2", "r3"]);
+  });
+
+  it("la place qui attend le perdant de la demie refuse qu'on l'occupe", () => {
+    const fights = gen(3);
+    const occ = readLeafOccupants(fights);
+    const reservee = occ.findIndex((x) => x === null);
+    expect(reservee).toBeGreaterThanOrEqual(0);
+    let leve = 0;
+    for (let autre = 0; autre < occ.length; autre++) {
+      if (autre === reservee) continue;
+      try {
+        swapBracketLeafSlots(fights, reservee, autre);
+      } catch (e) {
+        expect(e).toBeInstanceOf(BracketEditError);
+        expect((e as BracketEditError).message).toContain("perdant de la demi-finale");
+        leve++;
+      }
+    }
+    expect(leve).toBe(occ.length - 1);
+  });
+
+  it("on choisit qui attend au repêchage en échangeant deux compétiteurs", () => {
+    const fights = gen(3);
+    const occ = readLeafOccupants(fights);
+    const reservee = occ.findIndex((x) => x === null);
+    // Le voisin de la case réservée EST celui qui attend : même combat.
+    const attend = reservee % 2 === 0 ? reservee + 1 : reservee - 1;
+    const autre = occ.findIndex((x, i) => x !== null && i !== attend);
+    const out = swapBracketLeafSlots(fights, attend, autre);
+
+    const apres = readLeafOccupants(out);
+    expect(apres[attend]).toBe(occ[autre]);
+    expect(apres[autre]).toBe(occ[attend]);
+    expect(apres[reservee]).toBeNull();
+    // L'original n'a pas bougé.
+    expect(readLeafOccupants(fights)).toEqual(occ);
+  });
+
+  it("le repêchage ne devient jamais un bye après un échange", () => {
+    // Sinon son occupant serait déclaré gagnant d'avance et monterait en
+    // finale sans combattre : le pire résultat possible de cette édition.
+    const fights = gen(3);
+    const occ = readLeafOccupants(fights);
+    const reservee = occ.findIndex((x) => x === null);
+    const attend = reservee % 2 === 0 ? reservee + 1 : reservee - 1;
+    const autre = occ.findIndex((x, i) => x !== null && i !== attend);
+    const out = swapBracketLeafSlots(fights, attend, autre);
+    const rep = out.find((f) => f.type === "BraketFightRepechage3");
+    expect(rep).toBeDefined();
+    expect(rep!.isBye).toBe(false);
+    expect(rep!.slotA).toBeNull();
+    expect(rep!.slotB).toBeTruthy();
   });
 });
 

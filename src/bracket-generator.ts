@@ -268,6 +268,46 @@ export class BracketEditError extends Error {}
  * passer le format est protégé quand même. Le paramètre `format` reste accepté
  * pour que celui qui LIT la colonne puisse refuser sans rien charger.
  */
+/**
+ * ┌─ QUI OCCUPE UNE CASE DE L'ARBRE ──────────────────────────────────────────┐
+ * │ Les deux fonctions d'édition ci-dessous ont longtemps filtré sur          │
+ * │ `type === "BraketFight"`, ce qui revenait à dire « tout sauf la petite    │
+ * │ finale » tant qu'il n'existait que deux types. Le repêchage à trois       │
+ * │ inscrits a rendu cette formulation fausse SANS LA RENDRE ROUGE : il a     │
+ * │ pris la case d'un bye au premier tour, et le troisième inscrit a disparu  │
+ * │ de la liste des feuilles. L'admin ne pouvait plus le déplacer, et rien à  │
+ * │ l'écran ne disait qu'il manquait.                                          │
+ * │                                                                            │
+ * │ La règle est donc énoncée par ce qu'elle EXCLUT : seule la petite finale  │
+ * │ vit hors des colonnes (sa division est un détail de rangement du          │
+ * │ générateur, cf. `club-bracket.ts`). Tout le reste occupe une vraie case.  │
+ * │ Un type ajouté demain entre dans l'arbre par défaut, ce qui est le bon    │
+ * │ défaut : il faudra l'en sortir explicitement, pas penser à l'y mettre.    │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+function occupeUneCase(f: GeneratedFight): boolean {
+  return f.type !== "BraketFightPool3";
+}
+
+/**
+ * Les feuilles RÉSERVÉES : celles qu'aucun glisser-déposer ne remplit.
+ *
+ * Le repêchage attend le perdant de la demie dans son côté A (contrat posé par
+ * le générateur et par `jour_j_pool3_slot` côté SQL). Y déposer quelqu'un à la
+ * main donnerait un combat à trois entrées : le compétiteur posé, le perdant
+ * qui arrive, et personne pour dire lequel des deux compte.
+ *
+ * On rend les index de feuille plutôt qu'un booléen par combat : l'appelant
+ * raisonne en feuilles, et c'est la seule unité que l'écran connaît.
+ */
+function feuillesReservees(premierTour: readonly GeneratedFight[]): Set<number> {
+  const reservees = new Set<number>();
+  premierTour.forEach((f, idx) => {
+    if (f.type === "BraketFightRepechage3") reservees.add(2 * idx);
+  });
+  return reservees;
+}
+
 function refuseIfPool(fights: readonly GeneratedFight[], format?: DrawFormat): void {
   if (format === "pools" || fights.some((f) => f.division === 0)) {
     throw new BracketEditError(
@@ -284,7 +324,7 @@ function refuseIfPool(fights: readonly GeneratedFight[], format?: DrawFormat): v
  */
 export function readLeafOccupants(fights: GeneratedFight[]): (string | null)[] {
   refuseIfPool(fights);
-  const regular = fights.filter((f) => f.type === "BraketFight");
+  const regular = fights.filter(occupeUneCase);
   const deepest = Math.max(0, ...regular.map((f) => f.division));
   const firstRound = regular
     .filter((f) => f.division === deepest)
@@ -311,11 +351,21 @@ export function swapBracketLeafSlots(
   opts: { format?: DrawFormat } = {},
 ): GeneratedFight[] {
   refuseIfPool(fights, opts.format);
-  const regular = fights.filter((f) => f.type === "BraketFight");
+  const regular = fights.filter(occupeUneCase);
   const deepest = Math.max(0, ...regular.map((f) => f.division));
-  const size = regular.filter((f) => f.division === deepest).length * 2;
+  const premierTour = regular
+    .filter((f) => f.division === deepest)
+    .sort((a, b) => a.indexInDivision - b.indexInDivision);
+  const size = premierTour.length * 2;
   if (leafA < 0 || leafB < 0 || leafA >= size || leafB >= size) {
     throw new BracketEditError("Position de tableau invalide.");
+  }
+  const reservees = feuillesReservees(premierTour);
+  if (reservees.has(leafA) || reservees.has(leafB)) {
+    throw new BracketEditError(
+      "Cette place attend le perdant de la demi-finale : on n'y met personne à la main. " +
+        "Pour changer qui attend au repêchage, échangez les compétiteurs entre eux.",
+    );
   }
 
   const occ = readLeafOccupants(fights);
@@ -338,7 +388,7 @@ export function swapBracketLeafSlots(
   const out: GeneratedFight[] = fights.map((f) => ({ ...f }));
   const byDiv = new Map<number, GeneratedFight[]>();
   for (const f of out) {
-    if (f.type !== "BraketFight") continue;
+    if (!occupeUneCase(f)) continue;
     const list = byDiv.get(f.division) ?? [];
     list.push(f);
     byDiv.set(f.division, list);
@@ -360,6 +410,15 @@ export function swapBracketLeafSlots(
     const b = swap[2 * idx + 1] ?? null;
     f.slotA = a;
     f.slotB = b;
+    // UN REPÊCHAGE À MOITIÉ VIDE N'EST PAS UN BYE. Son côté A est vide par
+    // construction, et le remplira le perdant de la demie. Le traiter comme un
+    // bye le déclarerait gagné d'avance et promouvrait son occupant en finale
+    // sans combat : le troisième inscrit serait finaliste sans être monté sur
+    // le tapis.
+    if (f.type === "BraketFightRepechage3") {
+      f.isBye = false;
+      return;
+    }
     f.isBye = (a === null) !== (b === null);
     if (f.isBye && deepest > 1) {
       const winner = a ?? b;
