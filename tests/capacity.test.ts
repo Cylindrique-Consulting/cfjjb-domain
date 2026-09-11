@@ -164,14 +164,27 @@ describe("fightsPerCompetitor", () => {
 
   it("compte le combat de 3e place quand le mode le programme (n ≥ 4)", () => {
     expect(fightsPerCompetitor({ ...ELIMINATION, thirdPlaceMode: "pool3" })).toBe(1);
-    // n = 3 : aucun combat de 3e place n'est généré, le ratio ne bouge pas.
-    expect(
-      fightsPerCompetitor({
-        competitorsPerCategory: 3,
-        format: "single_elim",
-        thirdPlaceMode: "pool3",
-      }),
-    ).toBeCloseTo(2 / 3, 10);
+    // n = 3 : aucun combat de 3e place n'est généré — le REPÊCHAGE décerne le
+    // bronze, son perdant est troisième. Le ratio ne bouge donc pas AVEC le
+    // mode de 3e place ; il vaut 1 parce que le repêchage EST un combat.
+    //
+    // ⚠ CETTE ASSERTION PORTAIT 2/3, ET C'ÉTAIT LE COMPTE DE L'ANCIEN FORMAT.
+    // Elle a été écrite quand l'arbre de quatre portait un bye, et elle a
+    // survécu intacte à la décision produit du 10/09/2026 qui l'a supprimé :
+    // le test gelait la réalité d'hier sans rien dire de celle d'aujourd'hui.
+    // Le contrôle qui l'aurait attrapée compare l'estimateur au tirage réel
+    // plutôt qu'à un nombre écrit à la main — il vit dans
+    // `repechage-consequences.test.ts`.
+    for (const mode of ["pool3", "shared_bronze"] as const) {
+      expect(
+        fightsPerCompetitor({
+          competitorsPerCategory: 3,
+          format: "single_elim",
+          thirdPlaceMode: mode,
+        }),
+        mode,
+      ).toBe(1);
+    }
   });
 
   it("se replie AVEC le tirage quand le gabarit dépasse le plafond de poule", () => {

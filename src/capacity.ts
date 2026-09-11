@@ -234,7 +234,22 @@ export function fightsPerCompetitor(shape: CategoryShape): number {
   if (applied === "pools") return poolFightCount(n) / n;
 
   const thirdPlace = (shape.thirdPlaceMode ?? "pool3") === "pool3" && n >= 4 ? 1 : 0;
-  return (n - 1 + thirdPlace) / n;
+
+  // À TROIS INSCRITS, LE BYE EST DEVENU UN COMBAT. L'arbre de quatre en portait
+  // un, et l'un des trois montait GRATUITEMENT en finale : deux combats pour
+  // trois personnes. La décision produit du 10/09/2026 a supprimé ce passage
+  // gratuit (`bracket-generator.ts` : le bye devient un `BraketFightRepechage3`),
+  // et une catégorie à trois en produit désormais TROIS — ouverture, repêchage,
+  // finale. Mesuré sur le tirage réel, pas déduit ici.
+  //
+  // Sans cette ligne, l'estimateur annonce 0,67 combat par combattant là où le
+  // tirage en produit 1,00, soit un TIERS du temps de tapis d'une catégorie à
+  // trois qui n'est budgété nulle part — et il y en a 3 484 en production. Le
+  // cartouche ci-dessus nomme précisément cette erreur-là : sous-estimer le
+  // coût SURÉVALUE la capacité, donc remplit une salle qu'on n'a pas.
+  const repechage3 = n === 3 ? 1 : 0;
+
+  return (n - 1 + thirdPlace + repechage3) / n;
 }
 
 // ===================================================================
