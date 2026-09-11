@@ -15,7 +15,8 @@ import { BELT_RANK_ORDER } from "./belts";
  * - Times: one timeline per PHYSICAL tatami (Jour J splits a physical mat
  *   into one fight_area per Jour J competition, but the day is sequential
  *   on the mat). Within a category: deepest division first, index
- *   ascending, then the Pool3, then the final (finalists get to rest).
+ *   ascending, then the annexes — repêchage à trois, combat de 3e place —
+ *   then the final (finalists get to rest).
  * - Byes get no start time (Jour J's planning hides fights without one).
  * - Days: a competition runs over ONE or TWO days (`second_day_date`), and
  *   les catégories sont réparties entre les jours AVANT le LPT par tatami.
@@ -290,13 +291,14 @@ export function fightTimeKey(
 
 /**
  * Spectator/fighter friendly running order inside a category:
- * deepest division first (index ascending), then the Pool3, then the final.
+ * deepest division first (index ascending), then the annexes (repêchage,
+ * combat de 3e place), then the final.
  *
- * ┌─ POURQUOI CETTE FONCTION PREND MAINTENANT LE FORMAT ──────────────────────┐
- * │ Les trois seaux ci-dessous partent tous d'une hypothèse : `division ≥ 1`.  │
- * │ Un combat de POULE porte `division = 0`. Il n'est donc ni dans `final`     │
- * │ (`=== 1`), ni dans `earlier` (`> 1`), ni dans `pool3` (mauvais type) :     │
- * │ il DISPARAÎT purement et simplement du tableau rendu.                     │
+ * ┌─ POURQUOI CETTE FONCTION PREND LE FORMAT ─────────────────────────────────┐
+ * │ Les seaux ci-dessous partent tous d'une hypothèse : `division >= 1`.       │
+ * │ Un combat de POULE porte `division = 0`. Il n'est donc ni dans `finale`    │
+ * │ (`=== 1`), ni dans `precedentes` (`> 1`), ni dans `annexes` (c'est un      │
+ * │ `BraketFight`) : il DISPARAÎT purement et simplement du tableau rendu.     │
  * │                                                                            │
  * │ Et cette fonction est le calculateur d'horaires : un combat qui n'en sort  │
  * │ pas n'a pas d'heure de début, et le planning du jour J masque les combats  │
@@ -307,6 +309,40 @@ export function fightTimeKey(
  * │ `pool-generator.ts` — donc l'ordre s'y lit directement, et la passe        │
  * │ d'ajustement du repos serait détruite par un autre tri.                    │
  * └───────────────────────────────────────────────────────────────────────────┘
+ *
+ * ┌─ ET POURQUOI LE SEAU DU MILIEU SE DÉFINIT PAR EXCLUSION ──────────────────┐
+ * │ Il énumérait ses types : `BraketFight` d'un côté, `BraketFightPool3` de   │
+ * │ l'autre. Le `BraketFightRepechage3` — le combat de repêchage du format à  │
+ * │ trois inscrits, décision produit du 10/09/2026 — n'était donc dans NI     │
+ * │ l'un NI l'autre, et il disparaissait : exactement la panne que le         │
+ * │ cartouche ci-dessus décrit pour les poules, mot pour mot.                 │
+ * │                                                                          │
+ * │ Mesuré sur un vrai tirage à trois, avant ce correctif :                   │
+ * │     entrent : rep(2.0) + demie(2.1) + finale(1.0)                        │
+ * │     sortent : demie(2.1) + finale(1.0)        ← deux combats sur trois    │
+ * │ En recette le 11/09/2026, 58 repêchages sur 58 étaient sans `time_starts`,│
+ * │ seuls combats non-bye sans horaire des deux compétitions.                 │
+ * │                                                                          │
+ * │ ET LE TATAMI ENTIER GLISSAIT AVEC EUX. `computeTatamiSchedule` avance son │
+ * │ curseur d'un créneau par combat RENDU ICI : une catégorie à trois n'en    │
+ * │ consommait que deux. La finale était donc programmée un créneau après     │
+ * │ l'ouverture, c'est-à-dire À LA PLACE du repêchage, et toutes les          │
+ * │ catégories suivantes du même tapis avec elle — le décalage s'accumule sur │
+ * │ la journée. Le budget, lui, comptait juste : `realFightCount` compte les  │
+ * │ non-byes, donc trois. La répartition par jour et le LPT réservaient un    │
+ * │ temps que la frise ne dépensait pas.                                      │
+ * │                                                                          │
+ * │ D'où la règle par DÉFAUT, la même que `occupeUneCase` côté générateur :   │
+ * │ le seau du milieu est « tout ce qui n'est pas une ronde de l'arbre ». Un  │
+ * │ type ajouté demain y tombe tout seul, avec un horaire ; il faudra l'en    │
+ * │ sortir explicitement, et non penser à l'y mettre.                         │
+ * │                                                                          │
+ * │ SA PLACE EST ENTRE LES RONDES ET LA FINALE, et ce n'est pas cosmétique :  │
+ * │ le repêchage attend le perdant de la demie (donc APRÈS elle) et son       │
+ * │ vainqueur monte en finale (donc AVANT elle). Le ranger parmi les rondes   │
+ * │ par sa division le ferait passer AVANT la demie : il occupe la case du    │
+ * │ bye, donc l'index 0, quand la demie porte l'index 1 — toujours.            │
+ * └───────────────────────────────────────────────────────────────────────────┘
  */
 export function categoryRunningOrder<
   T extends Pick<GeneratedFight, "division" | "indexInDivision" | "type">,
@@ -314,13 +350,14 @@ export function categoryRunningOrder<
   if (opts.format === "pools") {
     return [...fights].sort((a, b) => a.indexInDivision - b.indexInDivision);
   }
-  const regular = fights.filter((f) => f.type === "BraketFight");
-  const pool3 = fights.filter((f) => f.type === "BraketFightPool3");
-  const final = regular.filter((f) => f.division === 1);
-  const earlier = regular
-    .filter((f) => f.division > 1)
-    .sort((a, b) => b.division - a.division || a.indexInDivision - b.indexInDivision);
-  return [...earlier, ...pool3, ...final];
+  const parOrdreDeRonde = (a: T, b: T): number =>
+    b.division - a.division || a.indexInDivision - b.indexInDivision;
+
+  const rondes = fights.filter((f) => f.type === "BraketFight");
+  const annexes = fights.filter((f) => f.type !== "BraketFight").sort(parOrdreDeRonde);
+  const finale = rondes.filter((f) => f.division === 1);
+  const precedentes = rondes.filter((f) => f.division > 1).sort(parOrdreDeRonde);
+  return [...precedentes, ...annexes, ...finale];
 }
 
 export type ScheduleResult = {
