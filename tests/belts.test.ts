@@ -61,3 +61,10 @@ describe("les grades masqués (CYL-483)", () => {
     }
   });
 });
+
+describe("couleurs vraies blanche / noire (CYL-590)", () => {
+  it("utilise un blanc opaque et un noir vrai", () => {
+    expect(BELT_COLORS.white).toBe("#ffffff");
+    expect(BELT_COLORS.black).toBe("#000000");
+  });
+});
