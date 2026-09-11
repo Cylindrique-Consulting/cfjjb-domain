@@ -71,11 +71,12 @@ export const BELT_LABELS: Record<BeltDb, string> = {
 };
 
 /** Couleur de repli si la ceinture est inconnue (même valeur que la ceinture blanche). */
-const BELT_FALLBACK_COLOR = "#f5f1e8";
+const BELT_FALLBACK_COLOR = "#ffffff";
 
 /** Couleur (hex) de chaque ceinture, pour les pastilles d'affichage. */
 export const BELT_COLORS: Record<BeltDb, string> = {
-  white: BELT_FALLBACK_COLOR,
+  // CYL-590 : blanc opaque et noir vrai (plus de cream / navy).
+  white: "#ffffff",
   grey: "#9aa0aa",
   yellow: "#eed35c",
   orange: "#e6912e",
@@ -83,7 +84,7 @@ export const BELT_COLORS: Record<BeltDb, string> = {
   blue: "#2451a8",
   purple: "#6a3aa8",
   brown: "#7a4a25",
-  black: "#0a1438",
+  black: "#000000",
   coral: "#dc7e6a",
   red: "#cc2d19",
 };
