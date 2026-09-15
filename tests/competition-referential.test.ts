@@ -3,6 +3,7 @@ import {
   AGE_GROUPS,
   ADULT_COMPETITION_BELTS,
   KIDS_COMPETITION_BELTS,
+  REGLEMENT_DE_REFERENCE,
   buildCategoryFullname,
   buildCategoryShortname,
   computeAgeGroup,
@@ -140,14 +141,86 @@ describe("fight durations", () => {
     expect(getFightDurationSeconds("purple", "Adulte", "gi")).toBe(420);
     expect(getFightDurationSeconds("brown", "Adulte", "gi")).toBe(480);
     expect(getFightDurationSeconds("black", "Adulte", "gi")).toBe(600);
-    // Master 1 & 2 share the old "Master 1/2" duration; Master 3 & 4 share "Master 3/4".
+    // IBJJF 6.1 (réponse client du 15/09/2026, T1.2) : Master 1 violette = 6 min,
+    // Master 2 violette = 5 min. L'ancienne assertion « Master 2 = 360 » figeait la
+    // table CFJJB 5.2, écartée par le client.
     expect(getFightDurationSeconds("purple", "Master 1", "gi")).toBe(360);
-    expect(getFightDurationSeconds("purple", "Master 2", "gi")).toBe(360);
+    expect(getFightDurationSeconds("purple", "Master 2", "gi")).toBe(300);
     expect(getFightDurationSeconds("purple", "Master 3", "gi")).toBe(300);
     expect(getFightDurationSeconds("purple", "Master 4", "gi")).toBe(300);
     expect(getFightDurationSeconds("black", "Master 1", "gi")).toBe(360);
     expect(getFightDurationSeconds("grey", "U9", "gi")).toBe(180);
     expect(getFightDurationSeconds("grey", "U11", "nogi")).toBe(240);
+  });
+
+  it("tient la table IBJJF 6.1 complète, U7 = 3 min, en Gi comme en No-Gi", () => {
+    // La table ENTIÈRE, et non trois cases : une durée qui glisse d'une colonne
+    // à l'autre ne se voit que si toutes les colonnes sont écrites. Source :
+    // IBJJF Rules Book 6.1 (juin 2024), GCG art. 1.3 ; exception client U7.
+    const minutesAdultes: Record<string, (number | null)[]> = {
+      //        Juv   Adu  M1  M2  M3  M4  M5+
+      white: [5, 5, 5, 5, 5, 5, 5],
+      blue: [5, 6, 5, 5, 5, 5, 5],
+      purple: [5, 7, 6, 5, 5, 5, 5],
+      brown: [null, 8, 6, 5, 5, 5, 5],
+      black: [null, 10, 6, 5, 5, 5, 5],
+    };
+    const tranchesAdultes = [
+      "Juvénile",
+      "Adulte",
+      "Master 1",
+      "Master 2",
+      "Master 3",
+      "Master 4",
+      "Master 5+",
+    ] as const;
+    const minutesEnfants: Record<string, (number | null)[]> = {
+      //         U7    U9    U11   U13  U15
+      white: [null, null, null, null, 4],
+      grey: [3, 3, 4, 4, 4],
+      yellow: [3, 3, 4, 4, 4],
+      orange: [null, null, 4, 4, 4],
+      green: [null, null, null, 4, 4],
+    };
+    const tranchesEnfants = ["U7", "U9", "U11", "U13", "U15"] as const;
+
+    for (const discipline of ["gi", "nogi"] as const) {
+      for (const [ceinture, ligne] of Object.entries(minutesAdultes)) {
+        tranchesAdultes.forEach((tranche, i) => {
+          const attendu = ligne[i] === null ? null : ligne[i]! * 60;
+          expect(
+            getFightDurationSeconds(ceinture as "white", tranche, discipline),
+            `${ceinture} ${tranche} ${discipline}`,
+          ).toBe(attendu);
+        });
+      }
+      for (const [ceinture, ligne] of Object.entries(minutesEnfants)) {
+        tranchesEnfants.forEach((tranche, i) => {
+          const attendu = ligne[i] === null ? null : ligne[i]! * 60;
+          expect(
+            getFightDurationSeconds(ceinture as "white", tranche, discipline),
+            `${ceinture} ${tranche} ${discipline}`,
+          ).toBe(attendu);
+        });
+      }
+    }
+  });
+
+  it("Master 2 violette, marron et noire = 5 min ; Master 1 reste à 6 min (seul écart 6.1)", () => {
+    for (const ceinture of ["purple", "brown", "black"] as const) {
+      expect(getFightDurationSeconds(ceinture, "Master 2", "gi")).toBe(300);
+      expect(getFightDurationSeconds(ceinture, "Master 2", "nogi")).toBe(300);
+      expect(getFightDurationSeconds(ceinture, "Master 1", "gi")).toBe(360);
+    }
+    expect(getFightDurationSeconds("grey", "U7", "gi")).toBe(180);
+    expect(getFightDurationSeconds("yellow", "U7", "gi")).toBe(180);
+  });
+
+  it("documente la version du règlement appliquée", () => {
+    expect(REGLEMENT_DE_REFERENCE.version).toBe("6.1");
+    expect(REGLEMENT_DE_REFERENCE.date).toBe("2024-06");
+    expect(REGLEMENT_DE_REFERENCE.note).toContain("6.2");
+    expect(REGLEMENT_DE_REFERENCE.note).toContain("U7");
   });
 
   it("returns null for combinations that do not exist", () => {

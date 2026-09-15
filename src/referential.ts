@@ -230,7 +230,41 @@ const NOGI_CHILDREN: Record<WeightClassName, ChildWeightRow> = {
 
 // ------------------------------------------------------------------
 // Fight durations (minutes). null = belt × age combination does not exist.
+//
+// LA TABLE DE RÉFÉRENCE EST CELLE DE L'IBJJF 6.1, PAS CELLE DE LA CFJJB 5.2.
+//
+// Réponse du client du 15/09/2026 (T1.1, T1.2) : les durées réglementaires
+// sont celles de l'IBJJF Rules Book 6.1 (juin 2024, General Competition
+// Guidelines art. 1.3), et plus celles du règlement CFJJB 5.2 ni de l'article
+// 1.3 du règlement CFJJB 2024, là où ils diffèrent.
+//
+// UN SEUL ÉCART avec la table précédente : Master 2 en ceinture violette,
+// marron et noire passe de 6 à 5 minutes. Master 1 reste à 6 minutes pour ces
+// trois ceintures, conforme à l'IBJJF.
+//
+// UNE SEULE EXCEPTION CLIENT : U7 = 3 minutes. Les catégories « 6 ans »
+// n'existent pas à la CFJJB ; la tranche U7 couvre jusqu'à 7 ans et garde la
+// durée des 6-7 ans IBJJF.
+//
+// Version documentée (`REGLEMENT_DE_REFERENCE`) : la copie publique du fichier
+// « 2024JUN_IBJJF_Rules_EN » porte « VERSION 6.2 » dans son colophon, alors que
+// sa page de titre et sa date sont celles de la 6.1. C'est la 6.1 qui fait foi ;
+// l'anomalie est notée plutôt que corrigée.
 // ------------------------------------------------------------------
+
+/**
+ * La version de règlement appliquée par ce référentiel, à citer à l'écran là où
+ * une décision en découle (libellés « Arbitrage requis », feuilles papier).
+ */
+export const REGLEMENT_DE_REFERENCE = {
+  nom: "IBJJF Rules Book",
+  version: "6.1",
+  date: "2024-06",
+  note:
+    "Durées des General Competition Guidelines art. 1.3, sauf U7 = 3 minutes (exception CFJJB). " +
+    "La copie publique porte « VERSION 6.2 » dans son colophon : la 6.1 de juin 2024 fait foi.",
+} as const;
+
 type AdultDurationRow = {
   Juvénile: number | null;
   Adulte: number | null;
@@ -242,9 +276,9 @@ type AdultDurationRow = {
 };
 type ChildDurationRow = Record<"U7" | "U9" | "U11" | "U13" | "U15", number | null>;
 
-// Master 1 and Master 2 inherit the old "Master 1/2" duration; Master 3 and
-// Master 4 inherit the old "Master 3/4" duration (dissociation is age-band
-// only, the fight times are unchanged).
+// IBJJF 6.1 (GCG 1.3). Master 2 purple / brown / black = 5 minutes since the
+// 15/09/2026 client answer (T1.2); they inherited the old "Master 1/2" 6 minutes
+// before. Master 3 and Master 4 keep the old "Master 3/4" duration.
 const DURATIONS_ADULT: Partial<Record<BeltDb, AdultDurationRow>> = {
   white: {
     Juvénile: 5,
@@ -268,7 +302,7 @@ const DURATIONS_ADULT: Partial<Record<BeltDb, AdultDurationRow>> = {
     Juvénile: 5,
     Adulte: 7,
     "Master 1": 6,
-    "Master 2": 6,
+    "Master 2": 5,
     "Master 3": 5,
     "Master 4": 5,
     "Master 5+": 5,
@@ -277,7 +311,7 @@ const DURATIONS_ADULT: Partial<Record<BeltDb, AdultDurationRow>> = {
     Juvénile: null,
     Adulte: 8,
     "Master 1": 6,
-    "Master 2": 6,
+    "Master 2": 5,
     "Master 3": 5,
     "Master 4": 5,
     "Master 5+": 5,
@@ -286,7 +320,7 @@ const DURATIONS_ADULT: Partial<Record<BeltDb, AdultDurationRow>> = {
     Juvénile: null,
     Adulte: 10,
     "Master 1": 6,
-    "Master 2": 6,
+    "Master 2": 5,
     "Master 3": 5,
     "Master 4": 5,
     "Master 5+": 5,
