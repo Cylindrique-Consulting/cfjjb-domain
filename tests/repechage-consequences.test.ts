@@ -80,6 +80,20 @@ describe("l'ordre de passage d'une catégorie à trois inscrits", () => {
     );
   });
 
+  it("range la 1re DF avant la 2e par TYPE, même quand la 2e porte l'index 1", () => {
+    // Le générateur pose la 2e DF à l'index 0 (58/58 en recette), mais rien ne
+    // le garantit : l'ordre de passage 1re DF < 2e DF < finale (TR1.3) ne doit
+    // dépendre que du type.
+    const inverse = tirage(3).map((f) =>
+      f.division === 2 ? { ...f, indexInDivision: f.type === "BraketFightRepechage3" ? 1 : 0 } : f,
+    );
+    expect(categoryRunningOrder(inverse).map((f) => `${f.division}.${f.type}`)).toEqual([
+      "2.BraketFight",
+      "2.BraketFightRepechage3",
+      "1.BraketFight",
+    ]);
+  });
+
   it("ne touche à rien quand il n'y a pas de repêchage", () => {
     // Le seau du milieu s'est ouvert par exclusion ; la forme historique d'un
     // arbre de huit doit rester au combat près.

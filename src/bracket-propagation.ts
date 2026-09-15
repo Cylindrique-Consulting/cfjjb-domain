@@ -165,6 +165,34 @@ function at(
   );
 }
 
+/**
+ * Un NOURRICIER à une case donnée : un combat ordinaire OU le repêchage d'un
+ * tableau de trois.
+ *
+ * `at()` reste réservé aux CIBLES de la montée d'un vainqueur, qui sont toujours
+ * des `BraketFight` (miroir de `jour_j_next_slot`). Mais à trois inscrits le
+ * repêchage occupe la case du bye au premier tour : il NOURRIT le côté A de la
+ * finale comme une demie nourrit l'autre. Le chercher avec `at()` rendait `null`
+ * (trou #3), donc `isSlotImpossible(finale, "A")` restait faux pour toujours et
+ * une finale dont le repêchage meurt sans vainqueur ne se soldait jamais côté
+ * client. Miroir de `jour_j_feeder_fight` (20261230000004), qui accepte les deux
+ * types ; le combat de 3e place reste exclu : il DÉTERMINE une place.
+ */
+function nourricierA(
+  fights: readonly PropagationFight[],
+  division: number,
+  indexInDivision: number,
+): PropagationFight | null {
+  return (
+    fights.find(
+      (f) =>
+        (f.type === "BraketFight" || f.type === "BraketFightRepechage3") &&
+        f.division === division &&
+        f.indexInDivision === indexInDivision,
+    ) ?? null
+  );
+}
+
 export function pool3Of(fights: readonly PropagationFight[]): PropagationFight | null {
   return fights.find((f) => f.type === "BraketFightPool3") ?? null;
 }
@@ -257,10 +285,17 @@ export function loserOf(fight: PropagationFight): string | null {
 
 /**
  * Le combat AMONT qui alimente un emplacement — l'INVERSE de `findNextSlot` /
- * `findPool3Slot`. Miroir de `jour_j_feeder_fight` côté SQL.
+ * `findPool3Slot` / `findRepechage3Slot`. Miroir de `jour_j_feeder_fight` côté
+ * SQL (20261230000004).
  *
- *   BraketFight (div d, idx i, slot A|B) ← BraketFight (div d+1, idx 2i + (B?1:0))
+ *   BraketFight (div d, idx i, slot A|B) ← combat (div d+1, idx 2i + (B?1:0)),
+ *                                          ordinaire OU repêchage
  *   Pool3       (slot A|B)               ← demie (div 2, idx 0|1)
+ *   Repêchage   (slot A)                 ← la demie de l'AUTRE index (div 2, idx 1 − i)
+ *   Repêchage   (slot B)                 ← aucun : le 3e y est posé au tirage
+ *
+ * À trois inscrits (repêchage à l'index 0), le nourricier du côté A de la
+ * finale est donc le REPÊCHAGE, celui du côté B la demie.
  *
  * `null` s'il n'y a pas de nourricier (le slot est alimenté par une tête de
  * série, pas par un combat amont).
@@ -271,9 +306,16 @@ export function findFeederFight(
   slot: Slot,
 ): PropagationFight | null {
   if (fight.type === "BraketFightPool3") {
-    return at(fights, 2, slot === "A" ? 0 : 1);
+    return nourricierA(fights, 2, slot === "A" ? 0 : 1);
   }
-  return at(fights, fight.division + 1, fight.indexInDivision * 2 + (slot === "A" ? 0 : 1));
+  if (fight.type === "BraketFightRepechage3") {
+    return slot === "A" ? nourricierA(fights, 2, 1 - fight.indexInDivision) : null;
+  }
+  return nourricierA(
+    fights,
+    fight.division + 1,
+    fight.indexInDivision * 2 + (slot === "A" ? 0 : 1),
+  );
 }
 
 /**
@@ -283,9 +325,10 @@ export function findFeederFight(
  *   · montée (cible BraketFight) : impossible si le nourricier est `double_wo`
  *     (aucun vainqueur ne monte) ou `cancelled`. Un `wo` NORMAL fait monter un
  *     vainqueur → PAS impossible.
- *   · descente du perdant (cible Pool3) : impossible si la demie nourricière est
- *     `wo`/`double_wo`/`cancelled` (aucun perdant réel), ou si son perdant est
- *     éliminé (il ne descend pas au combat de médaille).
+ *   · descente du perdant (cible Pool3 OU repêchage d'un tableau de trois) :
+ *     impossible si la demie nourricière est `wo`/`double_wo`/`cancelled` (aucun
+ *     perdant réel), ou si son perdant est éliminé (il ne descend pas). Le côté
+ *     B du repêchage n'a pas de nourricier : jamais impossible.
  *
  * Un nourricier `scheduled`/`in_progress` n'est PAS impossible : on attend.
  */
@@ -300,7 +343,7 @@ export function isSlotImpossible(
   if (feeder.state === "cancelled") return true;
   if (feeder.state !== "finished") return false;
 
-  if (fight.type === "BraketFightPool3") {
+  if (fight.type === "BraketFightPool3" || fight.type === "BraketFightRepechage3") {
     if (feeder.winMethod === "wo" || feeder.winMethod === "double_wo") return true;
     const perdant = loserOf(feeder);
     return perdant === null || eliminated.has(perdant);
@@ -359,21 +402,33 @@ function fermer(b: Brouillon, original: readonly PropagationFight[]): Plan {
   };
 }
 
-/** Propage le vainqueur d'un combat terminé, et le perdant vers le Pool3 si c'est une demie. */
+/**
+ * Propage le vainqueur d'un combat terminé, et le perdant d'une demie vers le
+ * combat de 3e place OU vers le repêchage d'un tableau de trois.
+ *
+ * Les deux descentes ne coexistent jamais (3e place à partir de quatre
+ * inscrits, repêchage à trois seulement), et le SQL les sert par la même
+ * fonction, `jour_j_pool3_slot`, appelée par `day_fight_finish`.
+ */
 function propager(b: Brouillon, fight: PropagationFight): void {
   const suivant = findNextSlot(b.fights, fight);
   if (suivant && fight.winner) {
     ecrire(b, { ...suivant, registrationId: fight.winner });
   }
-  const p3 = findPool3Slot(b.fights, fight);
-  if (p3) {
+  // TROU #1 (audit du 11/09/2026) : `findRepechage3Slot` était définie,
+  // exportée et juste, mais `propager` ne l'appelait jamais. Le serveur écrivait
+  // le perdant de la demie dans le repêchage, le client non : son attendu
+  // optimiste, ses aperçus et ses chaînes de réouverture ignoraient la case.
+  const descente = findPool3Slot(b.fights, fight) ?? findRepechage3Slot(b.fights, fight);
+  if (descente) {
     const perdant = loserOf(fight);
-    // Le perdant d'une demie va au combat de 3e place — SAUF s'il est éliminé.
+    // Le perdant d'une demie descend — SAUF s'il est éliminé (miroir du
+    // `jour_j_control_verdict(v_loser) <> 'elimine'` de `day_fight_finish`).
     // L'application de référence l'y plaçait quand même, en comptant sur le staff
     // pour l'en retirer ; placer un athlète éliminé dans un combat de médaille
     // est faux, et c'est un écart assumé avec elle.
     if (perdant && !b.vus.has(`elimine:${perdant}`)) {
-      ecrire(b, { ...p3, registrationId: perdant });
+      ecrire(b, { ...descente, registrationId: perdant });
     }
   }
 }
@@ -480,10 +535,15 @@ function forfaitsEnPointFixe(b: Brouillon, eliminated: ReadonlySet<string>): voi
     // Un `wo` PRONONCÉ PAR LA CASCADE dont le vainqueur est DÉSORMAIS éliminé
     // (élimination séquentielle). Du plus profond vers la finale, la chaîne se
     // dénoue d'elle-même. Un `wo` d'arbitre (jamais marqué) reste acquis (I2).
+    //
+    // AUCUN FILTRE DE TYPE, comme `jour_j_forfait_cascade` (20261230000001) :
+    // le repêchage d'un tableau de trois et le combat de 3e place se révoquent
+    // comme n'importe quel combat. Le filtre `BraketFight` voulait dire « tout
+    // sauf la petite finale » et écartait aussi le repêchage.
     const revoquable = b.fights
       .filter(
         (f) =>
-          f.type === "BraketFight" &&
+          !f.isBye &&
           f.state === "finished" &&
           f.winMethod === "wo" &&
           f.cascadeForfeit === true &&
@@ -520,9 +580,12 @@ function forfaitsEnPointFixe(b: Brouillon, eliminated: ReadonlySet<string>): voi
     }
 
     // ── (classique) un combat non résolu, DEUX côtés connus, ≥ 1 éliminé ────
+    // Sans filtre de type, miroir du SQL : un repêchage « perdant de la demie
+    // contre le 3e » dont le 3e est éliminé se solde par forfait, et son
+    // vainqueur monte en finale (TR1.2).
     const classique = b.fights.find(
       (f) =>
-        f.type === "BraketFight" &&
+        !f.isBye &&
         f.state === "scheduled" &&
         f.slotA !== null &&
         f.slotB !== null &&
@@ -572,11 +635,15 @@ function forfaitsEnPointFixe(b: Brouillon, eliminated: ReadonlySet<string>): voi
     );
     if (avancable) {
       const gagnant = avancable.slotA ?? avancable.slotB;
+      // `needsArbitration: false`, comme le SQL (`needs_arbitration = false`) :
+      // un combat soldé n'attend plus d'arbitrage, même si un double forfait
+      // amont l'avait marqué en vidant son autre côté.
       patcher(b, avancable.id, {
         state: "finished",
         winner: gagnant,
         winMethod: "wo",
         cascadeForfeit: true,
+        needsArbitration: false,
       });
       propager(
         b,
@@ -660,18 +727,21 @@ export function planUndoForfeit(fights: readonly PropagationFight[], fightId: st
     needsArbitration: false,
   });
 
-  // Retirer le vainqueur propagé — de l'aval ET du combat de 3e place.
+  // Retirer le vainqueur propagé — de l'aval ET de la case du perdant : combat
+  // de 3e place, ou case A du repêchage d'un tableau de trois (trou #1).
   const suivant = findNextSlot(b.fights, fight);
   if (suivant && ancienVainqueur) {
     const cible = b.fights.find((f) => f.id === suivant.fightId);
     const present = suivant.slot === "A" ? cible?.slotA : cible?.slotB;
     if (present === ancienVainqueur) ecrire(b, { ...suivant, registrationId: null });
   }
-  const p3 = findPool3Slot(b.fights, fight);
-  if (p3) {
-    const cible = b.fights.find((f) => f.id === p3.fightId);
-    const present = p3.slot === "A" ? cible?.slotA : cible?.slotB;
-    if (present !== null && present !== undefined) ecrire(b, { ...p3, registrationId: null });
+  const descente = findPool3Slot(b.fights, fight) ?? findRepechage3Slot(b.fights, fight);
+  if (descente) {
+    const cible = b.fights.find((f) => f.id === descente.fightId);
+    const present = descente.slot === "A" ? cible?.slotA : cible?.slotB;
+    if (present !== null && present !== undefined) {
+      ecrire(b, { ...descente, registrationId: null });
+    }
   }
 
   return fermer(b, fights);
@@ -723,7 +793,8 @@ export function computePodium(
   const p3 = pool3Of(fights);
   let bronze: string[] = [];
   if (rep) {
-    // CATÉGORIE À TROIS : le bronze est le PERDANT DU REPÊCHAGE, et il n'y en a
+    // CATÉGORIE À TROIS : le bronze est le PERDANT DE LA 2e DEMI-FINALE (le
+    // repêchage), et il n'y en a
     // qu'un. Il a perdu son dernier combat et n'est pas en finale ; le perdant
     // de la demie, lui, peut très bien être en finale par le repêchage. Prendre
     // « les perdants des demies » ici décernerait donc un bronze à un finaliste.
@@ -731,7 +802,7 @@ export function computePodium(
       const perdant = loserOf(rep);
       bronze = perdant === null ? [] : [perdant];
     } else {
-      missing.push("Repêchage non terminé");
+      missing.push("2e demi-finale non terminée");
     }
   } else if (p3) {
     if (p3.state === "finished" && p3.winner) {
