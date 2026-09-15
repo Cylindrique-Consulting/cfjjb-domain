@@ -43,3 +43,5 @@ export * from "./capabilities";
 export * from "./medido";
 export * from "./db-vocabulary";
 export * from "./fight-stats";
+export * from "./round-names";
+export * from "./fight-rest";

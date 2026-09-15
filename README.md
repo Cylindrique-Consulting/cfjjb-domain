@@ -263,6 +263,46 @@ Quatre points valent d'être connus avant d'y toucher :
   concaténation côté appelant : le dédoublonnage par `fightId` est dans le module, pas
   dans la discipline de l'appelant.
 
+## Règlement de référence
+
+Réponses du client du 15/09/2026 (T1.1, T1.2, R7) : il n'existe pas d'autre document
+que ceux-ci, et c'est sur eux que ce package s'aligne.
+
+| Sujet                              | Référence                                                           |
+| ---------------------------------- | ------------------------------------------------------------------- |
+| règles sportives, tableau de trois | **IBJJF Rules Book 6.1** (juin 2024)                                |
+| durées de combat                   | IBJJF 6.1, General Competition Guidelines art. 1.3, sauf U7 = 3 min |
+| repos entre deux combats           | IBJJF 6.1, GCG art. 1.4                                             |
+| classements équipe et club         | article 3 du règlement officiel CFJJB 2024                          |
+| points de placement                | guide des points v1.2                                               |
+| tout le reste                      | les tickets et les réponses du 15/09/2026                           |
+
+`REGLEMENT_DE_REFERENCE` (`src/referential.ts`) porte la version appliquée, pour la citer
+à l'écran. La copie publique du fichier IBJJF porte « VERSION 6.2 » dans son colophon
+alors que sa page de titre et sa date sont celles de la 6.1 : c'est la **6.1** qui fait
+foi.
+
+**Seul écart de durée avec les versions précédentes** : Master 2 violette, marron et
+noire passent de 6 à 5 minutes (v0.15.0). Le règlement CFJJB 5.2 et le Manuel du format
+2021, cités par d'anciens commentaires, ne font plus référence.
+
+## Release A (v0.15.0)
+
+Première des releases successives du chantier « compétition de test » (A : durées,
+nomenclature, tableau de trois, repos ; B : moteur de podium ; C : planificateur avec
+repos ; D : score de placement).
+
+| Module                       | Ce qu'il apporte                                                            |
+| ---------------------------- | --------------------------------------------------------------------------- |
+| `src/referential.ts`         | Master 2 violette, marron, noire à 5 min ; `REGLEMENT_DE_REFERENCE`         |
+| `src/round-names.ts`         | `nomDuTour` : T1…T4, QF, DF, F, 3e ; forme longue ; en-tête de colonne      |
+| `src/fight-rest.ts`          | « a disputé un combat », multiplicateur et fin de repos (sans consommateur) |
+| `src/bracket-propagation.ts` | trous #1 et #3 du tableau de trois ; cascade sans filtre de type            |
+
+Le mot « Repêchage » ne sort plus d'aucun libellé : à trois inscrits, le combat
+« perdant de la 1re demi-finale contre le 3e » est une **demi-finale** (« DF »). Le type
+interne `BraketFightRepechage3` est conservé.
+
 ## Pureté, vérifiée et non recommandée
 
 `eslint.config.mjs` interdit `node:*`, `fs`, `path`, `crypto`, `react`, `react-dom`,
