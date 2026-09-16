@@ -5,6 +5,11 @@ import { pointsDeResultat, saisonSportive } from "../src/points";
 import { divisionMaxDuTableau, nomDuTour } from "../src/round-names";
 import { REGLES_FIN_SANS_VAINQUEUR } from "../src/arbitrage";
 import { classementOfficiel, estTermineeSansMedaille } from "../src/podium-officiel";
+import {
+  DELAI_INSCRIPTION_ABSOLUT_MINUTES,
+  etatInscriptionsAbsolut,
+  tapisDuCombatAbsolut,
+} from "../src/absolut-regles";
 
 // ===================================================================
 // UN MODULE AJOUTÉ DOIT ÊTRE VISIBLE DES CONSOMMATEURS.
@@ -75,5 +80,13 @@ describe("la carte des exports", () => {
     // `computePodium` est retiré (rupture assumée en 0.x) : un consommateur qui
     // l'importerait encore doit échouer à la compilation, pas lire `undefined`.
     expect("computePodium" in domaine).toBe(false);
+  });
+
+  it("les règles de l'absolut sont joignables depuis la racine et par leur entrée (v0.20.0)", () => {
+    expect(modules).toContain("absolut-regles");
+    expect(domaine.DELAI_INSCRIPTION_ABSOLUT_MINUTES).toBe(DELAI_INSCRIPTION_ABSOLUT_MINUTES);
+    expect(domaine.etatInscriptionsAbsolut).toBe(etatInscriptionsAbsolut);
+    expect(domaine.tapisDuCombatAbsolut).toBe(tapisDuCombatAbsolut);
+    expect(manifeste.exports?.["./absolut-regles"]).toBe("./src/absolut-regles.ts");
   });
 });
