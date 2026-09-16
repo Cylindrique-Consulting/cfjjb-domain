@@ -303,6 +303,77 @@ Le mot « Repêchage » ne sort plus d'aucun libellé : à trois inscrits, le co
 « perdant de la 1re demi-finale contre le 3e » est une **demi-finale** (« DF »). Le type
 interne `BraketFightRepechage3` est conservé.
 
+## Release B (v0.17.0)
+
+Moteur de podium, doubles disqualifications et arbitrage (lot L5 ; réponses du client
+du 15/09/2026 : PO3, DQ1, SB3, PO4.5 ; IBJJF Rules Book 6.1, General Competition
+Guidelines art. 2.3.1, 2.4.1 à 2.4.3, 4.2 à 4.4).
+
+| Module                       | Ce qu'il apporte                                                                           |
+| ---------------------------- | ------------------------------------------------------------------------------------------ |
+| `src/podium-officiel.ts`     | `classementOfficiel` (remplace `computePodium`), `estTermineeSansMedaille`, libellés       |
+| `src/arbitrage.ts`           | `REGLES_FIN_SANS_VAINQUEUR`, `arbitrageRequisPour`, combats supplémentaires, scénarios     |
+| `src/bracket-propagation.ts` | `double_dq`, `double_blessure`, `designation` ; `planFinishSansVainqueur`, `planArbitrage` |
+| `src/fight-rest.ts`          | la désignation entre coéquipiers n'est pas un combat disputé                               |
+| `src/fight-stats.ts`         | fins sans vainqueur nommées ; une désignation n'entre pas au bilan                         |
+| `src/capabilities.ts`        | `fight.arbitrate`, `category.ranking_enter`, `arbitration.fights_create` (Responsable)     |
+
+**Rupture assumée (0.x)** : `computePodium` et le type `Podium` sont retirés. Leur seul
+consommateur est le module Jour J, qui passe au classement officiel dans la même vague.
+
+### Le classement officiel
+
+`classementOfficiel({ fights, thirdPlaceMode, seulInscrit, eligibilite, classementSaisi })`
+rend un état (`en_cours`, `complet`, `terminee_sans_medaille`, `arbitrage_requis`,
+`disciplinaire_en_attente`) et des places `{ rang, ordre, registrationId, motifVacance }` :
+0 ou 1 or, 0 à 2 argents, 0 à 4 bronzes.
+
+- **Éligibilité** : ne sont jamais classés le disqualifié disciplinaire et l'éliminé au
+  check-in qui n'a pas combattu. La disqualification technique est une défaite ; l'absent
+  qui a combattu garde sa place. Le seul inscrit n'a l'or qu'au check-in validé.
+- **Places vacantes** : une ligne « Xe place vacante (motif) » seulement quand une place
+  que le règlement attribue est retirée à un athlète inéligible, ou quand la règle dit
+  « la place reste vacante ». Jamais pour une place que le format ne prévoit pas.
+- **Remontées** : T2.3 (la place d'un inéligible sans combat revient à l'athlète battu plus
+  tôt par son adversaire), T2.4 B (double forfait en demi-finale), 2.4.1 (double
+  disqualification en demi-finale, avant les demies, place de demie sans qualifié), 2.4.2
+  (finale), 2.4.3 (disqualification disciplinaire validée après combat : chaîne des battus).
+- **Catégorie à deux** (règle CFJJB DQ1.5) : double technique, les deux 2es ; double
+  disciplinaire, ni classement ni médaille ; mixte, le technique 2e seul.
+- Le tableau est lu **comme la cascade de forfait l'aura soldé** : un combat dont un côté
+  est structurellement impossible est un forfait que le serveur prononce.
+
+Tant que le lot L7 n'existe pas, une disqualification disciplinaire saisie à la table vaut
+« validée » (`estDisqualifieDisciplinaire`, miroir SQL `jour_j_disqualifie_disciplinaire`) ;
+l'entrée `disciplinaire: "en_attente"` est déjà le point de branchement.
+
+### « Terminée sans médaillé »
+
+`estTermineeSansMedaille` est un prédicat simple, miroir exact de
+`jour_j_categorie_terminee_sans_medaille` : tout est joué, aucun arbitrage n'attend, et
+aucun athlète classable n'a atteint la zone des médailles (combats de division 1 et 2).
+L'équivalence avec l'état du moteur est prouvée exhaustivement sur les tableaux de 1 à 5
+inscrits, à chaque état intermédiaire (`tests/terminee-sans-medaille.test.ts`).
+
+### Arbitrage requis
+
+Une double disqualification ou un arrêt pour double blessure à égalité parfaite ne désigne
+aucun vainqueur. `REGLES_FIN_SANS_VAINQUEUR` dit, par format (deux, trois, au moins quatre),
+tour et nature (technique, disciplinaire, mixte, blessure), si la suite est automatique ou
+si le Responsable doit saisir un tirage au sort, une décision, un classement ou créer des
+combats supplémentaires (hors grille : finale rejouée en division 1 index 1, demies
+supplémentaires en division 2 index 2 et 3). Quand la règle désigne un athlète
+indisponible, elle devient « classement ». Chaque règle cite sa source :
+
+- « IBJJF Rules Book 6.1 (juin 2024), General Competition Guidelines art. 2.4.1 » ou « 2.4.2 » ;
+- « IBJJF Rules Book 6.1 (juin 2024), règles d'arbitrage art. 2 (tirage au sort) » ;
+- « Règle CFJJB (réponse DQ1.5 du 15/09/2026) » ;
+- « Règle CFJJB (réponse DQ1.4 du 15/09/2026, cas non écrit) ».
+
+La table a un second exemplaire en SQL (`jour_j_fin_sans_vainqueur_arbitrage`) : la
+plateforme importe `scenariosFinSansVainqueur()` et `scenariosTermineeSansMedaille()` et
+exige la même réponse dans `pnpm db:validate`.
+
 ## Pureté, vérifiée et non recommandée
 
 `eslint.config.mjs` interdit `node:*`, `fs`, `path`, `crypto`, `react`, `react-dom`,
