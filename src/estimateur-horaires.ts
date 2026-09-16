@@ -133,6 +133,13 @@ export type EstimationCombat = {
   etat: "a_venir" | "en_cours";
   /** Début estimé (ou réel pour un combat en cours). */
   debutMs: number;
+  /**
+   * Le début que la seule PLACE dans la file donnerait : espacement, ancrage et
+   * plancher, sans attendre le repos des athlètes ni les combats sources. C'est
+   * l'heure du créneau ; `debutMs` la repousse quand un athlète n'est pas prêt.
+   * Sert à refuser un déplacement qui placerait un combat avant sa source.
+   */
+  debutDeFileMs: number;
   /** Fin estimée, jamais avant maintenant pour un combat en cours. */
   finMs: number;
   /** Prochain combat à lancer de son tatami, journée commencée, heure atteinte. */
@@ -175,6 +182,7 @@ type File = {
 
 type Evaluation = {
   debutMs: number;
+  debutDeFileMs: number;
   finMs: number;
   plancherApplique: boolean;
   attendRepos: boolean;
@@ -299,6 +307,7 @@ export function estimerLesHoraires(
       const fin = Math.max(maintenant, debut + dureeMs + Math.max(0, c.pausedMs) + pauseEnCours);
       return {
         debutMs: debut,
+        debutDeFileMs: debut,
         finMs: fin,
         plancherApplique: false,
         attendRepos: false,
@@ -334,6 +343,7 @@ export function estimerLesHoraires(
     const debut = repos === null ? sansRepos : Math.max(sansRepos, repos);
     return {
       debutMs: debut,
+      debutDeFileMs: sansRepos,
       finMs: debut + dureeMs,
       plancherApplique: plancher !== null && plancher > Math.max(base, repos ?? base),
       attendRepos: repos !== null && repos > sansRepos,
@@ -354,6 +364,7 @@ export function estimerLesHoraires(
       fightId: c.id,
       etat: lance ? "en_cours" : "a_venir",
       debutMs: e.debutMs,
+      debutDeFileMs: e.debutDeFileMs,
       finMs: e.finMs,
       aPresent,
       plancherApplique: e.plancherApplique,

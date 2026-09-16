@@ -211,6 +211,7 @@ describe("le repos des athlètes", () => {
     );
     const c = r.combats.get("c")!;
     expect(hm(c.debutMs)).toBe("10:03");
+    expect(hm(c.debutDeFileMs)).toBe("10:00");
     expect(c.attendRepos).toBe(true);
     expect(hm(c.finDeReposMs)).toBe("10:03");
   });
@@ -309,6 +310,9 @@ describe("le repos des athlètes", () => {
     expect(hm(r.combats.get("d1")?.finMs)).toBe("10:11");
     expect(hm(r.combats.get("f")?.debutMs)).toBe("10:21");
     expect(r.combats.get("f")?.dependanceIgnoree).toBe(false);
+    // Le créneau de la finale, lui, reste 10:00 : c'est sa place dans la file du
+    // tatami 2, avant que l'attente de ses sources ne la repousse.
+    expect(hm(r.combats.get("f")?.debutDeFileMs)).toBe("10:00");
   });
 
   it("un athlète sans combat disputé connu n'attend aucun repos (un W.O. ou une désignation n'en ouvre pas)", () => {
@@ -360,6 +364,7 @@ describe("le plancher de 90 minutes", () => {
     );
     expect(PLANCHER_AFFICHAGE_MS).toBe(90 * MINUTE);
     expect(hm(r.combats.get("c1")?.debutMs)).toBe("11:30");
+    expect(hm(r.combats.get("c1")?.debutDeFileMs)).toBe("11:30");
     expect(r.combats.get("c1")?.plancherApplique).toBe(true);
     // Le suivant découle du premier : il n'est plus borné par son propre plancher.
     expect(hm(r.combats.get("c2")?.debutMs)).toBe("11:36");
