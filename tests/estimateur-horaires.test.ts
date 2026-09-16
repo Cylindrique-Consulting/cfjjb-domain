@@ -641,7 +641,7 @@ describe("robustesse", () => {
     });
     estimerLesHoraires(e);
     let meilleur = Number.POSITIVE_INFINITY;
-    for (let essai = 0; essai < 3; essai += 1) {
+    for (let essai = 0; essai < 5; essai += 1) {
       const debut = Date.now();
       const r = estimerLesHoraires(e);
       meilleur = Math.min(meilleur, Date.now() - debut);

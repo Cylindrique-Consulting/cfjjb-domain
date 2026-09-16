@@ -178,6 +178,8 @@ type File = {
   position: number;
   finPrecedenteMs: number | null;
   premierNonLanceVu: boolean;
+  /** L'évaluation de la tête courante, jusqu'à ce qu'un placement la périme. */
+  tete: Evaluation | null;
 };
 
 type Evaluation = {
@@ -258,6 +260,7 @@ export function estimerLesHoraires(
         position: 0,
         finPrecedenteMs: null,
         premierNonLanceVu: false,
+        tete: null,
       });
   }
   for (const f of files.values()) {
@@ -279,6 +282,34 @@ export function estimerLesHoraires(
   }
   const ordreDesFiles = [...files.values()].sort((a, b) => comparerChaines(a.cle, b.cle));
 
+  // LES INDEX INVERSES qui disent quelles têtes de file un placement périme : les
+  // combats d'un même athlète, et ceux qui attendent le combat placé. Une tête
+  // n'est réévaluée que si sa file a avancé ou si l'un d'eux vient d'être placé.
+  const fileDuCombat = new Map<string, File>();
+  for (const f of ordreDesFiles) for (const c of f.combats) fileDuCombat.set(c.id, f);
+  const combatsParAthlete = new Map<string, string[]>();
+  const dependants = new Map<string, string[]>();
+  const indexer = (index: Map<string, string[]>, cle: string, id: string) => {
+    const liste = index.get(cle);
+    if (liste) liste.push(id);
+    else index.set(cle, [id]);
+  };
+  for (const c of retenus) {
+    for (const athlete of c.athletes)
+      if (athlete !== null) indexer(combatsParAthlete, athlete, c.id);
+    for (const source of sources.get(c.id) ?? [])
+      if (source !== null) indexer(dependants, source, c.id);
+  }
+  const perimer = (ids: readonly string[] | undefined) => {
+    for (const id of ids ?? []) {
+      const f = fileDuCombat.get(id);
+      if (f !== undefined && f.combats[f.position]?.id === id) f.tete = null;
+    }
+  };
+
+  // L'ANCRAGE ne dépend que des entrées : calculé une fois par tatami et journée.
+  const ancres = new Map<string, number>();
+
   const finParAthlete = new Map<string, number>();
   for (const [athlete, fin] of Object.entries(entree.reposParAthlete)) {
     if (Number.isFinite(fin)) finParAthlete.set(athlete, fin);
@@ -287,15 +318,22 @@ export function estimerLesHoraires(
   const places = new Map<string, EstimationCombat>();
 
   const ancrage = (c: CombatAEstimer): number => {
+    const cle = `${c.tatamiId}|${c.jour}`;
+    const connue = ancres.get(cle);
+    if (connue !== undefined) return connue;
     const t = tatamis.get(c.tatamiId)!;
     const courante = c.jour === entree.journee.index;
-    const lance = lances.has(`${c.tatamiId}|${c.jour}`) || (courante && t.lanceAujourdhui === true);
+    const lance = lances.has(cle) || (courante && t.lanceAujourdhui === true);
+    let valeur: number;
     if (lance) {
       const derniere = courante ? (t.derniereFinMs ?? null) : null;
-      return derniere === null ? maintenant : Math.max(maintenant, derniere + espacementMs);
+      valeur = derniere === null ? maintenant : Math.max(maintenant, derniere + espacementMs);
+    } else {
+      const prevu = t.debutPrevuMs[c.jour];
+      valeur = prevu === null || prevu === undefined ? maintenant : Math.max(maintenant, prevu);
     }
-    const prevu = t.debutPrevuMs[c.jour];
-    return prevu === null || prevu === undefined ? maintenant : Math.max(maintenant, prevu);
+    ancres.set(cle, valeur);
+    return valeur;
   };
 
   const evaluer = (f: File, c: CombatAEstimer, ignorerSources: boolean): Evaluation => {
@@ -374,11 +412,14 @@ export function estimerLesHoraires(
     });
     f.finPrecedenteMs = e.finMs;
     f.position += 1;
+    f.tete = null;
     for (const athlete of c.athletes) {
       if (athlete === null) continue;
       const avant = finParAthlete.get(athlete);
       finParAthlete.set(athlete, avant === undefined ? e.finMs : Math.max(avant, e.finMs));
+      perimer(combatsParAthlete.get(athlete));
     }
+    perimer(dependants.get(c.id));
   };
 
   const meilleur = (
@@ -398,9 +439,18 @@ export function estimerLesHoraires(
     for (const f of ordreDesFiles) {
       const c = f.combats[f.position];
       if (c === undefined) continue;
-      const e = evaluer(f, c, false);
-      if (e.bloque) enAttente = meilleur(enAttente, { f, c, e: evaluer(f, c, true) });
-      else pret = meilleur(pret, { f, c, e });
+      if (f.tete === null) f.tete = evaluer(f, c, false);
+      const e = f.tete;
+      if (!e.bloque) pret = meilleur(pret, { f, c, e });
+    }
+    if (pret === null) {
+      // Toutes les têtes attendent une source : la plus précoce passe, sa
+      // contrainte ignorée (évaluée à part, la tête gardée reste « bloquée »).
+      for (const f of ordreDesFiles) {
+        const c = f.combats[f.position];
+        if (c === undefined) continue;
+        enAttente = meilleur(enAttente, { f, c, e: evaluer(f, c, true) });
+      }
     }
     if (pret !== null) {
       placer(pret.f, pret.c, pret.e, false);
