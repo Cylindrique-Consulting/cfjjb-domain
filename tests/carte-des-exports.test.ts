@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as domaine from "../src/index";
 import { aDisputeLeCombat, finDeReposDeLAthlete } from "../src/fight-rest";
+import { pointsDeResultat, saisonSportive } from "../src/points";
 import { divisionMaxDuTableau, nomDuTour } from "../src/round-names";
 import { REGLES_FIN_SANS_VAINQUEUR } from "../src/arbitrage";
 import { classementOfficiel, estTermineeSansMedaille } from "../src/podium-officiel";
@@ -56,6 +57,11 @@ describe("la carte des exports", () => {
     expect(domaine.divisionMaxDuTableau).toBe(divisionMaxDuTableau);
     expect(domaine.aDisputeLeCombat).toBe(aDisputeLeCombat);
     expect(domaine.finDeReposDeLAthlete).toBe(finDeReposDeLAthlete);
+  });
+
+  it("pointsDeResultat et saisonSportive (v0.16.0) sont joignables depuis la racine", () => {
+    expect(domaine.pointsDeResultat).toBe(pointsDeResultat);
+    expect(domaine.saisonSportive).toBe(saisonSportive);
   });
 
   it("les modules de la release B sont joignables depuis la racine et par leur entrée (v0.17.0)", () => {

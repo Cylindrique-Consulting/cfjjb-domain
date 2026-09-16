@@ -303,6 +303,40 @@ Le mot « Repêchage » ne sort plus d'aucun libellé : à trois inscrits, le co
 « perdant de la 1re demi-finale contre le 3e » est une **demi-finale** (« DF »). Le type
 interne `BraketFightRepechage3` est conservé.
 
+## Points, niveaux et saison sportive (v0.16.0)
+
+`src/points.ts` porte le barème du guide des points v1.2 et de l'article 3 du règlement
+CFJJB 2024, tel que le client l'a arrêté les 15 et 16/09/2026. La plateforme en stocke
+le résultat sur chaque résultat officiel ; la fonction SQL `ranking_points_calcul` en
+est la jumelle, et un test de parité de la plateforme rejoue les deux.
+
+| Règle                    | Valeur                                                                 |
+| ------------------------ | ---------------------------------------------------------------------- |
+| catégorie de poids       | 9 / 3 / 1 (chaque 3e d'un tableau à deux bronzes reçoit 1)             |
+| Absolut, individuel      | 13,5 / 4,5 / 1,5                                                       |
+| niveau de la compétition | Open ×1, Majeure ×2, Championnat national ×4, hors classement ×0       |
+| équipes et clubs         | 9 / 3 / 1 par médaille, absolut compris, **sans** coefficient          |
+| un seul inscrit (3.4)    | aucun point, ni individuel, ni équipe, ni club                         |
+| deux de la même équipe   | aucun point d'équipe ni de club (3.5), points individuels acquis       |
+| arrondi                  | deux décimales, au plus loin de zéro (`round(numeric, 2)` de Postgres) |
+| saison sportive          | du 1er août au 31 juillet, lue sur la date de la compétition           |
+
+Quatre points valent d'être connus avant d'y toucher :
+
+- **Tout est en centièmes entiers.** 13,5 vaut 1350, un coefficient ×2 vaut 200. Un
+  flottant rendrait 28,999… pour 29, et deux totaux égaux pourraient se départager
+  par une erreur d'arrondi.
+- **Les jeunes marquent comme les adultes** (R2 du 16/09) : enfants U7 à U15 et
+  juvéniles. Le calcul ne reçoit pas la tranche d'âge, donc aucune exclusion ne peut
+  s'y glisser. `isChildAgeCategory` ne bouge pas : elle sert à d'autres règles.
+- **L'ancien coefficient libre se lit comme un niveau** (R3 du 16/09) : 3 → Open,
+  4 → Majeure, 5 → Championnat national ; 0 → hors classement. C'est une lecture, pas
+  une réécriture : `niveauEffectif` préfère toujours un niveau explicite.
+- **Les Masters regroupés restent regroupés dans un profil de classement.**
+  `trancheDeProfil` rend « Master 1/2 » pour `master_1_2`, là où `resolveAgeGroup`
+  rend « Master 1 » (exact pour les poids et les durées, faux pour un classement, qui
+  fusionnerait deux profils).
+
 ## Release B (v0.17.0)
 
 Moteur de podium, doubles disqualifications et arbitrage (lot L5 ; réponses du client

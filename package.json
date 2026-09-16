@@ -37,6 +37,7 @@
     "./fight-stats": "./src/fight-stats.ts",
     "./round-names": "./src/round-names.ts",
     "./fight-rest": "./src/fight-rest.ts",
+    "./points": "./src/points.ts",
     "./podium-officiel": "./src/podium-officiel.ts",
     "./arbitrage": "./src/arbitrage.ts"
   },
