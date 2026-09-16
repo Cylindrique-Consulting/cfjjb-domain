@@ -20,18 +20,30 @@ const MINUTE = 60_000;
 const T0 = Date.UTC(2026, 8, 20, 9, 0, 0);
 
 describe("« a disputé un combat »", () => {
-  it("bye, wo et double_wo ne sont pas des combats disputés", () => {
-    for (const winMethod of ["bye", "wo", "double_wo"] as const) {
+  it("bye, wo, double_wo et désignation entre coéquipiers ne sont pas des combats disputés", () => {
+    // La désignation (guide v1.2 §7.2) entre au registre en release B : personne
+    // ne monte sur le tapis, donc aucun repos ne s'ouvre (T9.1).
+    for (const winMethod of ["bye", "wo", "double_wo", "designation"] as const) {
       expect(
         aDisputeLeCombat({ state: "finished", winMethod, chronoLance: false }),
         winMethod,
       ).toBe(false);
     }
-    expect([...METHODES_SANS_COMBAT].sort()).toEqual(["bye", "double_wo", "wo"]);
+    expect([...METHODES_SANS_COMBAT].sort()).toEqual(["bye", "designation", "double_wo", "wo"]);
   });
 
-  it("points, soumission, disqualification, décision et abandon le sont", () => {
-    for (const winMethod of ["points", "submission", "dq", "decision", "abandon"] as WinMethod[]) {
+  it("points, soumission, disqualification, décision, abandon et les deux fins sans vainqueur le sont", () => {
+    // La double disqualification et l'arrêt pour double blessure sont des
+    // combats DISPUTÉS : le repos part de leur fin réelle (SB3, T9.1).
+    for (const winMethod of [
+      "points",
+      "submission",
+      "dq",
+      "decision",
+      "abandon",
+      "double_dq",
+      "double_blessure",
+    ] as WinMethod[]) {
       expect(
         aDisputeLeCombat({ state: "finished", winMethod, chronoLance: false }),
         winMethod,

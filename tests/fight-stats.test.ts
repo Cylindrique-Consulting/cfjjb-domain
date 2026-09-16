@@ -189,9 +189,12 @@ describe("victoires, défaites, et la méthode rangée dans sa case", () => {
     expect(bilan("FLO", F).victoiresParMethode.disqualification).toBe(1);
   });
 
-  it("`bye` et `double_wo` n'ont pas de case de méthode", () => {
+  it("`bye`, `double_wo`, `double_dq`, `double_blessure` et `designation` n'ont pas de case de méthode", () => {
     expect(methodeVictoireDe("bye")).toBeNull();
     expect(methodeVictoireDe("double_wo")).toBeNull();
+    expect(methodeVictoireDe("double_dq")).toBeNull();
+    expect(methodeVictoireDe("double_blessure")).toBeNull();
+    expect(methodeVictoireDe("designation")).toBeNull();
     expect(methodeVictoireDe(null)).toBeNull();
     expect(methodeVictoireDe("submission")).toBe("soumission");
     expect(methodeVictoireDe("wo")).toBe("forfait");
@@ -615,3 +618,37 @@ function permutations(xs: readonly number[]): number[][] {
   }
   return out;
 }
+
+describe("release B : les fins sans vainqueur et la désignation entre coéquipiers", () => {
+  it("une double disqualification ou une double blessure compte comme disputée, sans vainqueur", () => {
+    const r = bilan("ANA", [
+      combat({
+        fightId: "D1",
+        registrationA: "ANA",
+        registrationB: "BOB",
+        winner: null,
+        winMethod: "double_dq",
+      }),
+      combat({
+        fightId: "D2",
+        registrationA: "CLE",
+        registrationB: "ANA",
+        winner: null,
+        winMethod: "double_blessure",
+      }),
+    ]);
+    expect(r.combats).toBe(2);
+    expect(r.sansVainqueur).toBe(2);
+    expect(r.victoires).toBe(0);
+    expect(r.defaites).toBe(0);
+  });
+
+  it("une désignation n'est pas un combat : elle n'entre pas au bilan (guide v1.2 §7.2)", () => {
+    const f = [
+      gagne("G1", "ANA", "BOB", "ANA", "points"),
+      gagne("G2", "ANA", "CLE", "ANA", "designation"),
+    ];
+    expect(bilan("ANA", f).combats).toBe(1);
+    expect(statistiquesCombattant("CLE", f)).toEqual({ aDesCombats: false });
+  });
+});

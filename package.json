@@ -36,7 +36,9 @@
     "./db-vocabulary": "./src/db-vocabulary.ts",
     "./fight-stats": "./src/fight-stats.ts",
     "./round-names": "./src/round-names.ts",
-    "./fight-rest": "./src/fight-rest.ts"
+    "./fight-rest": "./src/fight-rest.ts",
+    "./podium-officiel": "./src/podium-officiel.ts",
+    "./arbitrage": "./src/arbitrage.ts"
   },
   "files": [
     "src"

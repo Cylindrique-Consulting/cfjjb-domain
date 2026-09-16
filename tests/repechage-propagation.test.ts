@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { generateBracket, type BracketEntry } from "../src/bracket-generator";
+import { classementOfficiel } from "../src/podium-officiel";
 import {
-  computePodium,
   findFeederFight,
   findNextSlot,
   findRepechage3Slot,
@@ -281,9 +281,9 @@ describe("les scénarios TR1 du registre", () => {
 
   it("aucun podium ne reste bloqué sur un message « Repêchage »", () => {
     const t = trois();
-    const podium = computePodium(t.fights, { thirdPlaceMode: "pool3" });
-    expect(podium.missing).toContain("2e demi-finale non terminée");
-    expect(podium.missing.join(" ")).not.toMatch(/rep[êe]chage/i);
+    const c = classementOfficiel({ fights: t.fights, thirdPlaceMode: "pool3" });
+    expect(c.manquant).toContain("2e demi-finale non terminée");
+    expect(c.manquant.join(" ")).not.toMatch(/rep[êe]chage/i);
   });
 });
 

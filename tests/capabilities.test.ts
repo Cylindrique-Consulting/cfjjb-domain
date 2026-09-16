@@ -223,3 +223,25 @@ describe("les vues dérivées", () => {
     expect(operableTatamis([poste("weighin", "none")])).toEqual([]);
   });
 });
+
+describe("l'arbitrage d'une fin sans vainqueur : le Responsable seul (DQ1.3)", () => {
+  const VERBES = [
+    "fight.arbitrate",
+    "category.ranking_enter",
+    "arbitration.fights_create",
+  ] as const;
+
+  it("les trois verbes n'appartiennent qu'au commissaire de journée, sans tapis", () => {
+    for (const v of VERBES) {
+      expect(CAPABILITIES[v], v).toEqual({ roles: ["day_commissioner"], tatamiBound: false });
+      expect(canPerform(v, [poste("day_commissioner")], null), v).toBe(true);
+      for (const r of STAFF_ROLES.filter((x) => x !== "day_commissioner")) {
+        expect(canPerform(v, [poste(r, "all")], T1), `${v} ouvert à ${r}`).toBe(false);
+      }
+    }
+  });
+
+  it("le poste podium ne les propose pas : il confirme, il n'arbitre pas", () => {
+    for (const v of VERBES) expect(allowedKinds([poste("podium")])).not.toContain(v);
+  });
+});

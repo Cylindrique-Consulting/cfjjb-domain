@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import * as domaine from "../src/index";
 import { aDisputeLeCombat, finDeReposDeLAthlete } from "../src/fight-rest";
 import { divisionMaxDuTableau, nomDuTour } from "../src/round-names";
+import { REGLES_FIN_SANS_VAINQUEUR } from "../src/arbitrage";
+import { classementOfficiel, estTermineeSansMedaille } from "../src/podium-officiel";
 
 // ===================================================================
 // UN MODULE AJOUTÉ DOIT ÊTRE VISIBLE DES CONSOMMATEURS.
@@ -54,5 +56,18 @@ describe("la carte des exports", () => {
     expect(domaine.divisionMaxDuTableau).toBe(divisionMaxDuTableau);
     expect(domaine.aDisputeLeCombat).toBe(aDisputeLeCombat);
     expect(domaine.finDeReposDeLAthlete).toBe(finDeReposDeLAthlete);
+  });
+
+  it("les modules de la release B sont joignables depuis la racine et par leur entrée (v0.17.0)", () => {
+    expect(modules).toContain("podium-officiel");
+    expect(modules).toContain("arbitrage");
+    expect(domaine.classementOfficiel).toBe(classementOfficiel);
+    expect(domaine.estTermineeSansMedaille).toBe(estTermineeSansMedaille);
+    expect(domaine.REGLES_FIN_SANS_VAINQUEUR).toBe(REGLES_FIN_SANS_VAINQUEUR);
+    expect(manifeste.exports?.["./podium-officiel"]).toBe("./src/podium-officiel.ts");
+    expect(manifeste.exports?.["./arbitrage"]).toBe("./src/arbitrage.ts");
+    // `computePodium` est retiré (rupture assumée en 0.x) : un consommateur qui
+    // l'importerait encore doit échouer à la compilation, pas lire `undefined`.
+    expect("computePodium" in domaine).toBe(false);
   });
 });

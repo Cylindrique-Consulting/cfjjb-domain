@@ -1,5 +1,5 @@
+import { finSansVainqueurAttendUnArbitrage } from "./arbitrage";
 import type { GeneratedFight } from "./bracket-generator";
-import type { ThirdPlaceMode } from "./enums";
 
 /**
  * PROPAGATION D'UN TABLEAU — le module dont tout le jour J dépend.
@@ -39,9 +39,51 @@ export type FightState = "scheduled" | "in_progress" | "finished" | "cancelled";
  * `bye` et `double_wo` ne sont pas des décisions d'arbitre mais des états
  * structurels : le premier dit que personne n'a combattu, le second qu'aucun
  * vainqueur n'existe. Les distinguer de `wo` importe — un `wo` a un vainqueur.
+ *
+ * RELEASE B (v0.17.0, réponses du client du 15/09/2026) :
+ *
+ *   · `double_dq` : les DEUX athlètes sont disqualifiés (DQ1.1), chacun avec
+ *     son motif (`dqReasonA`, `dqReasonB`). Combat DISPUTÉ, sans vainqueur.
+ *   · `double_blessure` : arrêt pour blessure des deux combattants à égalité
+ *     parfaite (SB3.2, IBJJF Rules Book art. 2). Combat DISPUTÉ, sans vainqueur.
+ *   · `designation` : désignation entre coéquipiers en finale (guide des points
+ *     v1.2 §7.2). Un vainqueur, mais AUCUN combat disputé (pas de repos).
+ *
+ * Une fin sans vainqueur peut attendre un arbitrage (`arbitrage.ts`) : tant
+ * qu'il n'est pas rendu, le tableau n'avance pas de ce côté.
  */
 export type WinMethod =
-  "points" | "submission" | "abandon" | "wo" | "double_wo" | "dq" | "decision" | "bye";
+  | "points"
+  | "submission"
+  | "abandon"
+  | "wo"
+  | "double_wo"
+  | "dq"
+  | "decision"
+  | "bye"
+  | "double_dq"
+  | "double_blessure"
+  | "designation";
+
+/** Les deux fins d'un combat DISPUTÉ qui ne désignent aucun vainqueur. */
+export type MethodeSansVainqueur = "double_dq" | "double_blessure";
+
+/** Le motif d'une disqualification, par athlète (colonnes `dq_reason*`). */
+export type MotifDeDisqualification = "technique" | "disciplinaire";
+
+/**
+ * L'arbitrage RENDU sur une fin sans vainqueur (colonnes `arbitrage_*` de
+ * `competition_fight_states`). Sa seule présence dit « l'arbitrage est rendu »
+ * (`arbitrage_le` posé) :
+ *
+ *   · `tirage` : le Responsable a saisi le tirage au sort ; le gagnant est
+ *     `winner`, et le perdant du tirage est le perdant du combat ;
+ *   · `decision` : le Responsable a saisi la suite retenue ; `winner` est le
+ *     qualifié, ou `null` si personne ne l'est ;
+ *   · `null` : l'arbitrage est rendu AILLEURS que sur ce combat (combats
+ *     supplémentaires créés, ou classement saisi pour la catégorie).
+ */
+export type ArbitrageRendu = { mode: "tirage" | "decision" | null };
 
 export type PropagationFight = {
   id: string;
@@ -72,6 +114,15 @@ export type PropagationFight = {
    * révoque jamais (le serveur fait foi à la relecture).
    */
   cascadeForfeit?: boolean;
+  /** Le motif d'une disqualification simple (`dq`), s'il est connu. */
+  dqReason?: MotifDeDisqualification | null;
+  /** Les motifs d'une double disqualification, côté A et côté B. */
+  dqReasonA?: MotifDeDisqualification | null;
+  dqReasonB?: MotifDeDisqualification | null;
+  /** La case « Arrêt pour blessure des deux combattants » était cochée (SB3.2). */
+  doubleBlessure?: boolean;
+  /** L'arbitrage rendu sur une fin sans vainqueur, `null`/absent sinon. */
+  arbitrage?: ArbitrageRendu | null;
   version: number;
 };
 
@@ -318,6 +369,13 @@ export function findFeederFight(
   );
 }
 
+/** Une fin SANS vainqueur d'un combat disputé : double DQ ou double blessure. */
+export function estFinSansVainqueur(f: Pick<PropagationFight, "state" | "winMethod">): boolean {
+  return (
+    f.state === "finished" && (f.winMethod === "double_dq" || f.winMethod === "double_blessure")
+  );
+}
+
 /**
  * Un emplacement est-il STRUCTURELLEMENT impossible à remplir ? Son nourricier
  * ne produira JAMAIS l'occupant attendu. Miroir de `jour_j_slot_impossible`.
@@ -329,6 +387,13 @@ export function findFeederFight(
  *     impossible si la demie nourricière est `wo`/`double_wo`/`cancelled` (aucun
  *     perdant réel), ou si son perdant est éliminé (il ne descend pas). Le côté
  *     B du repêchage n'a pas de nourricier : jamais impossible.
+ *   · FIN SANS VAINQUEUR (release B) : un nourricier terminé en `double_dq` ou
+ *     `double_blessure` sans vainqueur ATTEND l'arbitrage quand la règle en
+ *     demande un et qu'il n'est pas rendu (l'emplacement n'est PAS impossible :
+ *     le tableau attend) ; sinon personne ne sort de ce combat, l'emplacement
+ *     est impossible — c'est le « passage sans adversaire » de DQ1.2. Un
+ *     nourricier arbitré par tirage (ou décision) a un vainqueur et suit la
+ *     règle ordinaire.
  *
  * Un nourricier `scheduled`/`in_progress` n'est PAS impossible : on attend.
  */
@@ -342,6 +407,10 @@ export function isSlotImpossible(
   if (!feeder) return false;
   if (feeder.state === "cancelled") return true;
   if (feeder.state !== "finished") return false;
+
+  if (estFinSansVainqueur(feeder) && feeder.winner === null) {
+    return !finSansVainqueurAttendUnArbitrage(fights, feeder);
+  }
 
   if (fight.type === "BraketFightPool3" || fight.type === "BraketFightRepechage3") {
     if (feeder.winMethod === "wo" || feeder.winMethod === "double_wo") return true;
@@ -486,6 +555,122 @@ export function planFinish(
 
   const plan = fermer(b, fights);
   return { ...plan, expected: plan.expected.filter((e) => !e.fightId.startsWith("elimine:")) };
+}
+
+/** La fin sans vainqueur telle que la saisit la table de marque. */
+export type FinSansVainqueur =
+  | {
+      method: "double_dq";
+      dqReasonA: MotifDeDisqualification;
+      dqReasonB: MotifDeDisqualification;
+    }
+  | { method: "double_blessure" };
+
+/**
+ * Terminer un combat SANS VAINQUEUR : double disqualification (DQ1.1) ou
+ * double blessure à égalité parfaite (SB3.2).
+ *
+ * N'ÉCRIT AUCUN EMPLACEMENT, et c'est la règle (miroir de `day_fight_finish`) :
+ * aucun des deux n'avance. Le combat suivant attend, puis la cascade le règle
+ * (« passage sans adversaire ») quand la règle d'arbitrage est nulle, ou il
+ * attend l'arbitrage du Responsable quand elle ne l'est pas
+ * (`isSlotImpossible`). Le point fixe ne tourne qu'avec des éliminés, comme
+ * `planFinish`.
+ */
+export function planFinishSansVainqueur(
+  fights: readonly PropagationFight[],
+  fightId: string,
+  fin: FinSansVainqueur,
+  eliminated: ReadonlySet<string> = new Set(),
+): Plan {
+  const b = ouvrir(fights);
+  for (const e of eliminated) b.vus.add(`elimine:${e}`);
+
+  const fight = b.fights.find((f) => f.id === fightId);
+  if (!fight) return fermer(b, fights);
+
+  patcher(b, fightId, {
+    state: "finished",
+    winner: null,
+    winMethod: fin.method,
+    dqReasonA: fin.method === "double_dq" ? fin.dqReasonA : null,
+    dqReasonB: fin.method === "double_dq" ? fin.dqReasonB : null,
+    doubleBlessure: fin.method === "double_blessure",
+    arbitrage: null,
+    needsArbitration: false,
+  });
+
+  if (eliminated.size > 0) forfaitsEnPointFixe(b, eliminated);
+
+  const plan = fermer(b, fights);
+  return { ...plan, expected: plan.expected.filter((e) => !e.fightId.startsWith("elimine:")) };
+}
+
+/**
+ * Rendre l'ARBITRAGE d'une fin sans vainqueur (miroir de `day_fight_arbitrer`,
+ * et, pour `mode: null`, de `day_arbitrage_combats_creer` et
+ * `day_categorie_classement_saisir` qui marquent l'arbitrage rendu).
+ *
+ *   · `tirage` : `gagnant` est obligatoire ; il monte comme un vainqueur, et le
+ *     perdant du tirage descend comme le perdant du combat (1re demi-finale d'un
+ *     tableau de trois → 2e demi-finale) ;
+ *   · `decision` : `gagnant` est le qualifié retenu, ou `null` (personne ne
+ *     l'est, l'emplacement aval devient impossible) ;
+ *   · `null` : l'arbitrage est rendu ailleurs (combats créés, classement saisi).
+ *
+ * La méthode (`double_dq`, `double_blessure`) et les motifs ne changent pas :
+ * l'arbitrage s'AJOUTE au résultat, il ne le réécrit pas.
+ */
+export function planArbitrage(
+  fights: readonly PropagationFight[],
+  fightId: string,
+  arbitrage: { mode: ArbitrageRendu["mode"]; gagnant: string | null },
+  eliminated: ReadonlySet<string> = new Set(),
+): Plan {
+  const b = ouvrir(fights);
+  for (const e of eliminated) b.vus.add(`elimine:${e}`);
+  const fight = b.fights.find((f) => f.id === fightId);
+  if (!fight) return fermer(b, fights);
+
+  patcher(b, fightId, { winner: arbitrage.gagnant, arbitrage: { mode: arbitrage.mode } });
+  if (arbitrage.gagnant !== null) {
+    propager(
+      b,
+      b.fights.find((f) => f.id === fightId)!,
+    );
+  }
+  forfaitsEnPointFixe(b, eliminated);
+
+  const plan = fermer(b, fights);
+  return { ...plan, expected: plan.expected.filter((e) => !e.fightId.startsWith("elimine:")) };
+}
+
+/**
+ * DISQUALIFIÉ DISCIPLINAIRE, lu sur les combats — miroir de
+ * `jour_j_disqualifie_disciplinaire` : perdant d'un `dq` au motif
+ * disciplinaire, ou côté disciplinaire d'une double disqualification.
+ *
+ * C'est le point de branchement de L7 : tant que la procédure de validation
+ * n'existe pas, une disqualification disciplinaire saisie à la table vaut
+ * « validée » (décision D4 du lot L5).
+ */
+export function estDisqualifieDisciplinaire(
+  fights: readonly PropagationFight[],
+  registrationId: string,
+): boolean {
+  return fights.some((f) => {
+    if (f.state !== "finished") return false;
+    if (f.winMethod === "dq") {
+      return f.dqReason === "disciplinaire" && loserOf(f) === registrationId;
+    }
+    if (f.winMethod === "double_dq") {
+      return (
+        (f.slotA === registrationId && f.dqReasonA === "disciplinaire") ||
+        (f.slotB === registrationId && f.dqReasonB === "disciplinaire")
+      );
+    }
+    return false;
+  });
 }
 
 /**
@@ -748,82 +933,41 @@ export function planUndoForfeit(fights: readonly PropagationFight[], fightId: st
 }
 
 // ------------------------------------------------------------------
-// Podium
+// Application en mémoire
 // ------------------------------------------------------------------
 
-export type Podium = {
-  gold: string | null;
-  silver: string | null;
-  /** Un bronze si un combat de 3e place a été joué, deux ex æquo sinon. */
-  bronze: string[];
-  complete: boolean;
-  /** Ce qui manque, en clair — pour l'écrire à l'écran plutôt que de rester muet. */
-  missing: string[];
-};
-
-export function computePodium(
+/**
+ * Applique un plan EN MÉMOIRE : patches, puis écritures d'emplacements, version
+ * incrémentée par ligne touchée — l'arithmétique des fonctions SQL.
+ *
+ * Le moteur de podium s'en sert pour lire un tableau « comme la cascade l'aura
+ * soldé » : un combat dont un côté est structurellement impossible est un WO
+ * que le serveur prononce, qu'il l'ait déjà écrit ou non.
+ */
+export function appliquerLePlan(
   fights: readonly PropagationFight[],
-  opts: { thirdPlaceMode: ThirdPlaceMode; singleCompetitor?: string | null } = {
-    thirdPlaceMode: "pool3",
-  },
-): Podium {
-  // Un seul inscrit : or automatique, aucun combat. C'est une victoire par
-  // construction et non un podium incomplet.
-  if (opts.singleCompetitor) {
-    return { gold: opts.singleCompetitor, silver: null, bronze: [], complete: true, missing: [] };
+  plan: Plan,
+): PropagationFight[] {
+  const out = fights.map((f) => ({ ...f }));
+  const touches = new Set<string>();
+  for (const p of plan.patches) {
+    const cible = out.find((f) => f.id === p.fightId);
+    if (!cible) continue;
+    const { fightId: _id, ...reste } = p;
+    Object.assign(cible, reste);
+    touches.add(cible.id);
   }
-
-  const missing: string[] = [];
-  const finale = at(fights, 1, 0);
-  if (!finale) {
-    return {
-      gold: null,
-      silver: null,
-      bronze: [],
-      complete: false,
-      missing: ["Aucun combat dans cette catégorie"],
-    };
+  for (const w of plan.propagation) {
+    const cible = out.find((f) => f.id === w.fightId);
+    if (!cible) continue;
+    if (w.slot === "A") cible.slotA = w.registrationId;
+    else cible.slotB = w.registrationId;
+    touches.add(cible.id);
   }
-  if (finale.state !== "finished") missing.push("Finale non terminée");
-
-  const gold = finale.state === "finished" ? finale.winner : null;
-  const silver = finale.state === "finished" ? loserOf(finale) : null;
-
-  const rep = repechage3Of(fights);
-  const p3 = pool3Of(fights);
-  let bronze: string[] = [];
-  if (rep) {
-    // CATÉGORIE À TROIS : le bronze est le PERDANT DE LA 2e DEMI-FINALE (le
-    // repêchage), et il n'y en a
-    // qu'un. Il a perdu son dernier combat et n'est pas en finale ; le perdant
-    // de la demie, lui, peut très bien être en finale par le repêchage. Prendre
-    // « les perdants des demies » ici décernerait donc un bronze à un finaliste.
-    if (rep.state === "finished" && rep.winner) {
-      const perdant = loserOf(rep);
-      bronze = perdant === null ? [] : [perdant];
-    } else {
-      missing.push("2e demi-finale non terminée");
-    }
-  } else if (p3) {
-    if (p3.state === "finished" && p3.winner) {
-      bronze = [p3.winner];
-    } else {
-      // UN COMBAT DE 3e PLACE PRÉVU MAIS NON JOUÉ NE RETOMBE PAS sur les
-      // perdants des demies : ce serait décerner deux bronzes ex æquo alors
-      // qu'un seul est en jeu. L'application de référence a ce défaut.
-      missing.push("Petite finale prévue mais non terminée");
-    }
-  } else if (opts.thirdPlaceMode === "shared_bronze") {
-    const demies = [at(fights, 2, 0), at(fights, 2, 1)].filter(
-      (f): f is PropagationFight => f !== null,
-    );
-    const perdants = demies
-      .filter((f) => f.state === "finished")
-      .map(loserOf)
-      .filter((x): x is string => x !== null);
-    bronze = perdants;
-    if (demies.some((f) => f.state !== "finished")) missing.push("Demi-finale non terminée");
-  }
-
-  return { gold, silver, bronze, complete: missing.length === 0 && gold !== null, missing };
+  for (const f of out) if (touches.has(f.id)) f.version += 1;
+  return out;
 }
+
+// Le PODIUM ne vit plus ici : `computePodium` est retiré en release B
+// (v0.17.0) au profit du moteur de classement officiel, `podium-officiel.ts`,
+// qui lit l'éligibilité, les places multiples et vacantes et l'arbitrage.
