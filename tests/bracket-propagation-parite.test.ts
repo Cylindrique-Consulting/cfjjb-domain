@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { generateBracket, type BracketEntry } from "../src/bracket-generator";
+import { classementOfficiel } from "../src/podium-officiel";
 import {
-  computePodium,
   deepestDivision,
   findFeederFight,
   findNextSlot,
@@ -341,14 +341,20 @@ describe("PREUVE 5 — le plan porte ce que l'appelant croyait vrai", () => {
 // PREUVE 6 — podium
 // ------------------------------------------------------------------
 
-describe("PREUVE 6 — le podium", () => {
+describe("PREUVE 6 — le podium (release B : le classement officiel)", () => {
+  // `computePodium` est retiré au profit de `classementOfficiel`
+  // (podium-officiel.ts). Les intentions de cette preuve sont gardées ; seule la
+  // règle du seul inscrit CHANGE, parce qu'elle contredisait PO3 et IBJJF 4.4.
+  const pourvues = (c: ReturnType<typeof classementOfficiel>, rang: 1 | 2 | 3) =>
+    c.places.filter((p) => p.rang === rang && p.registrationId !== null);
+
   it("un tournoi joué en entier donne un podium complet", () => {
     const final = jouerTournoi(bracket(8), appliquerNavigateur);
-    const podium = computePodium(final, { thirdPlaceMode: "pool3" });
-    expect(podium.complete).toBe(true);
-    expect(podium.gold).not.toBeNull();
-    expect(podium.silver).not.toBeNull();
-    expect(podium.bronze).toHaveLength(1);
+    const c = classementOfficiel({ fights: final, thirdPlaceMode: "pool3" });
+    expect(c.etat).toBe("complet");
+    expect(pourvues(c, 1)).toHaveLength(1);
+    expect(pourvues(c, 2)).toHaveLength(1);
+    expect(pourvues(c, 3)).toHaveLength(1);
   });
 
   it("un combat de 3e place PRÉVU mais non joué ne retombe pas sur deux bronzes", () => {
@@ -365,30 +371,47 @@ describe("PREUVE 6 — le podium", () => {
     const finale = etat.find((f) => f.division === 1)!;
     etat = appliquerNavigateur(etat, planFinish(etat, finale.id, finale.slotA!, "points"));
 
-    const podium = computePodium(etat, { thirdPlaceMode: "pool3" });
-    expect(podium.bronze).toEqual([]);
-    expect(podium.complete).toBe(false);
-    expect(podium.missing).toContain("Petite finale prévue mais non terminée");
+    const c = classementOfficiel({ fights: etat, thirdPlaceMode: "pool3" });
+    expect(c.etat).toBe("en_cours");
+    expect(c.places).toEqual([]);
+    expect(c.manquant).toContain("Combat pour la 3e place non terminé");
   });
 
   it("en double bronze, les deux perdants de demie sont ex æquo", () => {
     const final = jouerTournoi(bracket(8, "shared_bronze"), appliquerNavigateur);
-    const podium = computePodium(final, { thirdPlaceMode: "shared_bronze" });
-    expect(podium.bronze).toHaveLength(2);
-    expect(podium.complete).toBe(true);
+    const c = classementOfficiel({ fights: final, thirdPlaceMode: "shared_bronze" });
+    expect(pourvues(c, 3)).toHaveLength(2);
+    expect(c.etat).toBe("complet");
   });
 
-  it("un seul inscrit : or automatique, et ce n'est pas un podium incomplet", () => {
-    const podium = computePodium([], { thirdPlaceMode: "pool3", singleCompetitor: "r1" });
-    expect(podium.gold).toBe("r1");
-    expect(podium.complete).toBe(true);
-    expect(podium.missing).toEqual([]);
+  it("un seul inscrit : l'or n'est dû qu'au check-in validé (PO3, IBJJF 4.4), jamais d'office", () => {
+    const sans = classementOfficiel({ fights: [], thirdPlaceMode: "pool3", seulInscrit: "r1" });
+    expect(sans.etat).toBe("en_cours");
+    expect(sans.places).toEqual([]);
+    const valide = classementOfficiel({
+      fights: [],
+      thirdPlaceMode: "pool3",
+      seulInscrit: "r1",
+      eligibilite: [
+        {
+          registrationId: "r1",
+          elimination: null,
+          aCombattu: false,
+          checkInValide: true,
+          disciplinaire: "aucune",
+        },
+      ],
+    });
+    expect(valide.etat).toBe("complet");
+    expect(valide.places).toEqual([
+      { rang: 1, ordre: 1, registrationId: "r1", motifVacance: null },
+    ]);
   });
 
   it("aucun combat : le motif est écrit, pas laissé muet", () => {
-    const podium = computePodium([], { thirdPlaceMode: "pool3" });
-    expect(podium.complete).toBe(false);
-    expect(podium.missing).toContain("Aucun combat dans cette catégorie");
+    const c = classementOfficiel({ fights: [], thirdPlaceMode: "pool3" });
+    expect(c.etat).toBe("en_cours");
+    expect(c.manquant).toContain("Aucun combat dans cette catégorie");
   });
 });
 

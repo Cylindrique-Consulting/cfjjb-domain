@@ -297,8 +297,16 @@ export function methodeVictoireDe(win: WinMethod | null | undefined): MethodeVic
       return "disqualification";
     case "wo":
       return "forfait";
-    // `double_wo` et `bye` n'ont pas de case, par construction : le premier n'a
-    // pas de vainqueur, le second pas de combat.
+    // LES FINS SANS CASE, NOMMÉES UNE À UNE (release B) : `double_wo`,
+    // `double_dq` et `double_blessure` n'ont pas de vainqueur ; `bye` et
+    // `designation` n'ont pas de combat. Un `default` muet laisserait une
+    // méthode ajoutée demain tomber ici sans que personne ne l'ait décidé.
+    case "double_wo":
+    case "double_dq":
+    case "double_blessure":
+    case "bye":
+    case "designation":
+      return null;
     default:
       return null;
   }
@@ -415,6 +423,10 @@ function combatsRetenus(fights: readonly FightRecord[]): FightRecord[] {
   for (const f of fights) {
     if (f.state !== "finished") continue;
     if (f.winMethod === "bye") continue;
+    // Une DÉSIGNATION entre coéquipiers n'est pas un combat non plus (guide
+    // v1.2 §7.2) : personne n'est monté sur le tapis. La compter ferait une
+    // victoire sans combat au bilan d'un athlète, et une défaite à l'autre.
+    if (f.winMethod === "designation") continue;
     if (!vus.has(f.fightId)) vus.set(f.fightId, f);
   }
   return [...vus.values()];
@@ -477,8 +489,8 @@ export function statistiquesCombattant(
       else defaitesSansMethode++;
     } else {
       // Ni vainqueur ni perdant : le combat s'est joué sans vainqueur
-      // (`double_wo`). Il compte comme disputé — même règle que `noContest`
-      // dans `pool-ranking` — et ne crédite personne.
+      // (`double_wo`, `double_dq`, `double_blessure`). Il compte comme disputé —
+      // même règle que `noContest` dans `pool-ranking` — et ne crédite personne.
       sansVainqueur++;
     }
 

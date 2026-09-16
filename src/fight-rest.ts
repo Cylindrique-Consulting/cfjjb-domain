@@ -30,10 +30,12 @@ import type { FightState, WinMethod } from "./bracket-propagation";
 /**
  * Les méthodes de fin qui ne font PAS un combat disputé.
  *
- * La « désignation entre coéquipiers » (guide des points v1.2 §7.2) y entrera
- * avec le moteur de podium, qui crée cette méthode.
+ * La « désignation entre coéquipiers » (guide des points v1.2 §7.2) en est une
+ * depuis la release B : personne ne monte sur le tapis, donc aucun repos ne
+ * s'ouvre. La double disqualification et l'arrêt pour double blessure, eux,
+ * sont des combats DISPUTÉS (T9.1 : le repos part de leur fin réelle).
  */
-export const METHODES_SANS_COMBAT: readonly WinMethod[] = ["bye", "wo", "double_wo"];
+export const METHODES_SANS_COMBAT: readonly WinMethod[] = ["bye", "wo", "double_wo", "designation"];
 
 export type EntreeCombatDispute = {
   state: FightState;

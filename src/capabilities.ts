@@ -78,7 +78,10 @@ export type MutationKind =
   | "absolut.cancel"
   | "absolut.close"
   | "tshirt.give"
-  | "paper.entry";
+  | "paper.entry"
+  | "fight.arbitrate"
+  | "category.ranking_enter"
+  | "arbitration.fights_create";
 
 /** Ce qu'un verbe exige. */
 export type Capability = {
@@ -192,6 +195,19 @@ export const CAPABILITIES: Record<MutationKind, Capability> = {
   // La saisie a posteriori d'une feuille papier réécrit un résultat déjà tenu
   // pour acquis : commissaire de journée seulement.
   "paper.entry": { roles: ["day_commissioner"], tatamiBound: false },
+
+  // ┌─ L'ARBITRAGE D'UNE FIN SANS VAINQUEUR : LE RESPONSABLE SEUL (DQ1.3) ─────┐
+  // │ Enregistrer un tirage au sort, saisir un classement retenu, créer des    │
+  // │ combats supplémentaires : trois décisions qui changent une médaille et   │
+  // │ que le règlement confie au Responsable de compétition. Aucune n'est      │
+  // │ liée à un tapis — un combat supplémentaire se place sur le tapis que     │
+  // │ l'écran guidé propose, et le Responsable les voit tous. Le serveur       │
+  // │ ajoute `jour_j_appelant_responsable` (responsable désigné OU commissaire │
+  // │ de journée) : le poste seul ne suffit pas à l'interface non plus.        │
+  // └──────────────────────────────────────────────────────────────────────────┘
+  "fight.arbitrate": { roles: ["day_commissioner"], tatamiBound: false },
+  "category.ranking_enter": { roles: ["day_commissioner"], tatamiBound: false },
+  "arbitration.fights_create": { roles: ["day_commissioner"], tatamiBound: false },
 };
 
 /** Une affectation, telle que l'application la charge depuis la base. */
