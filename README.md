@@ -341,7 +341,10 @@ rend un état (`en_cours`, `complet`, `terminee_sans_medaille`, `arbitrage_requi
 - **Catégorie à deux** (règle CFJJB DQ1.5) : double technique, les deux 2es ; double
   disciplinaire, ni classement ni médaille ; mixte, le technique 2e seul.
 - Le tableau est lu **comme la cascade de forfait l'aura soldé** : un combat dont un côté
-  est structurellement impossible est un forfait que le serveur prononce.
+  est structurellement impossible est un forfait que le serveur prononce. La cascade est en
+  jeu dès qu'un athlète est éliminé **ou** qu'une fin sans vainqueur reste sans vainqueur
+  (DQ1.2 : « passage sans adversaire » même quand personne n'est éliminé), miroir du
+  périmètre de `jour_j_forfait_cascade`.
 
 Tant que le lot L7 n'existe pas, une disqualification disciplinaire saisie à la table vaut
 « validée » (`estDisqualifieDisciplinaire`, miroir SQL `jour_j_disqualifie_disciplinaire`) ;
@@ -363,7 +366,10 @@ tour et nature (technique, disciplinaire, mixte, blessure), si la suite est auto
 si le Responsable doit saisir un tirage au sort, une décision, un classement ou créer des
 combats supplémentaires (hors grille : finale rejouée en division 1 index 1, demies
 supplémentaires en division 2 index 2 et 3). Quand la règle désigne un athlète
-indisponible, elle devient « classement ». Chaque règle cite sa source :
+indisponible, elle devient « classement ». Le combat pour la 3e place (mode `pool3`, absent
+du règlement IBJJF) demande une décision du Responsable (le 3e désigné, ou personne), sauf
+en double disqualification disciplinaire où la 3e place reste vacante. Chaque règle cite sa
+source :
 
 - « IBJJF Rules Book 6.1 (juin 2024), General Competition Guidelines art. 2.4.1 » ou « 2.4.2 » ;
 - « IBJJF Rules Book 6.1 (juin 2024), règles d'arbitrage art. 2 (tirage au sort) » ;

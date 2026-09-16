@@ -145,6 +145,38 @@ describe("la propagation attend l'arbitrage", () => {
     expect(isSlotImpossible(t.fights, t.combat(K(2, 0)), "A")).toBe(true);
   });
 
+  // DQ1.2 SANS AUCUN ÉLIMINÉ. Le passage sans adversaire ne doit rien à une
+  // élimination : borné aux éliminés, le point fixe laissait la demie à venir,
+  // case vide, et le tapis attendait un combat qui n'aurait jamais lieu. Aucun
+  // appel explicite à la cascade ici : c'est la fin de combat qui la déclenche.
+  it("quart en double DQ, AUCUN éliminé : la fin de l'autre quart solde la demie sans adversaire", () => {
+    const t = new Tableau(8).double(K(3, 0), "technique").gagne(K(3, 1), "A");
+    expect(t.elimines.size).toBe(0);
+    expect(t.combat(K(2, 0))).toMatchObject({
+      state: "finished",
+      winMethod: "wo",
+      winner: "r2",
+      slotA: null,
+    });
+  });
+
+  it("autre quart déjà joué, AUCUN éliminé : la double DQ solde la demie tout de suite", () => {
+    const t = new Tableau(8).gagne(K(3, 1), "A").double(K(3, 0), "disciplinaire");
+    expect(t.combat(K(2, 0))).toMatchObject({ state: "finished", winMethod: "wo", winner: "r2" });
+  });
+
+  it("combat pour la 3e place : une décision (technique, mixte, blessure), jamais pour le disciplinaire", () => {
+    const attendus = scenariosFinSansVainqueur()
+      .filter((s) => s.regle.startsWith("quatre.petite_finale."))
+      .map((s) => [s.regle, s.attendu]);
+    expect(attendus).toEqual([
+      ["quatre.petite_finale.technique", "decision"],
+      ["quatre.petite_finale.mixte", "decision"],
+      ["quatre.petite_finale.blessure", "decision"],
+      ["quatre.petite_finale.disciplinaire", null],
+    ]);
+  });
+
   it("les deux demies en double DQ : la cascade ne solde ni n'annule la finale avant l'arbitrage", () => {
     const t = new Tableau(8);
     for (const i of [0, 1, 2, 3]) t.gagne(K(3, i), "A");

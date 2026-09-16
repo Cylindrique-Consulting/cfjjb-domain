@@ -27,7 +27,8 @@ import { finDeReposDeLAthlete, type CombatAVenir, type CombatPasse } from "./fig
  *   · `tirage`     : un tirage au sort fait devant les athlètes, dont le
  *                    Responsable saisit le résultat (le logiciel ne tire pas) ;
  *   · `decision`   : le Responsable saisit la suite retenue (un qualifié, ou
- *                    aucun) — cas non écrits de la double blessure ;
+ *                    aucun) — cas non écrits de la double blessure, et le
+ *                    combat pour la 3e place (le 3e désigné, ou personne) ;
  *   · `classement` : le Responsable saisit le classement retenu — cas non
  *                    écrits (tableau de trois disciplinaire ou mixte…) ;
  *   · `combats`    : des combats supplémentaires, hors grille, placés après le
@@ -383,17 +384,32 @@ export const REGLES_FIN_SANS_VAINQUEUR: readonly RegleFinSansVainqueur[] = [
   },
 
   // ── Combat pour la 3e place et combats d'arbitrage ───────────────────────────
-  ...(["technique", "disciplinaire", "mixte", "blessure"] as const).map(
-    (nature): RegleFinSansVainqueur => ({
-      id: `quatre.petite_finale.${nature}`,
-      format: "quatre_et_plus",
-      tour: "petite_finale",
-      nature,
-      resolution: null,
-      source: S.cfjjbNonEcrit,
-      libelle: "La 3e place se déduit des motifs : technique ou blessure 3e, disciplinaire vacant.",
-    }),
-  ),
+  // LE COMBAT POUR LA 3E PLACE N'EXISTE PAS À L'IBJJF (bronzes partagés) : sa fin
+  // sans vainqueur n'est écrite nulle part. Deux 3es dans un format à un seul
+  // bronze serait une suite INVENTÉE ; le Responsable désigne donc le 3e, ou
+  // personne (DQ1.4, et SB3.2 pour la blessure : « les autres tours relèvent de
+  // Arbitrage requis »). Seule la double disqualification disciplinaire se lit
+  // sans décision : un disqualifié disciplinaire n'est jamais classé (DQ2.2).
+  ...(["technique", "mixte", "blessure"] as const).map((nature): RegleFinSansVainqueur => ({
+    id: `quatre.petite_finale.${nature}`,
+    format: "quatre_et_plus",
+    tour: "petite_finale",
+    nature,
+    resolution: "decision",
+    source: S.cfjjbNonEcrit,
+    libelle:
+      "Combat pour la 3e place sans vainqueur : le Responsable désigne l'athlète classé 3e, ou personne.",
+  })),
+  {
+    id: "quatre.petite_finale.disciplinaire",
+    format: "quatre_et_plus",
+    tour: "petite_finale",
+    nature: "disciplinaire",
+    resolution: null,
+    source: S.ibjjf242,
+    libelle:
+      "Les deux disqualifiés disciplinaires ne sont pas classés : la 3e place reste vacante.",
+  },
   ...(["technique", "disciplinaire", "mixte", "blessure"] as const).map(
     (nature): RegleFinSansVainqueur => ({
       id: `quatre.hors_grille.${nature}`,

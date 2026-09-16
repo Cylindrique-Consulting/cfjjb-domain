@@ -172,6 +172,20 @@ describe("T2.4 B : double forfait en demi-finale (IBJJF 2.4.2 dernier point, 4.2
     ]);
   });
 
+  // LA BRANCHE « FINALISTE ÉLIMINÉ SANS AVOIR COMBATTU » (T2.3, T2.4 B) : r2 n'a
+  // passé sa demie que par forfait, puis la finale est déclarée perdue par forfait
+  // à la table (il reste inscrit dans la finale). Il n'est pas un perdant de
+  // finale : la demie jouée vaut finale, son perdant est 2e.
+  for (const mode of MODES) {
+    it(`[${mode}] finaliste arrivé par forfait puis forfait en finale : la demie jouée vaut finale`, () => {
+      const t = new Tableau(4, mode).gagne(K(2, 0), "A").absents("r4");
+      t.elimines.add("r2");
+      t.gagne(K(1, 0), "A", "wo");
+      expect(t.combat(K(1, 0))).toMatchObject({ slotB: "r2", winner: "r1", winMethod: "wo" });
+      expect(compact(t.classement().places)).toEqual(["1:r1", "2:r3"]);
+    });
+  }
+
   it("[pool3] l'un avait combattu : 2e vacante, le bronze est celui du combat de 3e place", () => {
     const t = new Tableau(7, "pool3")
       .gagne(K(3, 0), "A")
@@ -425,6 +439,46 @@ describe("arbitrage requis puis résolu (DQ1.3)", () => {
     expect(t.classement().arbitrage?.resolution).toBe("decision");
     t.arbitre(K(3, 0), "decision", "B");
     expect(t.combat(K(2, 0)).slotA).toBe("r5");
+  });
+});
+
+describe("combat pour la 3e place sans vainqueur (DQ1.4, SB3.2 : cas non écrit)", () => {
+  const petiteFinale = (nature: "technique" | "disciplinaire" | "mixte" | "blessure") =>
+    new Tableau(4, "pool3")
+      .gagne(K(2, 0), "A")
+      .gagne(K(2, 1), "A")
+      .gagne(K(1, 0), "A")
+      .double(P3, nature);
+
+  for (const nature of ["technique", "mixte", "blessure"] as const) {
+    it(`${nature} : jamais deux 3es d'office, le Responsable désigne le 3e`, () => {
+      const t = petiteFinale(nature);
+      const c = t.classement();
+      expect(c.etat).toBe("arbitrage_requis");
+      expect(c.arbitrage?.resolution).toBe("decision");
+      // Le côté A est le disqualifié technique du cas mixte : désignable.
+      expect(compact(t.arbitre(P3, "decision", "A").classement().places)).toEqual([
+        "1:r1",
+        "2:r2",
+        "3:r3",
+      ]);
+    });
+  }
+
+  it("décision « personne » : la 3e place reste vacante", () => {
+    const c = petiteFinale("technique").arbitre(P3, "decision", null).classement();
+    expect(c.etat).toBe("complet");
+    expect(compact(c.places)).toEqual(["1:r1", "2:r2", "3:vacante(disqualification)"]);
+  });
+
+  it("double disciplinaire : sans décision, la 3e place est vacante (DQ2.2)", () => {
+    const c = petiteFinale("disciplinaire").classement();
+    expect(c.etat).toBe("complet");
+    expect(compact(c.places)).toEqual([
+      "1:r1",
+      "2:r2",
+      "3:vacante(disqualification_disciplinaire)",
+    ]);
   });
 });
 

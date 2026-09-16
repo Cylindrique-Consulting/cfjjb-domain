@@ -550,8 +550,9 @@ export function planFinish(
   // POINT FIXE. Le vainqueur qui vient d'arriver au tour suivant peut lui-même
   // être éliminé : c'est exactement le cas que l'application de référence rate,
   // parce qu'elle ne balaie qu'au moment du forfait et jamais au moment où un
-  // emplacement se remplit.
-  if (eliminated.size > 0) forfaitsEnPointFixe(b, eliminated);
+  // emplacement se remplit. Il peut aussi arriver en face d'un emplacement
+  // qu'une fin sans vainqueur a rendu impossible (DQ1.2) : `cascadeEnJeu`.
+  if (cascadeEnJeu(b.fights, eliminated)) forfaitsEnPointFixe(b, eliminated);
 
   const plan = fermer(b, fights);
   return { ...plan, expected: plan.expected.filter((e) => !e.fightId.startsWith("elimine:")) };
@@ -574,8 +575,8 @@ export type FinSansVainqueur =
  * aucun des deux n'avance. Le combat suivant attend, puis la cascade le règle
  * (« passage sans adversaire ») quand la règle d'arbitrage est nulle, ou il
  * attend l'arbitrage du Responsable quand elle ne l'est pas
- * (`isSlotImpossible`). Le point fixe ne tourne qu'avec des éliminés, comme
- * `planFinish`.
+ * (`isSlotImpossible`). Le point fixe tourne dès qu'un éliminé OU une fin sans
+ * vainqueur est en jeu (`cascadeEnJeu`), comme `planFinish`.
  */
 export function planFinishSansVainqueur(
   fights: readonly PropagationFight[],
@@ -600,10 +601,31 @@ export function planFinishSansVainqueur(
     needsArbitration: false,
   });
 
-  if (eliminated.size > 0) forfaitsEnPointFixe(b, eliminated);
+  if (cascadeEnJeu(b.fights, eliminated)) forfaitsEnPointFixe(b, eliminated);
 
   const plan = fermer(b, fights);
   return { ...plan, expected: plan.expected.filter((e) => !e.fightId.startsWith("elimine:")) };
+}
+
+/**
+ * LA CASCADE EST-ELLE EN JEU DANS CE TABLEAU ? Miroir du périmètre `v_cats` de
+ * `jour_j_forfait_cascade` (20270115000001) : un éliminé, ou une fin sans
+ * vainqueur restée sans vainqueur (double disqualification, double blessure).
+ *
+ * ┌─ POURQUOI LA FIN SANS VAINQUEUR Y ENTRE (DQ1.2) ──────────────────────────┐
+ * │ « Avant les demi-finales, aucun des deux n'avance : l'adversaire du tour  │
+ * │ suivant passe sans combattre. » Ce passage est un forfait de cascade (b)  │
+ * │ sur un emplacement impossible. Borner le balayage aux seuls éliminés le   │
+ * │ taisait dans une catégorie où personne n'est éliminé : la demie restait à │
+ * │ venir avec une case vide, et le tapis attendait un combat qui n'aurait    │
+ * │ jamais lieu.                                                              │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+function cascadeEnJeu(
+  fights: readonly PropagationFight[],
+  eliminated: ReadonlySet<string>,
+): boolean {
+  return eliminated.size > 0 || fights.some((f) => estFinSansVainqueur(f) && f.winner === null);
 }
 
 /**

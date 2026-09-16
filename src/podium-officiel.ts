@@ -318,7 +318,16 @@ function bronzeDuCombatDe3e(
 ): PlaceBrute[] {
   if (fini(p3)) {
     if (p3.winner !== null) return pourvue(3, p3.winner, p3);
-    if (sansVainqueur(p3)) return placesDeLaDoubleFin(ctx, 3, p3);
+    if (sansVainqueur(p3)) {
+      // DÉCISION « PERSONNE » DU RESPONSABLE (`quatre.petite_finale.*`) : la 3e
+      // place reste vacante. Sans arbitrage, seule la double disqualification
+      // disciplinaire arrive ici (règle nulle) ; les autres natures attendent la
+      // décision, et le classement s'arrête avant (`arbitrage_requis`).
+      if (p3.arbitrage !== null && p3.arbitrage !== undefined) {
+        return [vacante(3, "disqualification")];
+      }
+      return placesDeLaDoubleFin(ctx, 3, p3);
+    }
     if (p3.winMethod === "double_wo") return [vacante(3, "disqualification")];
   }
   // Annulé : personne n'a pu y descendre. Si c'est parce qu'un perdant de demie
