@@ -5,6 +5,7 @@ import { pointsDeResultat, saisonSportive } from "../src/points";
 import { divisionMaxDuTableau, nomDuTour } from "../src/round-names";
 import { REGLES_FIN_SANS_VAINQUEUR } from "../src/arbitrage";
 import { classementOfficiel, estTermineeSansMedaille } from "../src/podium-officiel";
+import { couleurDEcart, estimerLesHoraires } from "../src/estimateur-horaires";
 
 // ===================================================================
 // UN MODULE AJOUTÉ DOIT ÊTRE VISIBLE DES CONSOMMATEURS.
@@ -75,5 +76,12 @@ describe("la carte des exports", () => {
     // `computePodium` est retiré (rupture assumée en 0.x) : un consommateur qui
     // l'importerait encore doit échouer à la compilation, pas lire `undefined`.
     expect("computePodium" in domaine).toBe(false);
+  });
+
+  it("l'estimateur des heures (v0.19.0) est joignable depuis la racine et par son entrée", () => {
+    expect(modules).toContain("estimateur-horaires");
+    expect(domaine.estimerLesHoraires).toBe(estimerLesHoraires);
+    expect(domaine.couleurDEcart).toBe(couleurDEcart);
+    expect(manifeste.exports?.["./estimateur-horaires"]).toBe("./src/estimateur-horaires.ts");
   });
 });
