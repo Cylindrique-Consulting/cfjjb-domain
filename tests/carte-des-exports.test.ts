@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as domaine from "../src/index";
 import { aDisputeLeCombat, finDeReposDeLAthlete } from "../src/fight-rest";
+import { pointsDeResultat, saisonSportive } from "../src/points";
 import { divisionMaxDuTableau, nomDuTour } from "../src/round-names";
 
 // ===================================================================
@@ -54,5 +55,10 @@ describe("la carte des exports", () => {
     expect(domaine.divisionMaxDuTableau).toBe(divisionMaxDuTableau);
     expect(domaine.aDisputeLeCombat).toBe(aDisputeLeCombat);
     expect(domaine.finDeReposDeLAthlete).toBe(finDeReposDeLAthlete);
+  });
+
+  it("pointsDeResultat et saisonSportive (v0.16.0) sont joignables depuis la racine", () => {
+    expect(domaine.pointsDeResultat).toBe(pointsDeResultat);
+    expect(domaine.saisonSportive).toBe(saisonSportive);
   });
 });
