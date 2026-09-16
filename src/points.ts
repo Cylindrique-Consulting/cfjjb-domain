@@ -288,10 +288,17 @@ const MASTERS_REGROUPES: Readonly<Record<string, TrancheDeProfil>> = {
 /**
  * Libellé du référentiel rendu tel quel ; code ETL (comparé en minuscules)
  * traduit ; tout le reste (codes éteints refusés, libellé mal cassé) → `null`.
+ *
+ * IDEMPOTENTE : ses propres sorties sont des entrées valides. « Master 1/2 »,
+ * rendu pour `master_1_2`, revient d'une URL ou de l'API publique et doit se
+ * relire en « Master 1/2 », sans quoi un profil classé ne serait plus jamais
+ * demandable.
  */
 export function trancheDeProfil(stored: string | null | undefined): TrancheDeProfil | null {
   if (!stored) return null;
-  const regroupe = MASTERS_REGROUPES[stored.trim().toLowerCase()];
+  const brut = stored.trim();
+  if (brut === "Master 1/2" || brut === "Master 3/4") return brut;
+  const regroupe = MASTERS_REGROUPES[brut.toLowerCase()];
   if (regroupe) return regroupe;
   return resolveAgeGroup(stored);
 }

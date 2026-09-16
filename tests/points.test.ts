@@ -217,6 +217,12 @@ describe("la tranche d'un profil de classement", () => {
     expect(trancheDeProfil("MASTER_1_2")).toBe("Master 1/2");
   });
 
+  it("idempotente : ses propres sorties se relisent à l'identique", () => {
+    const sorties = [...AGE_GROUPS, "Master 1/2", "Master 3/4"];
+    for (const t of sorties) expect(trancheDeProfil(trancheDeProfil(t))).toBe(t);
+    expect(trancheDeProfil("master 1/2")).toBeNull();
+  });
+
   it("codes refusés et libellé mal cassé → null", () => {
     for (const code of ["master", "master1", "master2", "child", "mirim", "infantil"]) {
       expect(trancheDeProfil(code), code).toBeNull();
