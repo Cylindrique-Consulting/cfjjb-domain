@@ -40,6 +40,8 @@
     "./points": "./src/points.ts",
     "./podium-officiel": "./src/podium-officiel.ts",
     "./arbitrage": "./src/arbitrage.ts",
+    "./repos-jour-j": "./src/repos-jour-j.ts",
+    "./estimateur-horaires": "./src/estimateur-horaires.ts",
     "./absolut-regles": "./src/absolut-regles.ts"
   },
   "files": [

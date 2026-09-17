@@ -414,6 +414,63 @@ La table a un second exemplaire en SQL (`jour_j_fin_sans_vainqueur_arbitrage`) :
 plateforme importe `scenariosFinSansVainqueur()` et `scenariosTermineeSansMedaille()` et
 exige la même réponse dans `pnpm db:validate`.
 
+## Repos au lancement et placement (v0.18.0)
+
+`src/repos-jour-j.ts` consomme la règle de `src/fight-rest.ts` sans la modifier : un
+combat disputé ouvre un repos d'une durée de combat de la catégorie à venir, deux avant
+une finale (IBJJF Rules Book 6.1, GCG art. 1.4).
+
+| Export                            | Rôle                                                                         |
+| --------------------------------- | ---------------------------------------------------------------------------- |
+| `finReelleDuCombatDispute`        | fin réelle d'un combat terminé : arrêt du chrono, sinon fin enregistrée      |
+| `etatDuRepos`                     | repos requis, écoulé et restant d'un athlète à un instant donné              |
+| `reposDuCombat`                   | une seule alerte pour un combat : côtés encore en repos, fin la plus tardive |
+| `rangApresRepos`                  | rang du combat suivant dans la file de son tapis après le repos              |
+| `SCENARIOS_FIN_DE_REPOS`          | cas de fin de repos rejoués par les exemplaires SQL et par le faux serveur   |
+| `SCENARIOS_PLACEMENT_APRES_REPOS` | cas de placement rejoués par l'exemplaire SQL                                |
+
+Le placement ne recule jamais un combat vers l'avant, ne franchit que des combats prêts
+(en cours, ou visibles au check-in avec les contrôles validés des deux côtés, sans athlète
+encore en repos ni engagé dans un autre combat), et s'arrête devant le premier combat qui
+attend son résultat ou qui appartient à une autre journée de la compétition.
+Le début estimé à un rang est l'instant présent plus la durée pleine des combats prêts
+placés devant, sans battement.
+
+## Estimateur des heures de passage (v0.19.0)
+
+Réponses du client du 15/09/2026 (TB1, TB2, TB4, T9.1, T9.3, T12.1, T12.5, T12.6).
+
+| Module                       | Ce qu'il apporte                                                           |
+| ---------------------------- | -------------------------------------------------------------------------- |
+| `src/estimateur-horaires.ts` | `estimerLesHoraires`, `ecartDeRythmeMinutes`, `couleurDEcart`, le plancher |
+
+Un seul calcul d'heure sert tous les écrans : tableau de bord, check-in, prochains combats,
+ordre des combats, planning, tableaux, vue publique, et le refus d'un déplacement qui placerait
+un combat avant sa source.
+
+- **File réelle** de chaque tatami, dans son ordre de passage ; un combat soldé n'y est plus.
+- **Durée réglementaire plus espacement** entre deux combats d'un tatami.
+- **Repos** des athlètes, tous tatamis et compétitions liées confondus : la règle est celle de
+  `fight-rest.ts` (une durée, deux avant une finale), comptée depuis la fin réelle ou estimée du
+  combat précédent. Un combat aux adversaires inconnus attend la fin estimée de ses combats
+  sources, supposés disputés.
+- **Ancrage** : tant qu'un tatami n'a rien lancé dans la journée, il part de
+  max(maintenant, début prévu).
+- **Plancher** : jamais avant l'heure prévue de la catégorie moins 90 minutes, pour
+  l'affichage seulement (`PLANCHER_AFFICHAGE_MS`).
+- **« À présent »** : le prochain combat à lancer d'un tatami, journée commencée, heure atteinte.
+- **Enchaînement** : sur un même tatami physique, les combats non soldés d'une compétition
+  précédente passent devant (option `enchainement`).
+- **Jamais de réordonnancement** : si le prochain combat attend un repos, le tatami attend.
+
+L'écart de rythme d'un tatami vaut fin estimée − (fin prévue d'origine + effet des ajouts et
+retraits), arrondi à la minute ; sa couleur suit quatre seuils fixes : ≤ −10 bleu, −9 à +9
+vert, +10 à +30 orange, au-delà rouge.
+
+Le calcul est pur : l'instant courant est un paramètre, mêmes entrées, même sortie. Une source
+rangée après son dépendant ne bloque rien : la contrainte est ignorée et signalée
+(`dependanceIgnoree`).
+
 ## Release v0.20.0 : les absoluts
 
 Règles de l'absolut (réponses du client du 15/09/2026 : AB1 à AB7, T2.5, T4.3, T5.1 à
