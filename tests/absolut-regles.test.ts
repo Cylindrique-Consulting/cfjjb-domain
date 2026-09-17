@@ -63,8 +63,6 @@ describe("le groupe juvénile Leve / Pesado (AB6.1)", () => {
   });
 
   it("couvre les neuf classes du référentiel, et Medio est lourd", () => {
-    // La frontière est entre Leve et Medio : un Medio rangé en Leve ferait
-    // attendre l'absolut léger après une catégorie lourde.
     expect(WEIGHT_CLASSES.map(groupeAbsolutJuvenile).every((g) => g !== null)).toBe(true);
     expect(groupeAbsolutJuvenile("Medio")).toBe("Pesado");
   });

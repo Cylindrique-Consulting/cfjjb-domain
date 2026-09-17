@@ -19,16 +19,6 @@ import {
   tapisDuCombatAbsolut,
 } from "../src/absolut-regles";
 
-// ===================================================================
-// UN MODULE AJOUTÉ DOIT ÊTRE VISIBLE DES CONSOMMATEURS.
-//
-// Le README le demande (« exporté par `src/index.ts` ET par la carte `exports`
-// du `package.json` : sans les deux, un consommateur ne le voit pas ») et rien
-// ne le vérifiait. Un oubli ne casse aucun test de ce dépôt : il casse
-// l'import `@cfjjb/domain/round-names` du module et de la plateforme, après
-// le tag, c'est-à-dire trop tard.
-// ===================================================================
-
 const SOURCES = import.meta.glob("../src/*.ts", {
   query: "?raw",
   import: "default",
@@ -85,8 +75,6 @@ describe("la carte des exports", () => {
     expect(domaine.REGLES_FIN_SANS_VAINQUEUR).toBe(REGLES_FIN_SANS_VAINQUEUR);
     expect(manifeste.exports?.["./podium-officiel"]).toBe("./src/podium-officiel.ts");
     expect(manifeste.exports?.["./arbitrage"]).toBe("./src/arbitrage.ts");
-    // `computePodium` est retiré (rupture assumée en 0.x) : un consommateur qui
-    // l'importerait encore doit échouer à la compilation, pas lire `undefined`.
     expect("computePodium" in domaine).toBe(false);
   });
 

@@ -9,13 +9,7 @@ import {
   type TatamiAEstimer,
 } from "../src/estimateur-horaires";
 
-// ===================================================================
-// L'ESTIMATEUR UNIQUE DES HEURES DE PASSAGE (TB1, TB2, TB4, T9.1, T9.3,
-// T12.1, T12.5, T12.6).
-// ===================================================================
-
 const MINUTE = 60_000;
-/** 20/09/2026 à H:M, en UTC : l'estimateur ne connaît aucun fuseau. */
 const T = (h: number, m = 0, s = 0) => Date.UTC(2026, 8, 20, h, m, s);
 const hm = (ms: number | null | undefined) => {
   if (ms === null || ms === undefined) return null;
@@ -130,7 +124,6 @@ describe("l'ancrage sur le début prévu du tatami", () => {
         combats: file,
       }),
     );
-    // 08:49:30 + 60 s d'espacement = 08:50:30 : l'avance sur le planning reste lisible.
     expect(hm(r.combats.get("c1")?.debutMs)).toBe("08:50:30");
   });
 
@@ -164,7 +157,6 @@ describe("un combat en cours ou en pause", () => {
     const vivant = r.combats.get("vivant")!;
     expect(vivant.etat).toBe("en_cours");
     expect(hm(vivant.debutMs)).toBe("10:00");
-    // 10:00 + 5 min + 30 s cumulées + 1 min de pause en cours = 10:06:30
     expect(hm(vivant.finMs)).toBe("10:06:30");
     expect(hm(r.combats.get("suivant")?.debutMs)).toBe("10:07:30");
   });
@@ -272,7 +264,6 @@ describe("le repos des athlètes", () => {
         ],
       }),
     );
-    // Demi-finale 10:00-10:05, finale de l'autre catégorie : 10:05 + 2 × 5 min.
     expect(hm(r.combats.get("demi")?.debutMs)).toBe("10:00");
     expect(hm(r.combats.get("finale-autre")?.debutMs)).toBe("10:15");
     expect(r.combats.get("finale-autre")?.attendRepos).toBe(true);
@@ -306,18 +297,13 @@ describe("le repos des athlètes", () => {
         ],
       }),
     );
-    // d1 finit à 10:11 ; la finale attend 10:11 + 2 × 5 min = 10:21.
     expect(hm(r.combats.get("d1")?.finMs)).toBe("10:11");
     expect(hm(r.combats.get("f")?.debutMs)).toBe("10:21");
     expect(r.combats.get("f")?.dependanceIgnoree).toBe(false);
-    // Le créneau de la finale, lui, reste 10:00 : c'est sa place dans la file du
-    // tatami 2, avant que l'attente de ses sources ne la repousse.
     expect(hm(r.combats.get("f")?.debutDeFileMs)).toBe("10:00");
   });
 
   it("un athlète sans combat disputé connu n'attend aucun repos (un W.O. ou une désignation n'en ouvre pas)", () => {
-    // Le prédicat « disputé » vit dans `aDisputeLeCombat` et sa jumelle SQL : un
-    // athlète dont le seul combat est un forfait n'a pas d'entrée dans la carte.
     const r = estimerLesHoraires(
       entree({
         maintenantMs: T(10),
@@ -381,10 +367,8 @@ describe("le plancher de 90 minutes", () => {
     expect(hm(r.combats.get("c1")?.debutMs)).toBe("11:30");
     expect(hm(r.combats.get("c1")?.debutDeFileMs)).toBe("11:30");
     expect(r.combats.get("c1")?.plancherApplique).toBe(true);
-    // Le suivant découle du premier : il n'est plus borné par son propre plancher.
     expect(hm(r.combats.get("c2")?.debutMs)).toBe("11:36");
     expect(r.combats.get("c2")?.plancherApplique).toBe(false);
-    // Le plancher n'est pas « À présent » : l'heure n'est pas atteinte.
     expect(r.combats.get("c1")?.aPresent).toBe(false);
   });
 
@@ -540,7 +524,6 @@ describe("l'enchaînement des compétitions sur un même tatami physique", () =>
         }),
       ],
     });
-    // Tatami physique différent, mais Ana finit son combat Gi à 11:40 : 11:45.
     expect(hm(r.combats.get("nogi-1")?.debutMs)).toBe("11:45");
   });
 });
@@ -687,9 +670,7 @@ describe("l'écart de rythme et sa couleur", () => {
   it("une catégorie de 6 × (5 min + 60 s) déplacée : effet −36 et +36, écarts inchangés", () => {
     const effet = 6 * (300 + 60);
     expect(effet).toBe(36 * 60);
-    // Tatami 1 : fin prévue 18:00, la catégorie partie, fin estimée 17:24.
     expect(ecartDeRythmeMinutes(T(17, 24), T(18), -effet)).toBe(0);
-    // Tatami 3 : fin prévue 18:00, la catégorie reçue, fin estimée 18:36.
     expect(ecartDeRythmeMinutes(T(18, 36), T(18), effet)).toBe(0);
   });
 

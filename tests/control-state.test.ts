@@ -10,15 +10,6 @@ import {
   type WeighInStatus,
 } from "../src/control-state";
 
-/**
- * « Ce combattant peut-il combattre ? » sur le PRODUIT CARTÉSIEN complet.
- *
- * Cette fonction est le seul endroit qui joint les trois postes du jour J
- * (pointage, pesée, medido). Un trou dans sa table de vérité laisse la table de
- * marque improviser, et improviser au bord du tapis veut dire lancer un combat
- * contre quelqu'un d'éliminé.
- */
-
 const PRESENCES: PresenceStatus[] = ["expected", "present", "absent", "withdrawn_onsite"];
 const PESEES: WeighInStatus[] = ["pending", "passed", "failed", "waived", "absent"];
 const MEDIDOS: MedidoStatus[] = ["pending", "conforme", "non_conforme", "non_presente"];
@@ -47,8 +38,6 @@ describe("controlStateOf — le cas nominal", () => {
 
 describe("controlStateOf — `elimine` DOMINE tout", () => {
   it("un hors-poids qui n'a pas fait son medido est éliminé, pas en attente", () => {
-    // Afficher « en attente de medido » ferait faire un poste à quelqu'un qui ne
-    // combattra pas.
     expect(controlStateOf(entree({ weighIn: "failed", medido: "pending" }))).toBe("elimine");
   });
 
@@ -79,9 +68,6 @@ describe("controlStateOf — `elimine` DOMINE tout", () => {
 
 describe("controlStateOf — l'asymétrie poids / kimono", () => {
   it("un gabarit non conforme BLOQUE sans éliminer", () => {
-    // Le poids est définitif, le kimono est réparable : l'athlète en change et
-    // repasse. Si personne ne revient, c'est le commissaire qui prononce le
-    // forfait — la station rapporte un fait, elle ne décide pas.
     expect(controlStateOf(entree({ medido: "non_conforme" }))).toBe("bloque_gi");
   });
 
@@ -149,8 +135,6 @@ describe("controlStateOf — BALAYAGE du produit cartésien complet", () => {
         }
       }
     }
-    // Garde anti-balayage-vide : une boucle cassée rendrait ce test trivialement
-    // vert en n'ayant rien parcouru.
     expect(n).toBe(2 * 4 * 5 * 4);
   });
 
@@ -224,8 +208,6 @@ describe("controlStateReason", () => {
       "attente_recontrole",
     ] as const) {
       const motif = controlStateReason(etat);
-      // Le motif s'affiche sur la table de marque : un refus muet ferait
-      // chercher la panne à l'opérateur.
       expect(motif, etat).toBeTruthy();
       expect(motif!.length, etat).toBeGreaterThan(8);
     }

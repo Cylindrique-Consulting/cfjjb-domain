@@ -1,32 +1,3 @@
-/**
- * Single-elimination bracket generator, structurally compatible with the
- * Jour J app.
- *
- * Jour J contract (src/lib/bracket-utils.ts findNextFight):
- * - fights of a (category, division) are sorted by INTEGER id ascending;
- *   the fight at index i sends its winner to floor(i/2) in division-1,
- *   slot 1 if i is even, slot 2 if i is odd;
- * - division 1 = final, 2 = semis, deepest division = first round;
- * - the third-place fight is type 'BraketFightPool3', division 2, with an
- *   id GREATER than both semis (sorted index 2 → never targeted).
- *
- * Consequences implemented here:
- * - the tree is COMPLETE: division d has exactly 2^(d-1) fights, byes are
- *   materialized as pre-resolved fights (winner known, status finished on
- *   push) and their winner is pre-placed in the next division;
- * - emission order (deepest division first, index ascending, Pool3 last)
- *   doubles as the jourj_fight_id allocation order.
- *
- * Pure module: no IO, deterministic for a given seed.
- *
- * OÙ VIT LE PLACEMENT. Plus ici. Qui affronte qui au premier tour est décidé
- * par le pipeline de `seeding-plan.ts` (ordre des graines, placement standard,
- * réparation sous contraintes pondérées) ; ce module ne fait plus que poser
- * l'arbre autour des feuilles qu'on lui rend. Les règles de tirage de la
- * fédération sont donc des DONNÉES, et non plus du code enfoui au milieu de
- * l'émission des combats.
- */
-
 import type { DrawFormat } from "./competition-format";
 import type { ThirdPlaceMode } from "./enums";
 import { fnv1a, mulberry32 } from "./prng";
@@ -37,38 +8,14 @@ import {
   type SeedingWarning,
 } from "./seeding-plan";
 
-/**
- * Un inscrit, tel que l'APPELANT le décrit. Les trois derniers champs sont les
- * entrées des règles de placement du pipeline (`seeding-plan.ts`) ; ce paquet
- * ne les lit nulle part, il les reçoit. Ils sont optionnels : un appelant qui
- * ne les remplit pas obtient exactement le tableau d'avant le pipeline.
- */
 export type BracketEntry = {
   registrationId: string;
   clubId: string | null;
-  /** Clé d'ÉQUIPE, au-delà du club (un club peut en aligner plusieurs). */
   teamId?: string | null;
-  /** Rang de classement, 1 = le meilleur. Entrée du « classement protégé ». */
   rank?: number | null;
-  /** Sélection en équipe de France. */
   nationalTeam?: boolean;
-  /**
-   * ABSOLUT — la place obtenue dans la catégorie SOURCE (1, 2 ou 3), telle
-   * qu'elle a été FIGÉE à l'inscription (`competition_absolut_registrations.
-   * source_place`). Figée justement pour qu'un podium source corrigé après coup
-   * ne change pas rétroactivement le tirage de l'absolut.
-   */
   sourcePlace?: number | null;
-  /**
-   * ABSOLUT — rang de POIDS de la catégorie source, croissant du plus léger au
-   * plus lourd. Un nombre et non un nom de classe : ce paquet n'a pas à savoir
-   * ce qu'est un « Pesadissimo » pour trancher une égalité de place.
-   */
   sourceWeightRank?: number | null;
-  /**
-   * ABSOLUT — la catégorie SOURCE, clé de la séparation « pas de retrouvailles
-   * au premier tour » (`SeparationKey = "source-category"`).
-   */
   sourceCategoryId?: string | null;
 };
 
@@ -90,28 +37,12 @@ export type BracketResult =
       kind: "bracket";
       fights: GeneratedFight[];
       realFightCount: number;
-      /**
-       * Ce que le plan de placement n'a pas pu tenir. ABSENT quand il n'y a
-       * rien à dire - le plan par défaut n'en produit jamais, et le résultat
-       * reste donc identique au bit à celui d'avant le pipeline. Une règle
-       * qu'on allume et qui déborde le dit ici plutôt que de dégrader en
-       * silence.
-       */
       warnings?: SeedingWarning[];
     };
 
-// `ThirdPlaceMode` était déclaré ici ET dans types/supabase.ts de la
-// plateforme : deux unions jumelles. Une seule source désormais.
 export type { ThirdPlaceMode } from "./enums";
 
-// Le placement vit dans `seeding-plan.ts` : trois étapes nommées plutôt qu'une
-// fonction anti-club et une passe de swap enfouies ici. Réexporté pour que les
-// consommateurs qui importaient `seedPositions` d'ici ne bougent pas.
 export { seedPositions } from "./seeding-plan";
-
-// ------------------------------------------------------------------
-// Generator
-// ------------------------------------------------------------------
 
 export function generateBracket(
   entries: BracketEntry[],
@@ -125,15 +56,11 @@ export function generateBracket(
 
   const rng = mulberry32(fnv1a(seed));
   const size = 2 ** Math.ceil(Math.log2(n));
-  const deepest = Math.log2(size); // division of the first round
+  const deepest = Math.log2(size);
 
-  // Le PIPELINE de placement : ordre des graines, placement standard,
-  // réparation. Le plan par défaut rend exactement les mêmes feuilles que
-  // l'anti-club monolithique d'avant, pour la même graine.
   const seeding = applySeedingPlan(entries, size, rng, opts.seedingPlan ?? DEFAULT_SEEDING_PLAN);
   const leaves = seeding.leaves;
 
-  // Emit the complete tree, deepest division first (= id allocation order).
   const fights: GeneratedFight[] = [];
   const byDivision = new Map<number, GeneratedFight[]>();
 
@@ -150,8 +77,6 @@ export function generateBracket(
         slotA = a?.registrationId ?? null;
         slotB = b?.registrationId ?? null;
         isBye = (a === null) !== (b === null);
-        // Both-null is impossible: byes = size - n < size/2 and standard
-        // placement pairs each bye with a top seed.
       }
       const fight: GeneratedFight = {
         division,
@@ -167,31 +92,6 @@ export function generateBracket(
     byDivision.set(division, divisionFights);
   }
 
-  // ┌─ TROIS INSCRITS : LE BYE DEVIENT UN REPÊCHAGE ───────────────────────────┐
-  // │ L'arbre de taille 4 portait un bye, donc un combattant montait           │
-  // │ GRATUITEMENT en finale et la catégorie ne comptait que deux combats      │
-  // │ réels. Décision produit du 10/09/2026 : ce passage gratuit disparaît.     │
-  // │ Celui qui attendait n'attend plus la finale, il attend le PERDANT de la  │
-  // │ demie, et le vainqueur de ce combat-là monte en finale.                   │
-  // │                                                                          │
-  // │ ON NE TOUCHE PAS AU PLACEMENT DES GRAINES. Le bye reste où le plan l'a   │
-  // │ mis, et l'occupant qu'il avait reste le sien : il passe simplement de    │
-  // │ `slotA` à `slotB`, et `slotA` attend le perdant de la demie. La          │
-  // │ hiérarchie des têtes de série est donc EXACTEMENT celle d'avant — ce qui │
-  // │ change, c'est que la tête de série doit maintenant gagner un combat pour │
-  // │ atteindre la finale, au lieu d'y être portée.                             │
-  // │                                                                          │
-  // │ ET IL RESTE À LA PLACE DU BYE, ce qui n'est pas cosmétique :             │
-  // │ `findNextSlot` route alors son vainqueur vers la finale par la même      │
-  // │ arithmétique que tous les autres combats, sans une ligne de plus. Une    │
-  // │ division à part aurait demandé une cinquième implémentation de la        │
-  // │ propagation à tenir d'accord avec les quatre existantes.                  │
-  // │                                                                          │
-  // │ POURQUOI n === 3 ET NON « il y a un bye » : à 5, 6 ou 7 inscrits les     │
-  // │ byes sont plusieurs et vivent au premier tour d'un arbre plus profond ;  │
-  // │ les repêcher demanderait un format, pas une exception. La demande porte  │
-  // │ sur la catégorie à trois, et le code dit exactement cela.                 │
-  // └──────────────────────────────────────────────────────────────────────────┘
   const repechage3 = n === 3 ? (byDivision.get(2) ?? []).find((f) => f.isBye) : undefined;
   if (repechage3) {
     repechage3.type = "BraketFightRepechage3";
@@ -200,9 +100,6 @@ export function generateBracket(
     repechage3.slotA = null;
   }
 
-  // Pre-place bye winners into the next division (Jour J only propagates
-  // through the UI when a fight is finished by an operator; bye fights are
-  // pushed already finished, so the placement must be materialized here).
   if (deepest > 1) {
     const firstRound = byDivision.get(deepest) ?? [];
     const nextRound = byDivision.get(deepest - 1) ?? [];
@@ -216,11 +113,6 @@ export function generateBracket(
     });
   }
 
-  // Third-place fight: only when two REAL semi-final losers will exist
-  // (n >= 4). Jour J's podium falls back to "semi losers" otherwise.
-  //
-  // À TROIS, LE REPÊCHAGE DÉCERNE DÉJÀ LE BRONZE — son perdant est troisième —
-  // et `n >= 4` l'excluait déjà du combat de 3e place. Rien à ajouter ici.
   const realFights = fights.filter((f) => !f.isBye).length;
   let pool3 = false;
   if (opts.thirdPlaceMode === "pool3" && n >= 4) {
@@ -239,67 +131,16 @@ export function generateBracket(
     kind: "bracket",
     fights,
     realFightCount: realFights + (pool3 ? 1 : 0),
-    // Clé ABSENTE quand il n'y a rien à dire : le plan par défaut doit rendre
-    // un objet identique à celui d'avant le pipeline.
     ...(seeding.warnings.length > 0 ? { warnings: [...seeding.warnings] } : {}),
   };
 }
 
-// ------------------------------------------------------------------
-// Manual editing - swap two first-round leaf slots
-// ------------------------------------------------------------------
-
 export class BracketEditError extends Error {}
 
-/**
- * ┌─ UNE POULE N'A PAS DE FEUILLES DE PREMIER TOUR ───────────────────────────┐
- * │ Les deux fonctions ci-dessous calculent la taille de l'arbre par           │
- * │ `deepest = max(division)` puis `size = 2 × (combats de cette division)`.   │
- * │                                                                            │
- * │ Sur une poule — dont TOUS les combats portent `division = 0`, c'est le     │
- * │ contrat de `pool-generator.ts` — `deepest` vaut 0, la « première ronde »   │
- * │ devient la poule ENTIÈRE, et la taille calculée vaut 2 × C(n,2) : un       │
- * │ nombre qui n'est même pas une puissance de deux. Rien ne planterait. La    │
- * │ permutation rendrait des emplacements réarrangés, muettement faux, et un   │
- * │ combat changerait d'adversaire sans que la table de poule en sache rien.   │
- * └───────────────────────────────────────────────────────────────────────────┘
- *
- * La détection est STRUCTURELLE (`division === 0`) : un appelant qui oublie de
- * passer le format est protégé quand même. Le paramètre `format` reste accepté
- * pour que celui qui LIT la colonne puisse refuser sans rien charger.
- */
-/**
- * ┌─ QUI OCCUPE UNE CASE DE L'ARBRE ──────────────────────────────────────────┐
- * │ Les deux fonctions d'édition ci-dessous ont longtemps filtré sur          │
- * │ `type === "BraketFight"`, ce qui revenait à dire « tout sauf la petite    │
- * │ finale » tant qu'il n'existait que deux types. Le repêchage à trois       │
- * │ inscrits a rendu cette formulation fausse SANS LA RENDRE ROUGE : il a     │
- * │ pris la case d'un bye au premier tour, et le troisième inscrit a disparu  │
- * │ de la liste des feuilles. L'admin ne pouvait plus le déplacer, et rien à  │
- * │ l'écran ne disait qu'il manquait.                                          │
- * │                                                                            │
- * │ La règle est donc énoncée par ce qu'elle EXCLUT : seule la petite finale  │
- * │ vit hors des colonnes (sa division est un détail de rangement du          │
- * │ générateur, cf. `club-bracket.ts`). Tout le reste occupe une vraie case.  │
- * │ Un type ajouté demain entre dans l'arbre par défaut, ce qui est le bon    │
- * │ défaut : il faudra l'en sortir explicitement, pas penser à l'y mettre.    │
- * └───────────────────────────────────────────────────────────────────────────┘
- */
 function occupeUneCase(f: GeneratedFight): boolean {
   return f.type !== "BraketFightPool3";
 }
 
-/**
- * Les feuilles RÉSERVÉES : celles qu'aucun glisser-déposer ne remplit.
- *
- * Le repêchage attend le perdant de la demie dans son côté A (contrat posé par
- * le générateur et par `jour_j_pool3_slot` côté SQL). Y déposer quelqu'un à la
- * main donnerait un combat à trois entrées : le compétiteur posé, le perdant
- * qui arrive, et personne pour dire lequel des deux compte.
- *
- * On rend les index de feuille plutôt qu'un booléen par combat : l'appelant
- * raisonne en feuilles, et c'est la seule unité que l'écran connaît.
- */
 function feuillesReservees(premierTour: readonly GeneratedFight[]): Set<number> {
   const reservees = new Set<number>();
   premierTour.forEach((f, idx) => {
@@ -317,11 +158,6 @@ function refuseIfPool(fights: readonly GeneratedFight[], format?: DrawFormat): v
   }
 }
 
-/**
- * Read the first-round leaf occupants (registrationId | null) from a set of
- * generated fights. Leaf index l → first-round fight floor(l/2), slot A if l
- * even, slot B if odd. Length = bracket size S.
- */
 export function readLeafOccupants(fights: GeneratedFight[]): (string | null)[] {
   refuseIfPool(fights);
   const regular = fights.filter(occupeUneCase);
@@ -334,16 +170,6 @@ export function readLeafOccupants(fights: GeneratedFight[]): (string | null)[] {
   return out;
 }
 
-/**
- * Return a NEW set of fights with two first-round leaf slots swapped and the
- * bracket re-resolved (byes recomputed, bye winners re-placed into the next
- * division, Pool3 untouched). Pure - same fight identities (division, index,
- * type), only slot contents and isBye change.
- *
- * Throws BracketEditError if the swap would leave a first-round fight with
- * two byes (no competitor at all), or if the fights are a POOL (see
- * `refuseIfPool`).
- */
 export function swapBracketLeafSlots(
   fights: GeneratedFight[],
   leafA: number,
@@ -384,7 +210,6 @@ export function swapBracketLeafSlots(
     }
   }
 
-  // Clone every fight; reset higher BraketFight divisions to TBD.
   const out: GeneratedFight[] = fights.map((f) => ({ ...f }));
   const byDiv = new Map<number, GeneratedFight[]>();
   for (const f of out) {
@@ -410,11 +235,6 @@ export function swapBracketLeafSlots(
     const b = swap[2 * idx + 1] ?? null;
     f.slotA = a;
     f.slotB = b;
-    // UN REPÊCHAGE À MOITIÉ VIDE N'EST PAS UN BYE. Son côté A est vide par
-    // construction, et le remplira le perdant de la demie. Le traiter comme un
-    // bye le déclarerait gagné d'avance et promouvrait son occupant en finale
-    // sans combat : le troisième inscrit serait finaliste sans être monté sur
-    // le tapis.
     if (f.type === "BraketFightRepechage3") {
       f.isBye = false;
       return;

@@ -7,14 +7,8 @@ function entries(n: number): BracketEntry[] {
   return Array.from({ length: n }, (_, i) => ({ registrationId: `r${i + 1}`, clubId: null }));
 }
 
-// ===================================================================
-// L'AIGUILLAGE
-// ===================================================================
-
 describe("generateCategoryDraw", () => {
   it("rend exactement le tableau d'avant ce lot quand le format est l'élimination directe", () => {
-    // Non-régression au bit près : le moteur de poules ne doit RIEN changer aux
-    // compétitions d'aujourd'hui, qui sont toutes en élimination directe.
     const draw = generateCategoryDraw(entries(11), "graine", {
       format: "single_elim",
       thirdPlaceMode: "pool3",
@@ -50,10 +44,6 @@ describe("generateCategoryDraw", () => {
   });
 });
 
-// ===================================================================
-// LE PLAFOND, et son compte-rendu
-// ===================================================================
-
 describe("le repli d'une poule trop grosse", () => {
   it("bascule en élimination directe au-delà du plafond", () => {
     const draw = generateCategoryDraw(entries(7), "graine", {
@@ -78,7 +68,6 @@ describe("le repli d'une poule trop grosse", () => {
       poolFightCount: 120,
       bracketFightCount: 15,
     });
-    // Le chiffre qui motive la règle : huit fois la journée de tatami.
     expect(poolFightCount(16) / 15).toBe(8);
   });
 

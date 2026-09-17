@@ -40,7 +40,6 @@ describe("planCategories", () => {
     const loads = plans.map((p) => p.totalSeconds);
     const maxCategory = Math.max(...categories.map((c) => c.realFightCount * (360 + 60)));
     expect(Math.abs((loads[0] ?? 0) - (loads[1] ?? 0))).toBeLessThanOrEqual(maxCategory);
-    // Every category assigned exactly once.
     const all = plans.flatMap((p) => p.categoryIds).sort();
     expect(all).toEqual(["a", "b", "c", "d", "e", "f"]);
   });
@@ -115,7 +114,6 @@ describe("computeTatamiSchedule", () => {
     ];
     const result = computeTatamiSchedule(categories, start, 60);
 
-    // c1: semi at 09:00, final at 09:06 (300+60s); bye absent.
     expect(
       result.fightTimes.get(
         fightTimeKey("c1", { division: 2, indexInDivision: 1, type: "BraketFight" }),
@@ -132,11 +130,9 @@ describe("computeTatamiSchedule", () => {
       ),
     ).toBeUndefined();
 
-    // c2 starts after c1 (2 real fights × 6 min).
     expect(result.categoryStarts.get("c2")).toBe(start + 720_000);
     expect(result.endsAt).toBe(start + 720_000 + 660_000);
 
-    // Strictly increasing times.
     const times = [...result.fightTimes.values()];
     expect([...times].sort((a, b) => a - b)).toEqual(times);
   });
@@ -167,22 +163,6 @@ describe("computeTatamiSchedule", () => {
   });
 });
 
-// ------------------------------------------------------------------
-// Dimension JOUR
-// ------------------------------------------------------------------
-
-/**
- * Corpus de référence, calibré sur une compétition réelle (Open Île-de-France,
- * 3 octobre, 6 tatamis) : enfants et adultes, 14 catégories, 44 520 s de
- * combat tampon compris.
- *
- * L'ORDRE D'ENTRÉE EST DÉLIBÉRÉMENT MÉLANGÉ, et il n'est pas décoratif. Le LPT
- * trie par durée décroissante avec un tri STABLE : deux catégories de même
- * durée (ici `adulte-nogi-blue-pena` et `adulte-blue-pena`, 6 300 s chacune)
- * sont départagées par leur rang d'entrée. Toute réorganisation de la liste
- * sur le chemin de la répartition par jour déplacerait donc des catégories
- * d'un tatami à l'autre — c'est ce que le gel ci-dessous détecte.
- */
 const CORPUS: PlanningCategory[] = [
   cat("adulte-nogi-blue-pena", { discipline: "nogi", realFightCount: 15 }),
   cat("u13-orange-pena", {
@@ -260,12 +240,6 @@ const CORPUS: PlanningCategory[] = [
   }),
 ];
 
-/**
- * Planning du CORPUS sur 6 tatamis, GELÉ tel que le générateur le produisait
- * AVANT la dimension jour. C'est la contrainte du lot : à un seul jour, la
- * sortie doit être identique au bit. Ce littéral n'est pas recalculé par le
- * code testé — sinon il ne prouverait plus rien.
- */
 const PLANNING_UN_JOUR_6_TATAMIS = [
   { tatamiIndex: 0, categoryIds: ["u11-yellow-pluma", "adulte-brown-pesado"], totalSeconds: 6540 },
   { tatamiIndex: 1, categoryIds: ["u15-green-leve", "master1-blue-pena"], totalSeconds: 6480 },
@@ -287,7 +261,6 @@ const PLANNING_UN_JOUR_6_TATAMIS = [
   { tatamiIndex: 5, categoryIds: ["adulte-blue-pena", "master3-black-super"], totalSeconds: 7620 },
 ];
 
-/** Ordre canonique de la compétition (enfants, puis âge, ceinture, poids, discipline). */
 const ORDRE_CANONIQUE = [
   "u9-grey-galo",
   "u11-yellow-pluma",
@@ -312,7 +285,6 @@ function jour(startAtMs: number, heures: number): PlanningDay {
   return { startAtMs, endAtMs: startAtMs + heures * 3_600_000 };
 }
 
-/** Catégories d'un jour, tatamis confondus, dans l'ordre des tatamis. */
 function idsDuJour(day: DayPlan | undefined): string[] {
   return (day?.tatamis ?? []).flatMap((t) => t.categoryIds);
 }
@@ -343,7 +315,6 @@ describe("planCategoriesOverDays", () => {
     });
 
     expect(jours, "deux jours demandés, deux jours rendus").toHaveLength(2);
-    // Un seul tatami : l'ordre du tatami EST l'ordre canonique de la journée.
     expect(idsDuJour(jours[0]), "le jour 1 prend le début de l'ordre canonique").toEqual([
       "u9-grey-galo",
       "u11-yellow-pluma",
@@ -395,7 +366,6 @@ describe("planCategoriesOverDays", () => {
       days: [jour(JOUR_1, 6), jour(JOUR_2, 9)],
     });
 
-    // Un seul tatami : la charge du jour EST la fin de journée, sans marge LPT.
     expect(chargeDuJour(jours[0]), "le jour 1 tient dans ses 6 h (21 600 s)").toBeLessThanOrEqual(
       21_600,
     );
@@ -408,12 +378,10 @@ describe("planCategoriesOverDays", () => {
 
   it("n'ouvre pas une catégorie plus longue que la journée, même si l'aire du jour suffit", () => {
     const corpus = [
-      CORPUS.find((c) => c.id === "u9-grey-galo") as PlanningCategory, // 1 680 s
-      CORPUS.find((c) => c.id === "u11-yellow-pluma") as PlanningCategory, // 3 300 s
-      CORPUS.find((c) => c.id === "adulte-blue-pena") as PlanningCategory, // 6 300 s
+      CORPUS.find((c) => c.id === "u9-grey-galo") as PlanningCategory,
+      CORPUS.find((c) => c.id === "u11-yellow-pluma") as PlanningCategory,
+      CORPUS.find((c) => c.id === "adulte-blue-pena") as PlanningCategory,
     ];
-    // Jour 1 : 1 h sur 4 tatamis. L'aire disponible (14 400 s) accepterait la
-    // grosse catégorie ; un seul tatami ne le peut pas, elle dure 6 300 s.
     const jours = planCategoriesOverDays(corpus, {
       tatamiCount: 4,
       days: [jour(JOUR_1, 1), jour(JOUR_2, 9)],
@@ -484,8 +452,6 @@ describe("planCategoriesOverDays", () => {
   });
 
   it("une journée sans heure de fin connue est sans borne", () => {
-    // `competitions.end_time` est NULLABLE : le consommateur ne sait pas
-    // toujours quand la journée finit. On ne devine pas une fin.
     const jours = planCategoriesOverDays(CORPUS, {
       tatamiCount: 1,
       days: [{ startAtMs: JOUR_1, endAtMs: JOUR_1 }, jour(JOUR_2, 9)],
@@ -510,8 +476,6 @@ describe("assignCategoriesToDays", () => {
       days: [jour(JOUR_1, 6), jour(JOUR_2, 9)],
     });
 
-    // C'est cet ordre-là qui rend l'identité au bit possible : `planCategories`
-    // doit recevoir la liste telle qu'elle est entrée (son tri est stable).
     expect(
       parJour[0]?.map((c) => c.id),
       "ordre d'entrée du corpus conservé, pas l'ordre canonique",

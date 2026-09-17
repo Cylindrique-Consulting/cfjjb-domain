@@ -16,20 +16,6 @@ import {
   type PropagationFight,
 } from "../src/bracket-propagation";
 
-/**
- * LA SUITE DE PARITÉ — la raison d'être de ce package.
- *
- * Le jour J vit dans un autre dépôt, et sa propagation doit tourner à
- * l'IDENTIQUE dans le navigateur (hors ligne) et sur le serveur. C'est ici — et
- * seulement ici — que cette identité peut être PROUVÉE : les deux exécutions
- * sont deux simulations d'un même test pur, sans base et sans navigateur.
- *
- * Sans ces preuves, la garantie reposerait sur la relecture de deux
- * implémentations par un humain. Les brackets sont exactement le domaine où une
- * divergence ne se voit pas : le tableau reste plausible, seul le mauvais
- * combattant avance.
- */
-
 function entrees(n: number, clubs = 1): BracketEntry[] {
   return Array.from({ length: n }, (_, i) => ({
     registrationId: `r${i + 1}`,
@@ -43,28 +29,14 @@ function bracket(n: number, mode: "pool3" | "shared_bronze" = "pool3"): Propagat
   return fromGenerated(res.fights);
 }
 
-// ------------------------------------------------------------------
-// PREUVE 1 — parité générateur ↔ propagation
-// ------------------------------------------------------------------
-
 describe("PREUVE 1 — le générateur et la propagation s'accordent sur les byes", () => {
   it("planByeCascade est un no-op sur une sortie fraîche du générateur, pour n = 2..64", () => {
-    // Le générateur PRÉ-PLACE déjà les vainqueurs de bye, parce que la
-    // propagation de l'application de référence trie par identifiant et ne
-    // remonterait pas un bye. Si cette cascade trouve quelque chose à faire, les
-    // deux modules ont divergé sur la forme de l'arbre.
-    //
-    // Trois lignes, et c'est l'outil anti-divergence le plus économique du projet.
     for (let n = 2; n <= 64; n++) {
       expect(planByeCascade(bracket(n)), `n=${n}`).toEqual([]);
     }
   });
 
   it("n'ordonne JAMAIS par identifiant : un ordre lexicographique inverse ne change rien", () => {
-    // LE PIÈGE. L'application de référence trie les frères par identifiant
-    // ENTIER. Ici les identifiants sont des UUID : les trier n'a aucun sens.
-    // On fabrique donc des identifiants dont l'ordre lexicographique est
-    // l'INVERSE de l'ordre structurel, et on exige le même résultat.
     const res = generateBracket(entrees(8), "graine", { thirdPlaceMode: "pool3" });
     if (res.kind !== "bracket") throw new Error("attendu un tableau");
 
@@ -86,11 +58,6 @@ describe("PREUVE 1 — le générateur et la propagation s'accordent sur les bye
   });
 });
 
-// ------------------------------------------------------------------
-// PREUVE 2 — navigateur == serveur
-// ------------------------------------------------------------------
-
-/** « Le navigateur » : un réducteur en mémoire qui applique un plan sur place. */
 function appliquerNavigateur(fights: PropagationFight[], plan: Plan): PropagationFight[] {
   const out = fights.map((f) => ({ ...f }));
   for (const p of plan.patches) {
@@ -110,11 +77,6 @@ function appliquerNavigateur(fights: PropagationFight[], plan: Plan): Propagatio
   return out;
 }
 
-/**
- * « Le serveur » : le plan SÉRIALISÉ puis appliqué, comme le ferait une fonction
- * SQL qui reçoit du jsonb — patches d'abord, propagation ensuite, versions
- * incrémentées à chaque ligne touchée.
- */
 function appliquerServeur(fights: PropagationFight[], plan: Plan): PropagationFight[] {
   const transmis: Plan = JSON.parse(JSON.stringify(plan));
   const out = fights.map((f) => ({ ...f }));
@@ -152,8 +114,6 @@ function jouerTournoi(
     );
     const cible = prochain ?? pool3;
     if (!cible) break;
-    // Vainqueur DÉTERMINISTE : l'emplacement A. Le but n'est pas de simuler un
-    // sport mais de comparer deux exécutions.
     etat = appliquer(etat, planFinish(etat, cible.id, cible.slotA!, "points"));
   }
   return etat;
@@ -170,10 +130,6 @@ describe("PREUVE 2 — un tournoi complet joué deux fois donne le même état",
   }
 });
 
-// ------------------------------------------------------------------
-// PREUVE 3 — cascade de forfaits, des deux côtés
-// ------------------------------------------------------------------
-
 describe("PREUVE 3 — la cascade de forfaits converge des deux côtés", () => {
   for (const n of [4, 5, 8, 11, 16]) {
     for (const combien of [1, 2, 3]) {
@@ -187,13 +143,8 @@ describe("PREUVE 3 — la cascade de forfaits converge des deux côtés", () => 
   }
 
   it("propage en POINT FIXE : un vainqueur qui arrive face à un éliminé tombe aussi", () => {
-    // Le cas que l'application de référence rate. Elle ne balaie qu'au moment du
-    // forfait : un combat dont l'adversaire est encore inconnu reste programmé,
-    // et quand l'amont se résout, personne ne revient vérifier.
     const depart = bracket(8);
     const demiFinale = depart.find((f) => f.division === 2 && f.indexInDivision === 0)!;
-    // On élimine quelqu'un qui n'entre en piste qu'au 2e tour, dont
-    // l'emplacement est encore vide au moment du forfait.
     expect(demiFinale.slotA === null || demiFinale.slotB === null).toBe(true);
 
     const premierTour = depart.filter((f) => f.division === 3 && !f.isBye);
@@ -201,7 +152,6 @@ describe("PREUVE 3 — la cascade de forfaits converge des deux côtés", () => 
     const plan = planForfeit(depart, new Set([futurQualifie]));
     const apres = appliquerNavigateur(depart, plan);
 
-    // Son combat du 1er tour est forfaité, et son adversaire avance.
     const sien = apres.find((f) => f.id === premierTour[0]!.id)!;
     expect(sien.state).toBe("finished");
     expect(sien.winMethod).toBe("wo");
@@ -219,8 +169,6 @@ describe("PREUVE 3 — la cascade de forfaits converge des deux côtés", () => 
     expect(sien.winMethod).toBe("double_wo");
     expect(sien.winner).toBeNull();
 
-    // Le combat aval se retrouve avec un emplacement vide : on ne fait avancer
-    // personne d'office, on demande un arbitrage.
     const aval = findNextSlot(depart, premier)!;
     const cible = apres.find((f) => f.id === aval.fightId)!;
     expect(aval.slot === "A" ? cible.slotA : cible.slotB).toBeNull();
@@ -228,8 +176,6 @@ describe("PREUVE 3 — la cascade de forfaits converge des deux côtés", () => 
   });
 
   it("ne touche JAMAIS un combat déjà terminé", () => {
-    // Un compétiteur qui a gagné avant de se peser garde sa victoire : seuls ses
-    // combats à venir tombent.
     const depart = bracket(8);
     const premier = depart.find((f) => f.division === 3 && !f.isBye && f.slotA && f.slotB)!;
     const gagnant = premier.slotA!;
@@ -249,12 +195,8 @@ describe("PREUVE 3 — la cascade de forfaits converge des deux côtés", () => 
   });
 
   it("n'envoie PAS un éliminé au combat de 3e place", () => {
-    // Écart assumé avec l'application de référence, qui l'y place en comptant sur
-    // le staff pour l'en retirer. Placer un athlète éliminé dans un combat de
-    // médaille est faux.
     const depart = bracket(8);
     const demie = depart.find((f) => f.division === 2 && f.indexInDivision === 0)!;
-    // On remplit la demie puis on élimine celui qui va la perdre.
     let etat = depart;
     for (const f of depart.filter((x) => x.division === 3 && !x.isBye && x.slotA && x.slotB)) {
       etat = appliquerNavigateur(etat, planFinish(etat, f.id, f.slotA!, "points"));
@@ -268,10 +210,6 @@ describe("PREUVE 3 — la cascade de forfaits converge des deux côtés", () => 
     expect([p3.slotA, p3.slotB]).not.toContain(futurPerdant);
   });
 });
-
-// ------------------------------------------------------------------
-// PREUVE 4 — annulation
-// ------------------------------------------------------------------
 
 describe("PREUVE 4 — « refaire le combat » n'annule QUE ce combat", () => {
   it("retire le vainqueur propagé et rend le combat programmé", () => {
@@ -303,16 +241,10 @@ describe("PREUVE 4 — « refaire le combat » n'annule QUE ce combat", () => {
       apresForfaits,
       planUndoForfeit(apresForfaits, premiers[0]!.id),
     );
-    // Le second forfait reste terminé : annuler un pointage ne ressuscite pas
-    // une journée.
     expect(apres.find((f) => f.id === premiers[1]!.id)!.state).toBe("finished");
     expect(apres.find((f) => f.id === premiers[0]!.id)!.state).toBe("scheduled");
   });
 });
-
-// ------------------------------------------------------------------
-// PREUVE 5 — idempotence et attendu
-// ------------------------------------------------------------------
 
 describe("PREUVE 5 — le plan porte ce que l'appelant croyait vrai", () => {
   it("l'attendu décrit l'état AVANT, pas après", () => {
@@ -320,8 +252,6 @@ describe("PREUVE 5 — le plan porte ce que l'appelant croyait vrai", () => {
     const premier = depart.find((f) => f.division === 3 && !f.isBye && f.slotA && f.slotB)!;
     const plan = planFinish(depart, premier.id, premier.slotA!, "points");
     const attendu = plan.expected.find((e) => e.fightId === premier.id)!;
-    // C'est ce que le serveur comparera : si un autre appareil est passé avant,
-    // `state` ou `version` diffèrent et le plan est refusé.
     expect(attendu.state).toBe("scheduled");
     expect(attendu.version).toBe(0);
   });
@@ -331,20 +261,11 @@ describe("PREUVE 5 — le plan porte ce que l'appelant croyait vrai", () => {
     const premier = depart.find((f) => f.division === 3 && !f.isBye && f.slotA && f.slotB)!;
     const aval = findNextSlot(depart, premier)!;
     const plan = planFinish(depart, premier.id, premier.slotA!, "points");
-    // Sans cela, deux combats pourraient écrire le même emplacement aval sans
-    // que le second s'en aperçoive.
     expect(plan.expected.map((e) => e.fightId)).toContain(aval.fightId);
   });
 });
 
-// ------------------------------------------------------------------
-// PREUVE 6 — podium
-// ------------------------------------------------------------------
-
 describe("PREUVE 6 — le podium (release B : le classement officiel)", () => {
-  // `computePodium` est retiré au profit de `classementOfficiel`
-  // (podium-officiel.ts). Les intentions de cette preuve sont gardées ; seule la
-  // règle du seul inscrit CHANGE, parce qu'elle contredisait PO3 et IBJJF 4.4.
   const pourvues = (c: ReturnType<typeof classementOfficiel>, rang: 1 | 2 | 3) =>
     c.places.filter((p) => p.rang === rang && p.registrationId !== null);
 
@@ -358,8 +279,6 @@ describe("PREUVE 6 — le podium (release B : le classement officiel)", () => {
   });
 
   it("un combat de 3e place PRÉVU mais non joué ne retombe pas sur deux bronzes", () => {
-    // Le défaut de l'application de référence : elle décernait deux bronzes ex
-    // æquo alors qu'un seul est en jeu.
     let etat = bracket(8);
     for (const f of etat.filter((x) => x.division === 3 && !x.isBye && x.slotA && x.slotB)) {
       etat = appliquerNavigateur(etat, planFinish(etat, f.id, f.slotA!, "points"));
@@ -415,11 +334,6 @@ describe("PREUVE 6 — le podium (release B : le classement officiel)", () => {
   });
 });
 
-// ------------------------------------------------------------------
-// PREUVE 7 — la cascade v2 dénoue les WO fantômes
-// ------------------------------------------------------------------
-
-/** Un combat par (division, index), quel que soit son type de tableau. */
 function braket(
   fights: readonly PropagationFight[],
   division: number,
@@ -434,9 +348,6 @@ function braket(
 
 describe("PREUVE 7 — la cascade v2 dénoue les WO fantômes", () => {
   it("SÉQUENTIEL : un WO de cascade dont le vainqueur est ensuite éliminé est révoqué", () => {
-    // Le bug erreur-1 : Lucie éliminée à T1 → son adversaire monte par WO ; puis
-    // ce vainqueur est éliminé à T2. La v1 ne revisitait jamais le quart déjà
-    // `finished` → le fantôme montait jusqu'en finale. La v2 le révoque.
     const depart = bracket(8);
     const quart = depart.find(
       (f) => f.division === 3 && !f.isBye && f.slotA !== null && f.slotB !== null,
@@ -445,7 +356,6 @@ describe("PREUVE 7 — la cascade v2 dénoue les WO fantômes", () => {
     const ry = quart.slotB!;
     const suivant = findNextSlot(depart, quart)!;
 
-    // T1 : rx éliminé → ry gagne le quart par WO de cascade et monte.
     const etat1 = appliquerNavigateur(depart, planForfeit(depart, new Set([rx])));
     const q1 = etat1.find((f) => f.id === quart.id)!;
     expect(q1.state).toBe("finished");
@@ -455,8 +365,6 @@ describe("PREUVE 7 — la cascade v2 dénoue les WO fantômes", () => {
     const semi1 = etat1.find((f) => f.id === suivant.fightId)!;
     expect(suivant.slot === "A" ? semi1.slotA : semi1.slotB).toBe(ry);
 
-    // T2 : ry éliminé à son tour → révocation. Les deux côtés éliminés → double_wo,
-    // et ry est RETIRÉ de la demie, qui demande un arbitrage.
     const etat2 = appliquerNavigateur(etat1, planForfeit(etat1, new Set([rx, ry])));
     const q2 = etat2.find((f) => f.id === quart.id)!;
     expect(q2.state).toBe("finished");
@@ -471,15 +379,11 @@ describe("PREUVE 7 — la cascade v2 dénoue les WO fantômes", () => {
     const depart = bracket(4);
     const semi0 = braket(depart, 2, 0);
     const semi1 = braket(depart, 2, 1);
-    const perdantBronze = semi0.slotB!; // ira au combat de 3e place
+    const perdantBronze = semi0.slotB!;
 
-    // La demie 0 se joue normalement : son perdant descend au bronze.
     let etat = appliquerNavigateur(depart, planFinish(depart, semi0.id, semi0.slotA!, "points"));
-    // La demie 1 est un WO (un côté éliminé) : son perdant NE descend PAS.
     etat = appliquerNavigateur(etat, planForfeit(etat, new Set([semi1.slotB!])));
 
-    // Le bronze a un occupant valide et un slot désormais impossible → il se
-    // décerne par WO, sans rester ouvert toute la journée.
     const p3 = etat.find((f) => f.type === "BraketFightPool3")!;
     expect(p3.state).toBe("finished");
     expect(p3.winMethod).toBe("wo");
@@ -509,7 +413,6 @@ describe("PREUVE 7 — la cascade v2 dénoue les WO fantômes", () => {
     const quart = depart.find(
       (f) => f.division === 3 && !f.isBye && f.slotA !== null && f.slotB !== null,
     )!;
-    // L'arbitre prononce un WO à la main : pas un WO de cascade.
     const etat = appliquerNavigateur(depart, planFinish(depart, quart.id, quart.slotA!, "wo"));
     expect(etat.find((f) => f.id === quart.id)!.cascadeForfeit).toBeFalsy();
 
@@ -525,12 +428,9 @@ describe("PREUVE 7 — la cascade v2 dénoue les WO fantômes", () => {
     const depart = bracket(4);
     const semi1 = braket(depart, 2, 1);
     const pool3 = depart.find((f) => f.type === "BraketFightPool3")!;
-    // Tant que la demie n'est pas jouée, rien n'est impossible : on attend.
     expect(isSlotImpossible(depart, pool3, "B")).toBe(false);
-    // Une fois la demie tranchée par WO, plus aucun perdant ne descend.
     const etat = appliquerNavigateur(depart, planForfeit(depart, new Set([semi1.slotB!])));
     expect(isSlotImpossible(etat, pool3, "B")).toBe(true);
-    // Le nourricier d'une tête de série (division la plus haute) n'existe pas.
     const premierTour = depart.filter((f) => f.division === deepestDivision(depart));
     expect(findFeederFight(depart, premierTour[0]!, "A")).toBeNull();
   });

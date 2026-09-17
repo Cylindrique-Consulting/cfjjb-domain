@@ -14,29 +14,10 @@ import {
   type PropagationFight,
 } from "../src/bracket-propagation";
 
-// ===================================================================
-// LE TABLEAU DE TROIS DANS LA PROPAGATION DU NOYAU (TR1, release A).
-//
-// Deux trous relevés par l'audit du 11/09/2026, lus dans le source :
-//
-//   #1 `propager` n'appelait jamais `findRepechage3Slot` : le perdant de la
-//      1re demi-finale n'était pas écrit dans la 2e (le « repêchage ») côté
-//      client, alors que le SQL (`jour_j_pool3_slot`) l'y écrit ;
-//   #3 `at()` ne voit que les `BraketFight` : le nourricier du côté A de la
-//      finale (le repêchage) était introuvable, `isSlotImpossible` restait
-//      faux, et une finale dont la 2e demi-finale meurt sans vainqueur ne se
-//      soldait jamais.
-//
-// Parité tenue contre le SQL DÉPLOYÉ : jour_j_next_slot, jour_j_pool3_slot et
-// jour_j_slot_impossible (20261229000003), jour_j_feeder_fight (20261230000004),
-// jour_j_forfait_cascade (20261230000001), day_fight_finish (20261225000013).
-// ===================================================================
-
 function entrees(n: number): BracketEntry[] {
   return Array.from({ length: n }, (_, i) => ({ registrationId: `r${i + 1}`, clubId: null }));
 }
 
-/** Applique un plan en mémoire (patches, puis écritures de cases). */
 function appliquer(fights: PropagationFight[], plan: Plan): PropagationFight[] {
   const out = fights.map((f) => ({ ...f }));
   for (const p of plan.patches) {
@@ -63,10 +44,6 @@ type Trois = {
   finale: PropagationFight;
 };
 
-/**
- * Un vrai tirage à trois. Le générateur pose le repêchage à l'index 0 (la case
- * du bye) ; rien ne le GARANTIT, donc l'index 1 est éprouvé aussi.
- */
 function trois(repechageALIndex: 0 | 1 = 0): Trois {
   const res = generateBracket(entrees(3), "graine-3", { thirdPlaceMode: "pool3" });
   if (res.kind !== "bracket") throw new Error("tableau attendu");
@@ -86,10 +63,6 @@ function trois(repechageALIndex: 0 | 1 = 0): Trois {
 
 const lire = (fights: PropagationFight[], id: string) => fights.find((f) => f.id === id)!;
 
-// -------------------------------------------------------------------
-// TROU #1
-// -------------------------------------------------------------------
-
 describe("trou #1 : le perdant de la 1re demi-finale descend dans la 2e", () => {
   for (const index of [0, 1] as const) {
     it(`planFinish(demie) écrit le perdant en A de la 2e DF (repêchage à l'index ${index})`, () => {
@@ -101,12 +74,9 @@ describe("trou #1 : le perdant de la 1re demi-finale descend dans la 2e", () => 
         slot: "A",
         registrationId: perdant,
       });
-      // L'attendu optimiste couvre la case : sans elle, deux gestes pourraient
-      // écrire la 2e DF sans que le second s'en aperçoive.
       expect(plan.expected.map((e) => e.fightId)).toContain("rep");
       const apres = appliquer(fights, plan);
       expect(lire(apres, "rep").slotA).toBe(perdant);
-      // Et le vainqueur monte en finale, du côté de son index.
       const cote = index === 0 ? "slotB" : "slotA";
       expect(lire(apres, "f1")[cote]).toBe(vainqueur);
     });
@@ -136,14 +106,9 @@ describe("trou #1 : le perdant de la 1re demi-finale descend dans la 2e", () => 
     const demie = fights.find((f) => f.division === 2 && f.type === "BraketFight")!;
     expect(findRepechage3Slot(fights, demie)).toBeNull();
     const plan = planFinish(fights, demie.id, demie.slotA!, "points");
-    // Seule la montée du vainqueur est écrite.
     expect(plan.propagation).toHaveLength(1);
   });
 });
-
-// -------------------------------------------------------------------
-// TROU #3
-// -------------------------------------------------------------------
 
 describe("trou #3 : la 2e demi-finale est un nourricier", () => {
   it("findFeederFight : finale.A = 2e DF, finale.B = 1re DF, 2e DF.A = 1re DF, 2e DF.B = aucun", () => {
@@ -171,7 +136,6 @@ describe("trou #3 : la 2e demi-finale est un nourricier", () => {
         f.id === "rep" ? { ...f, state: fin.state, winMethod: fin.winMethod, winner: null } : f,
       );
       expect(isSlotImpossible(etat, finale, "A")).toBe(true);
-      // Une 2e DF à venir n'est pas impossible : on attend.
       expect(isSlotImpossible(fights, finale, "A")).toBe(false);
     });
   }
@@ -203,14 +167,9 @@ describe("trou #3 : la 2e demi-finale est un nourricier", () => {
     const jouee = appliquer(fights, planFinish(fights, demie.id, demie.slotA!, "points"));
     expect(isSlotImpossible(jouee, repechage, "A")).toBe(false);
     expect(isSlotImpossible(jouee, repechage, "A", new Set([demie.slotB!]))).toBe(true);
-    // Le côté B (le 3e, posé au tirage) n'est jamais impossible.
     expect(isSlotImpossible(jouee, repechage, "B", new Set([demie.slotB!]))).toBe(false);
   });
 });
-
-// -------------------------------------------------------------------
-// SCÉNARIOS DU REGISTRE (TR1.2) — propagation seulement, le podium relève de L5
-// -------------------------------------------------------------------
 
 describe("les scénarios TR1 du registre", () => {
   function joueDemie(t: Trois, eliminated = new Set<string>()) {
@@ -221,7 +180,6 @@ describe("les scénarios TR1 du registre", () => {
     const t = trois();
     const [a, b, c] = [t.demie.slotA!, t.demie.slotB!, t.repechage.slotB!];
     const elimines = new Set([c]);
-    // L'élimination seule ne solde rien : la case A de la 2e DF attend la 1re.
     const avant = appliquer(t.fights, planForfeit(t.fights, elimines));
     expect(lire(avant, "rep").state).toBe("scheduled");
 
@@ -245,7 +203,6 @@ describe("les scénarios TR1 du registre", () => {
     const [a, b, c] = [t.demie.slotA!, t.demie.slotB!, t.repechage.slotB!];
     const apres = appliquer(t.fights, planForfeit(t.fights, new Set([a])));
     expect(lire(apres, "demie")).toMatchObject({ state: "finished", winMethod: "wo", winner: b });
-    // L'éliminé n'a pas droit à la 2e DF : sa case reste vide, et impossible.
     expect(lire(apres, "rep")).toMatchObject({
       slotA: null,
       state: "finished",
@@ -265,7 +222,6 @@ describe("les scénarios TR1 du registre", () => {
       state: "finished",
       winMethod: "wo",
       winner: c,
-      // Soldée, elle n'attend plus d'arbitrage (needs_arbitration = false en SQL).
       needsArbitration: false,
     });
   });
@@ -286,10 +242,6 @@ describe("les scénarios TR1 du registre", () => {
     expect(c.manquant.join(" ")).not.toMatch(/rep[êe]chage/i);
   });
 });
-
-// -------------------------------------------------------------------
-// CASCADE SANS FILTRE DE TYPE (miroir de jour_j_forfait_cascade)
-// -------------------------------------------------------------------
 
 describe("la cascade traite la 2e DF et le combat de 3e place comme tout combat", () => {
   it("(classique) une 2e DF aux deux côtés connus avec un éliminé se solde par WO", () => {
@@ -314,7 +266,6 @@ describe("la cascade traite la 2e DF et le combat de 3e place comme tout combat"
 
     etat = appliquer(etat, planForfeit(etat, new Set([c, b])));
     expect(lire(etat, "rep")).toMatchObject({ winMethod: "double_wo", winner: null });
-    // Le fantôme quitte la finale, qui se solde alors pour le vainqueur de la 1re DF.
     expect(lire(etat, "f1")).toMatchObject({ state: "finished", winMethod: "wo", winner: a });
   });
 
@@ -336,15 +287,8 @@ describe("la cascade traite la 2e DF et le combat de 3e place comme tout combat"
   });
 });
 
-// -------------------------------------------------------------------
-// PARITÉ AVEC LA SONDE SQL (db/audit/validate-migrations.ts, 4sexies-quinquies)
-// -------------------------------------------------------------------
-
 describe("parité avec la sonde SQL du repêchage", () => {
   it("routes b/a/a, nourriciers, puis la journée jouée comme dans la sonde", () => {
-    // La sonde pose : demie (2,1) r1 contre r2 ; repêchage (2,0) vide contre r3 ;
-    // finale (1,0) vide. Elle attend les routes b/a/a et les nourriciers
-    // finale.a = repêchage, finale.b = demie, repêchage.b = null.
     const { fights, demie, repechage, finale } = trois();
     expect(findNextSlot(fights, demie)).toEqual({ fightId: "f1", slot: "B" });
     expect(findNextSlot(fights, repechage)).toEqual({ fightId: "f1", slot: "A" });
@@ -353,14 +297,11 @@ describe("parité avec la sonde SQL du repêchage", () => {
     expect(findFeederFight(fights, finale, "B")?.id).toBe("demie");
     expect(findFeederFight(fights, repechage, "B")).toBeNull();
 
-    // (b) la demie : A gagne. Le perdant descend en A du repêchage, le vainqueur en B de la finale.
     let etat = appliquer(fights, planFinish(fights, "demie", demie.slotA!, "points"));
     expect(lire(etat, "rep").slotA).toBe(demie.slotB);
     expect(lire(etat, "f1").slotB).toBe(demie.slotA);
-    // (c) le repêchage : B (le 3e) gagne et monte en A de la finale.
     etat = appliquer(etat, planFinish(etat, "rep", repechage.slotB!, "points"));
     expect(lire(etat, "f1").slotA).toBe(repechage.slotB);
-    // (d) deux combats terminés avant la finale.
     expect(etat.filter((f) => f.state === "finished")).toHaveLength(2);
   });
 });

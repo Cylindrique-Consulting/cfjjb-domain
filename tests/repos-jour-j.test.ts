@@ -13,14 +13,6 @@ import {
   type CombatDeLaFileDuRepos,
 } from "../src/repos-jour-j";
 
-// ===================================================================
-// LE REPOS LE JOUR J : ALERTE AU LANCEMENT ET PLACEMENT DU COMBAT SUIVANT.
-//
-// Aucune règle nouvelle : la règle reste `fight-rest.ts`. Ces tests fixent la
-// présentation (état du repos, une seule alerte par combat) et le placement
-// (rang après le repos), que la plateforme rejoue en SQL.
-// ===================================================================
-
 const MINUTE = 60_000;
 const T0 = ORIGINE_DES_SCENARIOS_DE_REPOS_MS;
 
@@ -119,7 +111,6 @@ describe("le rang après le repos", () => {
   });
 
   it("jamais vers l'avant, même quand le plafond est sous le rang actuel", () => {
-    // Un plafond incohérent (sous le rang actuel) ne fait pas avancer le combat.
     expect(
       rangApresRepos({
         file: prets(4),

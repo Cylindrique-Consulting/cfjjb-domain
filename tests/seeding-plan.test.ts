@@ -10,20 +10,14 @@ import {
   type SeedingPlan,
 } from "../src/seeding-plan";
 
-// ===================================================================
-// Outils de lecture
-// ===================================================================
-
 function sizeFor(n: number): number {
   return 2 ** Math.ceil(Math.log2(n));
 }
 
-/** Le pipeline seul, alimenté par le MÊME tirage que `generateBracket`. */
 function seedOnly(entries: BracketEntry[], seed: string, plan: SeedingPlan = DEFAULT_SEEDING_PLAN) {
   return applySeedingPlan(entries, sizeFor(entries.length), mulberry32(fnv1a(seed)), plan);
 }
 
-/** Les feuilles du premier tour telles que le tableau généré les expose. */
 function generatedLeaves(
   entries: BracketEntry[],
   seed: string,
@@ -31,10 +25,6 @@ function generatedLeaves(
 ): (string | null)[] {
   const result = generateBracket(entries, seed, { thirdPlaceMode: "pool3", seedingPlan: plan });
   if (result.kind !== "bracket") throw new Error("bracket attendu");
-  // LE REPÊCHAGE COMPTE COMME UNE POSITION DE PREMIER TOUR, parce qu'il EN EST
-  // une : à trois inscrits, il occupe exactement la case où était le bye. Le
-  // gel éprouve OÙ chaque graine est placée ; l'exclure ferait disparaître un
-  // combattant du corpus et le verrou cesserait de voir la moitié du placement.
   const arbre = result.fights.filter(
     (f: GeneratedFight) => f.type === "BraketFight" || f.type === "BraketFightRepechage3",
   );
@@ -49,12 +39,10 @@ function ids(leaves: readonly (BracketEntry | null)[]): (string | null)[] {
   return leaves.map((l) => l?.registrationId ?? null);
 }
 
-/** Positions des emplacements VIDES (les byes eux-mêmes). */
 function byePositions(leaves: readonly (BracketEntry | null)[]): number[] {
   return leaves.map((l, i) => (l === null ? i : -1)).filter((i) => i >= 0);
 }
 
-/** Qui saute un tour : l'occupant dont la feuille jumelle est vide. */
 function byeHolders(leaves: readonly (BracketEntry | null)[]): string[] {
   const out: string[] = [];
   for (let f = 0; 2 * f + 1 < leaves.length; f++) {
@@ -105,21 +93,6 @@ function withPlan(patch: {
   };
 }
 
-// ===================================================================
-// LE GEL : identité au bit avec le placement d'avant le pipeline
-// ===================================================================
-
-/**
- * Corpus de référence : 13 inscrits, quatre clubs de tailles inégales et deux
- * sans club.
- *
- * L'ORDRE D'ENTRÉE EST DÉLIBÉRÉMENT MÉLANGÉ, et ce n'est pas décoratif.
- * L'étape 1 regroupe par club dans l'ordre de PREMIÈRE APPARITION, puis
- * mélange groupe par groupe : l'ordre d'arrivée pilote donc la consommation du
- * tirage. Le test `le mélange d'entrée change le tableau` ci-dessous le
- * prouve — sans lui, le gel ne prouverait rien, puisqu'un pipeline qui trierait
- * ses entrées passerait quand même.
- */
 const CORPUS: BracketEntry[] = [
   { registrationId: "reg-marseille-2", clubId: "club-marseille" },
   { registrationId: "reg-solo-1", clubId: null },
@@ -138,7 +111,6 @@ const CORPUS: BracketEntry[] = [
 
 const CORPUS_TRIE = [...CORPUS].sort((a, b) => a.registrationId.localeCompare(b.registrationId));
 
-/** Sortie du générateur AVANT le lot 1e (commit 35b0fc0), relevée telle quelle. */
 const GEL_CORPUS: Record<string, (string | null)[]> = {
   "open-idf-2026": [
     "reg-paris-2",
@@ -196,7 +168,6 @@ const GEL_CORPUS: Record<string, (string | null)[]> = {
   ],
 };
 
-/** Même relevé, sur des sous-ensembles du corpus (tailles 5, 8 et 11). */
 const GEL_TAILLES: Record<number, (string | null)[]> = {
   5: ["reg-paris-3", null, "reg-solo-1", "reg-lyon-3", "reg-lyon-1", null, "reg-marseille-2", null],
   8: [
@@ -229,19 +200,9 @@ const GEL_TAILLES: Record<number, (string | null)[]> = {
   ],
 };
 
-/**
- * Balayage compact, relevé sur le même commit : N = 2..33, deux graines, cinq
- * clubs répartis par `(i × 3) % 5`. Format : `NN/graine feuilles`, un `.` pour
- * un emplacement de bye, le préfixe `reg-` retiré.
- */
 const GEL_BALAYAGE: string[] = [
   "02/alpha 1,2",
   "02/beta 2,1",
-  // À TROIS, LE CÔTÉ CHANGE — ET LUI SEUL (10/09/2026). Le bye est devenu un
-  // repêchage, dont l'emplacement LIBRE est toujours `A` : celui qui attend
-  // passe donc de `slotA` à `slotB` du MÊME combat, à la MÊME position de
-  // premier tour. Le placement des graines n'a pas bougé d'un cran ; c'est
-  // pourquoi ces deux lignes-ci changent et aucune autre.
   "03/alpha .,3,1,2",
   "03/beta .,3,1,2",
   "04/alpha 4,3,2,1",
@@ -338,9 +299,6 @@ describe("gel : le plan par défaut rend le placement d'avant le pipeline", () =
   });
 
   it("le mélange d'entrée change le tableau (sans quoi le gel ne prouverait rien)", () => {
-    // Comparaison de deux sorties VIVANTES, pas d'une sortie vivante avec le
-    // littéral : un pipeline qui trierait ses entrées rendrait les deux
-    // identiques, et c'est exactement ce que cette assertion doit voir.
     for (const seed of Object.keys(GEL_CORPUS)) {
       expect(
         generatedLeaves(CORPUS_TRIE, seed),
@@ -362,23 +320,17 @@ describe("gel : le plan par défaut rend le placement d'avant le pipeline", () =
   });
 });
 
-// ===================================================================
-// Les trois étapes sont nommées et lisibles
-// ===================================================================
-
 describe("le pipeline en trois étapes", () => {
   it("rend l'ordre des graines, le placement standard et la réparation", () => {
     const outcome = seedOnly(CORPUS, "open-idf-2026");
     expect(outcome.seedOrder).toHaveLength(CORPUS.length);
     expect(new Set(outcome.seedOrder.map((e) => e.registrationId)).size).toBe(CORPUS.length);
 
-    // Étape 2 : les graines aux positions canoniques, byes aux rangs > N.
     const positions = seedPositions(16);
     expect(ids(outcome.placement)).toEqual(
       positions.map((s) => outcome.seedOrder[s - 1]?.registrationId ?? null),
     );
 
-    // Étape 3 : une permutation des mêmes occupants.
     expect(ids(outcome.leaves).slice().sort()).toEqual(ids(outcome.placement).slice().sort());
     expect(ids(outcome.leaves)).toEqual(GEL_CORPUS["open-idf-2026"]);
   });
@@ -407,10 +359,6 @@ describe("le pipeline en trois étapes", () => {
   });
 });
 
-// ===================================================================
-// `pinned` : ce que la réparation n'a pas le droit de déplacer
-// ===================================================================
-
 describe("pinned", () => {
   const CLUBS_6: BracketEntry[] = Array.from({ length: 6 }, (_, i) => ({
     registrationId: `reg-${i + 1}`,
@@ -436,9 +384,6 @@ describe("pinned", () => {
   });
 
   it("mais le BÉNÉFICIAIRE du bye, lui, peut changer de mains", () => {
-    // La prémisse « un combattant à qui on a accordé un bye ne peut jamais en
-    // être échangé » est FAUSSE sur le code d'avant : seul l'emplacement est
-    // figé. Ce test fige la mesure.
     const transferts = GRAINES.filter((seed) => {
       const { placement, leaves } = seedOnly(CLUBS_6, seed);
       return byeHolders(leaves).join() !== byeHolders(placement).join();
@@ -477,8 +422,6 @@ describe("pinned", () => {
       for (const seed of GRAINES.slice(0, 12)) {
         const { placement, leaves } = seedOnly(entries, seed, plan);
         if (byePositions(leaves).join() !== byePositions(placement).join()) deplacements++;
-        // L'invariant structurel tient quand même : aucun combat du premier
-        // tour ne peut se retrouver sans aucun compétiteur.
         for (let f = 0; 2 * f + 1 < leaves.length; f++) {
           expect(
             (leaves[2 * f] ?? null) !== null || (leaves[2 * f + 1] ?? null) !== null,
@@ -503,12 +446,7 @@ describe("pinned", () => {
   });
 });
 
-// ===================================================================
-// Classement protégé
-// ===================================================================
-
 describe("classement protégé", () => {
-  /** N inscrits de clubs tous distincts : la réparation n'a rien à faire. */
   function ranked(n: number, ranks: Record<number, number>): BracketEntry[] {
     return Array.from({ length: n }, (_, i) => ({
       registrationId: `reg-${i + 1}`,
@@ -529,7 +467,6 @@ describe("classement protégé", () => {
   }
 
   it("les k premiers du classement prennent les graines 1..k et sautent un tour", () => {
-    // N=5 → taille 8 → 3 byes. Deux protégés tiennent largement.
     const entries = ranked(5, { 4: 1, 2: 2 });
     const { seedOrder, leaves } = seedOnly(entries, "protege-a", planProtege(2, "degrade"));
     expect(seedOrder.slice(0, 2).map((e) => e.registrationId)).toEqual(["reg-4", "reg-2"]);
@@ -538,8 +475,6 @@ describe("classement protégé", () => {
   });
 
   it("le rang 1 passe devant le rang 2, quelle que soit la graine", () => {
-    // Le classement protégé s'applique APRÈS l'entrelacement : c'est bien le
-    // rang, et non le hasard du tourniquet, qui doit trancher.
     const entries = ranked(5, { 1: 9, 5: 3 });
     for (let i = 0; i < 24; i++) {
       const seed = `protege-b-${i}`;
@@ -552,7 +487,6 @@ describe("classement protégé", () => {
   });
 
   it("protéger plus de monde qu'il n'y a de byes : dégradation ANNONCÉE, pas tue", () => {
-    // N=6 → taille 8 → 2 byes seulement, pour 4 protégés.
     const entries = ranked(6, { 1: 4, 2: 1, 3: 3, 4: 2 });
     const { seedOrder, leaves, warnings } = seedOnly(
       entries,
@@ -568,7 +502,6 @@ describe("classement protégé", () => {
     expect(warnings).toEqual([
       { code: "protected-ranking-exceeds-byes", protectedCount: 4, byeCount: 2 },
     ]);
-    // Les DEUX mieux classés sautent un tour, les deux suivants combattent.
     expect(byeHolders(leaves)).toEqual(["reg-2", "reg-4"].sort());
   });
 
@@ -602,7 +535,6 @@ describe("classement protégé", () => {
   });
 
   it("sans verrou, la réparation peut reprendre le bye d'un protégé ; `bye-holders` le tient", () => {
-    // Des clubmates, donc une réparation qui a du travail.
     const entries: BracketEntry[] = Array.from({ length: 6 }, (_, i) => ({
       registrationId: `reg-${i + 1}`,
       clubId: `club-${i % 2}`,
@@ -630,10 +562,6 @@ describe("classement protégé", () => {
   });
 });
 
-// ===================================================================
-// Équipe de France : les deux formes, toutes deux exprimables
-// ===================================================================
-
 describe("équipe de France", () => {
   it("forme « bonus de rang » : chaque sélectionné remonte de `bonus` places", () => {
     const entries: BracketEntry[] = Array.from({ length: 8 }, (_, i) => ({
@@ -641,8 +569,6 @@ describe("équipe de France", () => {
       clubId: `club-${i + 1}`,
       nationalTeam: i === 5,
     }));
-    // Entrelacement éteint : l'ordre d'entrée est l'ordre des graines, donc le
-    // bonus se lit à l'oeil nu.
     const plan: SeedingPlan = {
       ...DEFAULT_SEEDING_PLAN,
       order: DEFAULT_SEEDING_PLAN.order.map((step) => {
@@ -696,12 +622,7 @@ describe("équipe de France", () => {
   });
 });
 
-// ===================================================================
-// Même équipe des deux côtés du tableau
-// ===================================================================
-
 describe("même équipe", () => {
-  /** Huit inscrits, clubs tous distincts, quatre équipes de deux. */
   const EQUIPES: BracketEntry[] = Array.from({ length: 8 }, (_, i) => ({
     registrationId: `reg-${i + 1}`,
     clubId: `club-${i + 1}`,
@@ -742,7 +663,6 @@ describe("même équipe", () => {
   });
 
   it("elle n'abîme pas l'anti-club, qui reste au palier supérieur", () => {
-    // Clubs ET équipes en conflit : le club passe d'abord.
     const melange: BracketEntry[] = Array.from({ length: 8 }, (_, i) => ({
       registrationId: `reg-${i + 1}`,
       clubId: `club-${i % 4}`,
@@ -757,10 +677,6 @@ describe("même équipe", () => {
     }
   });
 });
-
-// ===================================================================
-// Paliers et poids
-// ===================================================================
 
 describe("amélioration lexicographique", () => {
   const CLUBMATES: BracketEntry[] = Array.from({ length: 16 }, (_, i) => ({
@@ -779,10 +695,6 @@ describe("amélioration lexicographique", () => {
   });
 
   it("le score est lu PALIER PAR PALIER, et non additionné", () => {
-    // Une somme des paliers serait invariante par échange des deux paliers :
-    // les deux plans rendraient alors le même tableau, sur toutes les graines.
-    // 13 inscrits, trois clubs (5, 4, 4) et trois byes : le corpus où
-    // l'ordre des paliers se voit.
     const treize: BracketEntry[] = Array.from({ length: 13 }, (_, i) => ({
       registrationId: `reg-${i + 1}`,
       clubId: `club-${i % 3}`,
@@ -814,17 +726,11 @@ describe("amélioration lexicographique", () => {
       ),
     };
     for (const seed of GRAINES) {
-      // Score entièrement nul : la réparation ne tourne pas, le placement
-      // standard sort tel quel.
       const outcome = seedOnly(CLUBMATES, seed, sansPoids);
       expect(ids(outcome.leaves)).toEqual(ids(outcome.placement));
     }
   });
 });
-
-// ===================================================================
-// Déterminisme
-// ===================================================================
 
 describe("déterminisme", () => {
   it("deux exécutions du pipeline rendent le même tableau", () => {

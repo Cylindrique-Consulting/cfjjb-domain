@@ -22,15 +22,6 @@ import {
 } from "../src/points";
 import { AGE_GROUPS, isChildAgeCategory } from "../src/referential";
 
-// ===================================================================
-// LE BARÈME DU GUIDE DES POINTS v1.2 (PTS1, PTS5, PTS2).
-//
-// Réponses du client du 15/09 et du 16/09/2026 : poids 9 / 3 / 1, Absolut
-// 13,5 / 4,5 / 1,5, × Open 1 / Majeure 2 / National 4, arrondi à deux
-// décimales ; équipes et clubs 9 / 3 / 1 sans coefficient ; R2 = « tous » (les
-// jeunes marquent comme les adultes).
-// ===================================================================
-
 function points(r: Partial<ResultatAPointer>, params?: ParametresDePoints) {
   return pointsDeResultat(
     { place: 1, absolut: false, niveau: "open", exclusion: null, ...r },
@@ -133,7 +124,7 @@ describe("l'arrondi à deux décimales, en centièmes entiers", () => {
       coefficients: { open: 150, majeure: 200, national: 400 },
     };
     expect(points({ place: 1, niveau: "open" }, params)?.points).toBe(188);
-    expect(produitEnCentiemes(333, 333)).toBe(1109); // 3,33 × 3,33 = 11,0889
+    expect(produitEnCentiemes(333, 333)).toBe(1109);
   });
 
   it("conversions : 13.5 ↔ 1350, 0.29 → 29, valeur non finie → null", () => {
@@ -258,14 +249,11 @@ describe("la tranche d'un profil de classement", () => {
 
 describe("R2 du 16/09 : les jeunes marquent comme les adultes", () => {
   it("U7, U15 et Juvénile : mêmes points qu'un Adulte, à chaque place et niveau", () => {
-    // Le calcul ne reçoit même pas la tranche : c'est la preuve structurelle
-    // qu'aucune exclusion d'âge ne peut s'y glisser.
     for (const tranche of ["U7", "U15", "Juvénile", "Adulte"] as const) {
       const profil = trancheDeProfil(tranche);
       expect(profil).toBe(tranche);
       expect(points({ place: 1, niveau: "national" })?.points).toBe(3600);
     }
-    // isChildAgeCategory reste vraie pour ces tranches : elle sert ailleurs.
     expect(isChildAgeCategory("U7")).toBe(true);
     expect(isChildAgeCategory("Juvénile")).toBe(true);
   });

@@ -11,10 +11,6 @@ import { fnv1a, mulberry32 } from "../src/prng";
 import { applySeedingPlan, separationKeyOf, type SeedingPlan } from "../src/seeding-plan";
 import type { BracketEntry, GeneratedFight } from "../src/bracket-generator";
 
-// ===================================================================
-// Outils de lecture
-// ===================================================================
-
 function sizeFor(n: number): number {
   return 2 ** Math.ceil(Math.log2(Math.max(2, n)));
 }
@@ -32,7 +28,6 @@ function ids(leaves: readonly (BracketEntry | null)[]): (string | null)[] {
   return leaves.map((l) => l?.registrationId ?? null);
 }
 
-/** Nombre de PAIRES de même clé par bloc de `block` feuilles consécutives. */
 function pairCount(
   leaves: readonly (BracketEntry | null)[],
   block: number,
@@ -59,18 +54,6 @@ function firstRoundLeaves(fights: readonly GeneratedFight[]): (string | null)[] 
     .flatMap((f) => [f.slotA, f.slotB]);
 }
 
-// ===================================================================
-// Le corpus : l'absolut ceinture noire d'une compétition ordinaire
-// ===================================================================
-
-/**
- * Quatre catégories sources, leurs deux finalistes chacune, et deux ceintures
- * noires entrées SANS podium (elles n'ont pas de condition de podium).
- *
- * L'ORDRE D'ENTRÉE EST DÉLIBÉRÉMENT MÉLANGÉ. Sans cela, un pipeline qui se
- * contenterait de recopier l'ordre d'arrivée passerait tous les tests
- * d'ordonnancement ci-dessous sans rien ordonner.
- */
 const ABSOLUT_NOIRE: AbsolutRegistration[] = [
   {
     registrationId: "leve-2",
@@ -144,10 +127,6 @@ const ABSOLUT_NOIRE: AbsolutRegistration[] = [
   },
 ];
 
-// ===================================================================
-// EXIGENCE 1 : l'ordre des graines
-// ===================================================================
-
 describe("absolut : l'ordre des graines suit la place source, puis le poids", () => {
   it("toutes les premières places passent devant toutes les deuxièmes", () => {
     const order = absolutSeedOrder(ABSOLUT_NOIRE).map((r) => r.sourcePlace);
@@ -210,8 +189,6 @@ describe("absolut : l'ordre des graines suit la place source, puis le poids", ()
   it("l'ordre des graines ne dépend pas de l'ordre de LECTURE", () => {
     const attendu = absolutSeedOrder(ABSOLUT_NOIRE).map((r) => r.registrationId);
     const inverse = absolutSeedOrder([...ABSOLUT_NOIRE].reverse()).map((r) => r.registrationId);
-    // Les deux sans-podium sont à égalité complète : eux seuls suivent l'ordre
-    // d'arrivée, et c'est documenté dans `applySourcePlaceOrder`.
     expect(attendu.slice(0, 8), "les médaillés sont totalement ordonnés").toEqual(
       inverse.slice(0, 8),
     );
@@ -246,15 +223,6 @@ describe("absolut : l'ordre des graines suit la place source, puis le poids", ()
   });
 });
 
-// ===================================================================
-// EXIGENCE 2 : pas de retrouvailles au premier tour
-// ===================================================================
-
-/**
- * Le cas qui MORD, trouvé par balayage : trois catégories sources, leurs deux
- * finalistes. Le placement standard y apparie les deux médaillés de la
- * troisième catégorie, et la réparation doit défaire cet appariement.
- */
 const TROIS_SOURCES: AbsolutRegistration[] = [
   {
     registrationId: "a1",
@@ -325,10 +293,6 @@ describe("absolut : deux médaillés d'une même catégorie source ne se retrouv
       "c1",
       "c2",
     ]);
-    // La séparation est au palier 0, donc elle passe AVANT la place de la tête
-    // de série : c'est a1 qui se déplace, et c'est c1 qui hérite de son bye.
-    // Le prix est réel et il est assumé - la consigne classe la séparation
-    // comme une exigence, pas comme une préférence.
     expect(ids(outcome.leaves), "après réparation").toEqual([
       "c1",
       null,
@@ -379,10 +343,6 @@ describe("absolut : deux médaillés d'une même catégorie source ne se retrouv
   });
 
   it("une source UNIQUE reste un rejeu, et le pipeline ne le cache pas", () => {
-    // Un absolut alimenté par une seule catégorie EST le podium de cette
-    // catégorie : ses deux finalistes doivent se rencontrer, il n'y a personne
-    // d'autre. La contrainte ne peut donc pas être satisfaite, et la sortie le
-    // montre plutôt que de faire croire à une séparation.
     const podium: AbsolutRegistration[] = [
       {
         registrationId: "seul-1",
@@ -433,10 +393,6 @@ describe("absolut : deux médaillés d'une même catégorie source ne se retrouv
   });
 });
 
-// ===================================================================
-// L'absolut ne se tire pas au sort
-// ===================================================================
-
 describe("absolut : un classement, pas un tirage", () => {
   it("l'entrelacement anti-club est ÉTEINT, sans quoi il détruirait l'ordre par place", () => {
     expect(
@@ -455,18 +411,6 @@ describe("absolut : un classement, pas un tirage", () => {
     ).toEqual(firstRoundLeaves(a.fights));
   });
 
-  /**
-   * ┌─ UNE PRÉMISSE MESURÉE FAUSSE, ET GARDÉE ICI ──────────────────────────────┐
-   * │ « L'entrelacement anti-club détruirait l'ordre par place » : c'est ce que  │
-   * │ le commentaire du plan disait, et c'est FAUX tel que le plan est écrit.    │
-   * │ L'entrelacement est listé AVANT l'ordre par place ; le tri par (place,     │
-   * │ poids) est total sur les médaillés, donc il efface le mélange.             │
-   * │                                                                            │
-   * │ Ce qu'il change vraiment : il consomme le tirage, et il n'arbitre plus que │
-   * │ les ÉGALITÉS COMPLÈTES. Les deux tests ci-dessous mesurent exactement ça,  │
-   * │ plutôt que de répéter la phrase confortable.                               │
-   * └───────────────────────────────────────────────────────────────────────────┘
-   */
   it("mélanger AVANT le classement ne déplace que les ÉGALITÉS", () => {
     const avecMelange: SeedingPlan = {
       ...ABSOLUT_SEEDING_PLAN,
@@ -518,10 +462,6 @@ describe("absolut : un classement, pas un tirage", () => {
     ).toEqual(ids(pipeline(ABSOLUT_NOIRE, "graine").leaves));
   });
 });
-
-// ===================================================================
-// Les inscriptions annulées
-// ===================================================================
 
 describe("absolut : les désistements ne montent pas sur le tatami", () => {
   it("une inscription ANNULÉE n'est ni ordonnée ni placée", () => {

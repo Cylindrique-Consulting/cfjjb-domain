@@ -1,72 +1,21 @@
-/**
- * LE CLASSEMENT D'UNE POULE, et son départage.
- *
- * Un arbre à élimination directe n'a pas besoin de ce module : le podium y est
- * un fait mécanique (qui a gagné la finale, qui l'a perdue). Une poule, elle,
- * CLASSE — et un classement se conteste. Ce module existe pour que la réponse
- * à une contestation soit « voici le critère qui a tranché », et jamais « c'est
- * l'ordinateur qui a décidé ».
- *
- * TROIS PIÈGES, TRAITÉS PLUTÔT QUE SUPPOSÉS :
- *
- * 1. LA CONFRONTATION DIRECTE N'EST PAS UN ORDRE TOTAL. À trois ex æquo, A bat
- *    B, B bat C, C bat A : le cycle est un résultat parfaitement normal, pas
- *    une anomalie. Elle s'évalue donc sur une MINI-TABLE RESTREINTE au
- *    sous-ensemble à égalité, et quand elle ne sépare pas, on passe au critère
- *    suivant. La terminaison est structurelle, pas gardée par un compteur :
- *    voir `orderGroup`.
- *
- * 2. LE TIRAGE AU SORT DOIT ÊTRE REJOUABLE. Il passe par `prng.ts` — jamais
- *    `Math.random()`, qui rendrait un podium indéfendable — et sa graine est
- *    dérivée de la graine de compétition, de la catégorie et des identifiants
- *    du sous-ensemble tiré. Deux exécutions rendent le même 2e.
- *
- * 3. UNE POULE INCOMPLÈTE N'A PAS DE CLASSEMENT VALIDE. Tant qu'un seul
- *    combat manque, le classement affiché est PROVISOIRE (`complete: false`)
- *    et le podium est refusé (`podium: null`). Rendre un podium sur une poule
- *    en cours graverait un résultat que le combat suivant contredit.
- *
- * Module pur : aucune IO, aucune dépendance.
- */
-
 import { fnv1a, mulberry32, shuffle } from "./prng";
 
 export class PoolRankingError extends Error {}
 
-/**
- * Un combat de poule TERMINÉ, tel que la marque l'a enregistré.
- *
- * Un combat non joué est simplement ABSENT de la liste : c'est ce qui rend la
- * complétude lisible (C(n,2) combats attendus, autant de paires présentes) sans
- * ajouter un drapeau qu'on oublierait de poser.
- *
- * `winner: null` est un combat joué SANS vainqueur (double forfait) : il compte
- * comme disputé pour la complétude, mais ne crédite personne.
- */
 export type PoolBout = {
   readonly a: string;
   readonly b: string;
   readonly winner: string | null;
   readonly pointsA: number;
   readonly pointsB: number;
-  /** Le combat s'est terminé par soumission, au crédit du vainqueur. */
   readonly submission: boolean;
   readonly penaltiesA: number;
   readonly penaltiesB: number;
 };
 
-/**
- * LE TUPLE DE DÉPARTAGE, FERMÉ. Ces six critères et pas d'autres : une union
- * ouverte ferait entrer une règle non testée par la porte des données.
- */
 export type TieBreaker =
   "head-to-head" | "point-differential" | "points-scored" | "submissions" | "penalties" | "draw";
 
-/**
- * L'ORDRE PAR DÉFAUT. Les victoires ne figurent pas dans ce tableau : elles ne
- * sont pas un départage, elles sont LE critère de classement. Le tuple ne
- * s'ouvre qu'à égalité de victoires.
- */
 export const DEFAULT_TIE_BREAK_ORDER: readonly TieBreaker[] = [
   "head-to-head",
   "point-differential",
@@ -76,15 +25,12 @@ export const DEFAULT_TIE_BREAK_ORDER: readonly TieBreaker[] = [
   "draw",
 ];
 
-/** Ce qu'un compétiteur a fait dans la poule, et où il finit. */
 export type PoolStanding = {
   readonly registrationId: string;
-  /** 1 = premier. Deux compétiteurs n'ont jamais le même rang : le tuple est total. */
   readonly rank: number;
   readonly bouts: number;
   readonly wins: number;
   readonly losses: number;
-  /** Combats joués sans vainqueur (double forfait). */
   readonly noContest: number;
   readonly pointsFor: number;
   readonly pointsAgainst: number;
@@ -93,17 +39,8 @@ export type PoolStanding = {
   readonly penalties: number;
 };
 
-/**
- * Une TENTATIVE de départage, et son issue. C'est la trace qui rend un podium
- * contesté explicable : « les 2e et 3e étaient à deux victoires, la
- * confrontation directe n'a pas séparé (cycle), l'écart de points a tranché ».
- *
- * Les tentatives INFRUCTUEUSES y figurent aussi : savoir qu'un critère a été
- * essayé et n'a rien dit fait partie de l'explication.
- */
 export type TieBreakRecord = {
   readonly criterion: TieBreaker;
-  /** Le sous-ensemble à égalité sur lequel le critère a été évalué. */
   readonly registrationIds: readonly string[];
   readonly separated: boolean;
 };
@@ -115,29 +52,18 @@ export type PoolPodium = {
 };
 
 export type PoolRankingResult = {
-  /** Tous les combats attendus ont été enregistrés. */
   readonly complete: boolean;
-  /** Le classement. PROVISOIRE tant que `complete` est faux. */
   readonly standings: readonly PoolStanding[];
-  /** Les paires encore à disputer. Vide ⟺ `complete`. */
   readonly missingPairs: readonly (readonly [string, string])[];
-  /** `null` tant que la poule est incomplète : un podium ne se grave qu'une fois. */
   readonly podium: PoolPodium | null;
-  /** Quel critère a décidé, et lesquels n'ont rien dit. */
   readonly tieBreakApplied: readonly TieBreakRecord[];
 };
 
 export type PoolRankingOptions = {
-  /** La graine de compétition. Avec `categoryId`, elle rend le tirage rejouable. */
   readonly seed: string;
   readonly categoryId: string;
-  /** L'ordre des critères. Défaut : `DEFAULT_TIE_BREAK_ORDER`. */
   readonly order?: readonly TieBreaker[];
 };
-
-// ------------------------------------------------------------------
-// Agrégats
-// ------------------------------------------------------------------
 
 type Tally = {
   registrationId: string;
@@ -174,7 +100,7 @@ function tallyOf(competitorIds: readonly string[], bouts: readonly PoolBout[]): 
   for (const bout of bouts) {
     const ta = map.get(bout.a);
     const tb = map.get(bout.b);
-    if (!ta || !tb) continue; // écarté par la validation en amont
+    if (!ta || !tb) continue;
     ta.bouts++;
     tb.bouts++;
     ta.pointsFor += bout.pointsA;
@@ -198,13 +124,6 @@ function tallyOf(competitorIds: readonly string[], bouts: readonly PoolBout[]): 
   return map;
 }
 
-/**
- * Refuse une saisie incohérente plutôt que de la classer.
- *
- * Un combat entre deux inconnus, un doublon de paire, un vainqueur qui n'est
- * aucun des deux combattants : chacun produirait un classement d'apparence
- * normale et faux. Le refus est bruyant, la tolérance serait muette.
- */
 function validate(competitorIds: readonly string[], bouts: readonly PoolBout[]): void {
   const known = new Set(competitorIds);
   if (known.size !== competitorIds.length) {
@@ -252,10 +171,6 @@ function missingPairsOf(
   return out;
 }
 
-// ------------------------------------------------------------------
-// Le départage
-// ------------------------------------------------------------------
-
 type Context = {
   readonly order: readonly TieBreaker[];
   readonly tally: Map<string, Tally>;
@@ -265,14 +180,6 @@ type Context = {
   readonly trace: TieBreakRecord[];
 };
 
-/**
- * La MINI-TABLE : victoires comptées uniquement entre membres du sous-ensemble.
- *
- * C'est le point où l'on évite l'erreur classique. Compter les victoires
- * générales reviendrait à rejouer le critère précédent (qui n'a rien séparé,
- * par définition) ; compter sur toute la poule ferait dépendre le duel de gens
- * qui n'y sont pas.
- */
 function headToHeadWins(group: readonly string[], bouts: readonly PoolBout[]): Map<string, number> {
   const inGroup = new Set(group);
   const wins = new Map<string, number>();
@@ -285,7 +192,6 @@ function headToHeadWins(group: readonly string[], bouts: readonly PoolBout[]): M
   return wins;
 }
 
-/** Blocs d'égalité d'une clé numérique, meilleurs d'abord. `direction` = 1 pour « le plus grand gagne ». */
 function blocksByNumber(
   group: readonly string[],
   keyOf: (id: string) => number,
@@ -303,16 +209,6 @@ function blocksByNumber(
     .map(([, members]) => members);
 }
 
-/**
- * LE TIRAGE AU SORT, déterministe et auditable.
- *
- * La graine mêle la graine de compétition, la catégorie et les identifiants du
- * SOUS-ENSEMBLE tiré, triés. Le tri n'est pas un classement — il canonise un
- * ENSEMBLE pour que la graine ne dépende pas de l'ordre d'arrivée des lignes ;
- * ce qui décide, c'est le mélange Fisher-Yates de `prng.ts`. La règle « jamais
- * de tri par identifiant » vise l'ordonnancement des combats, et elle n'est pas
- * franchie ici : aucun rang ne sort de ce tri.
- */
 function drawBlocks(group: readonly string[], ctx: Context): string[][] {
   const canonical = [...group].sort();
   const seedText = `${ctx.seed}|${ctx.categoryId}|${canonical.join(",")}`;
@@ -341,31 +237,12 @@ function blocksFor(group: readonly string[], criterion: TieBreaker, ctx: Context
     case "submissions":
       return blocksByNumber(group, (id) => stat(id)?.submissions ?? 0, 1);
     case "penalties":
-      // Moins de pénalités = mieux classé.
       return blocksByNumber(group, (id) => stat(id)?.penalties ?? 0, -1);
     case "draw":
       return drawBlocks(group, ctx);
   }
 }
 
-/**
- * Ordonne un groupe d'ex æquo. JAMAIS DE BOUCLE, et la preuve ne repose sur
- * aucun compteur de sécurité :
- *
- * - un critère qui NE sépare PAS fait avancer `from` d'un cran, sur le MÊME
- *   groupe — le tuple est fini, donc cette branche s'épuise ;
- * - un critère qui SÉPARE relance chaque bloc depuis le début du tuple, mais
- *   sur un groupe STRICTEMENT plus petit.
- *
- * La mesure (taille du groupe, index dans le tuple) décroît donc
- * lexicographiquement à chaque appel : la récursion est bien fondée. Un cycle
- * de confrontation directe emprunte la première branche et non la seconde,
- * ce qui est exactement ce qu'on veut.
- *
- * Repartir du DÉBUT du tuple après une séparation est délibéré : c'est la
- * règle de round-robin usuelle (la confrontation directe se rejoue sur le
- * sous-ensemble réduit, où elle sépare souvent alors qu'elle cyclait à trois).
- */
 function orderGroup(group: readonly string[], from: number, ctx: Context): string[] {
   if (group.length <= 1) return [...group];
   for (let i = from; i < ctx.order.length; i++) {
@@ -377,21 +254,9 @@ function orderGroup(group: readonly string[], from: number, ctx: Context): strin
     if (!separated) continue;
     return blocks.flatMap((block) => orderGroup(block, 0, ctx));
   }
-  // Atteignable seulement si l'appelant a retiré `draw` du tuple. On rend alors
-  // le groupe dans l'ordre où il est arrivé, et la trace dit que rien n'a
-  // séparé — plutôt qu'un rang inventé qui aurait l'air décidé.
   return [...group];
 }
 
-/**
- * L'ordre effectif des critères : dédoublonné, et TERMINÉ par le tirage au
- * sort si l'appelant l'a omis.
- *
- * Ajouter `draw` ne peut jamais renverser une décision d'un critère listé —
- * il n'intervient que là où tous les autres se sont tus. Sans lui, deux
- * compétiteurs strictement identiques recevraient leur rang de l'ordre
- * d'arrivée des lignes en base, c'est-à-dire de rien.
- */
 function effectiveOrder(order: readonly TieBreaker[] | undefined): readonly TieBreaker[] {
   const source = order ?? DEFAULT_TIE_BREAK_ORDER;
   const out: TieBreaker[] = [];
@@ -399,10 +264,6 @@ function effectiveOrder(order: readonly TieBreaker[] | undefined): readonly TieB
   if (!out.includes("draw")) out.push("draw");
   return out;
 }
-
-// ------------------------------------------------------------------
-// Le classement
-// ------------------------------------------------------------------
 
 export function rankPool(
   competitorIds: readonly string[],
@@ -424,8 +285,6 @@ export function rankPool(
     trace: [],
   };
 
-  // Le classement par victoires, puis le tuple à l'intérieur de chaque
-  // ex æquo. Les victoires ne passent pas par le tuple : elles le précèdent.
   const byWins = blocksByNumber(competitorIds, (id) => tally.get(id)?.wins ?? 0, 1);
   const ordered = byWins.flatMap((block) => orderGroup(block, 0, ctx));
 
@@ -458,10 +317,6 @@ export function rankPool(
   return { complete, standings, missingPairs, podium, tieBreakApplied: ctx.trace };
 }
 
-/**
- * La trace, en français, ligne à ligne. Un podium contesté doit s'expliquer
- * sans lire le code — c'est la même exigence que `describeSeedingPlan`.
- */
 export function explainTieBreaks(records: readonly TieBreakRecord[]): string[] {
   const label: Record<TieBreaker, string> = {
     "head-to-head": "confrontation directe",

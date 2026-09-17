@@ -23,13 +23,6 @@ import {
   type StatutDisciplinaire,
 } from "../src/podium-officiel";
 
-/**
- * AIDES DES TESTS DU MOTEUR DE PODIUM : un tableau se JOUE par les plans du
- * domaine (fin, fin sans vainqueur, cascade de forfait, arbitrage), exactement
- * comme le serveur l'écrit. Un état fabriqué à la main pourrait être un état
- * que la base ne produit jamais.
- */
-
 export const K = (d: number, i: number, t: PropagationFight["type"] = "BraketFight") =>
   `${d}:${i}:${t}`;
 export const P3 = K(2, 2, "BraketFightPool3");
@@ -51,18 +44,15 @@ export class Tableau {
     if (!f) throw new Error(`combat ${id} introuvable`);
     return f;
   }
-  /** Le côté `A` ou `B` gagne. */
   gagne(id: string, cote: "A" | "B", methode: WinMethod = "points"): this {
     this.fights = jouerDansLeScenario(this.fights, id, cote, methode, this.elimines);
     return this;
   }
-  /** Le côté `cote` gagne par disqualification de l'autre, au motif donné. */
   gagneParDq(id: string, cote: "A" | "B", motif: MotifDeDisqualification): this {
     this.gagne(id, cote, "dq");
     this.fights = this.fights.map((f) => (f.id === id ? { ...f, dqReason: motif } : f));
     return this;
   }
-  /** Double disqualification avec un motif par côté (mixte dans les deux sens). */
   doubleDq(id: string, motifA: MotifDeDisqualification, motifB: MotifDeDisqualification): this {
     this.fights = appliquerLePlan(
       this.fights,
@@ -79,13 +69,11 @@ export class Tableau {
     this.fights = doublerDansLeScenario(this.fights, id, nature, this.elimines);
     return this;
   }
-  /** Des absents (`no_show`) : la cascade de forfait tourne, comme au serveur. */
   absents(...regs: string[]): this {
     for (const r of regs) this.elimines.add(r);
     this.fights = eliminerDansLeScenario(this.fights, this.elimines);
     return this;
   }
-  /** Faire tourner la cascade seule (le serveur l'appelle après chaque geste). */
   cascade(): this {
     this.fights = eliminerDansLeScenario(this.fights, this.elimines);
     return this;
@@ -154,7 +142,6 @@ export class Tableau {
   }
 }
 
-/** Les places en écriture compacte : `1:r1`, `3:vacante(disqualification)`. */
 export function compact(places: readonly PlaceOfficielle[]): string[] {
   return places.map((p) =>
     p.registrationId !== null

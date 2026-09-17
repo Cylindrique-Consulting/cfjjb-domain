@@ -8,15 +8,6 @@ import {
   type FormatByAgeGroup,
 } from "../src/competition-format";
 
-// ===================================================================
-// LA DÉCISION PRODUIT, GELÉE
-//
-// Le moteur de poules existe, il est testé, et AUCUN format par défaut ne
-// l'active. Ces trois tests sont le verrou : une seule tranche basculée par
-// mégarde change le format de vraies compétitions, et rien d'autre ne le
-// signalerait avant le jour J.
-// ===================================================================
-
 describe("la table de formats par défaut", () => {
   it("n'active la poule pour AUCUNE tranche d'âge", () => {
     expect(ageGroupsInPools()).toEqual([]);
@@ -54,15 +45,9 @@ describe("la table de formats fournie par l'appelant", () => {
   });
 
   it("retombe sur single_elim quand une tranche manque, jamais sur le format neuf", () => {
-    // Une table partielle ne doit pas basculer une catégorie en poule par
-    // omission : le défaut de sécurité est le format d'aujourd'hui.
     expect(formatForAgeGroup("Adulte", { U11: "pools" })).toBe("single_elim");
   });
 });
-
-// ===================================================================
-// LE VOCABULAIRE DE LA COLONNE
-// ===================================================================
 
 describe("drawFormatFromBracketMode", () => {
   it("démêle le format des deux valeurs qui portent aussi le mode de 3e place", () => {
@@ -75,8 +60,6 @@ describe("drawFormatFromBracketMode", () => {
   });
 
   it("rend null plutôt que d'approximer une valeur inconnue", () => {
-    // « Je ne sais pas » est une réponse. Approximer en élimination directe est
-    // exactement le repli muet qui a laissé `bracket_mode` illisible deux mois.
     expect(drawFormatFromBracketMode("round_robin")).toBeNull();
     expect(drawFormatFromBracketMode("")).toBeNull();
     expect(drawFormatFromBracketMode(null)).toBeNull();

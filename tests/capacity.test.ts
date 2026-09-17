@@ -17,8 +17,6 @@ import {
   type CategoryShape,
 } from "../src/capacity";
 
-// Huit heures exploitables, quatre tapis, cinq minutes de combat, une minute
-// d'espacement : 28 800 ÷ 360 = 80 combats par tapis, 320 en tout.
 const JOURNEE: CapacityParams = {
   tatamiCount: 4,
   usableSecondsPerTatami: 8 * 3600,
@@ -33,18 +31,6 @@ const ELIMINATION: CategoryShape = {
 };
 
 const POULE: CategoryShape = { competitorsPerCategory: 4, format: "pools" };
-
-// ===================================================================
-// LA NON-DÉRIVE DES DEUX POPULATIONS
-//
-// Le numérateur du taux et le compteur d'inscrits de la plateforme sont deux
-// ensembles DIFFÉRENTS de statuts. Les confondre double-compte le pipeline
-// commercial dans une mesure d'occupation physique, et la fédération commande
-// ses médailles sur ces nombres.
-//
-// Ces tests NOMMENT la valeur qui bouge : élargir l'un des deux ensembles
-// n'échoue pas sur un total, il échoue sur le statut fautif.
-// ===================================================================
 
 describe("le numérateur du taux, et le total de la base", () => {
   it("place EXACTEMENT registered, validated et paid — miroir d'isActiveBracketStatus", () => {
@@ -67,8 +53,6 @@ describe("le numérateur du taux, et le total de la base", () => {
   });
 
   it("laisse EXACTEMENT deux statuts comptés par la base et jamais placés sur un tapis", () => {
-    // Si quelqu'un élargit le numérateur, cette liste rétrécit et le statut
-    // absorbé est nommé ici. S'il élargit le total, elle s'allonge.
     expect(statusesCountedButNotDrawn()).toEqual(["pre_registered", "no_show"]);
   });
 
@@ -138,10 +122,6 @@ describe("breakdownRegistrations", () => {
   });
 });
 
-// ===================================================================
-// LE RATIO, ET LE FAIT QU'IL DÉPENDE DU FORMAT
-// ===================================================================
-
 describe("fightsPerCompetitor", () => {
   it("rend 1,5 pour une poule de quatre : six combats pour quatre combattants", () => {
     expect(fightsPerCompetitor(POULE)).toBe(1.5);
@@ -164,17 +144,6 @@ describe("fightsPerCompetitor", () => {
 
   it("compte le combat de 3e place quand le mode le programme (n ≥ 4)", () => {
     expect(fightsPerCompetitor({ ...ELIMINATION, thirdPlaceMode: "pool3" })).toBe(1);
-    // n = 3 : aucun combat de 3e place n'est généré — le REPÊCHAGE décerne le
-    // bronze, son perdant est troisième. Le ratio ne bouge donc pas AVEC le
-    // mode de 3e place ; il vaut 1 parce que le repêchage EST un combat.
-    //
-    // ⚠ CETTE ASSERTION PORTAIT 2/3, ET C'ÉTAIT LE COMPTE DE L'ANCIEN FORMAT.
-    // Elle a été écrite quand l'arbre de quatre portait un bye, et elle a
-    // survécu intacte à la décision produit du 10/09/2026 qui l'a supprimé :
-    // le test gelait la réalité d'hier sans rien dire de celle d'aujourd'hui.
-    // Le contrôle qui l'aurait attrapée compare l'estimateur au tirage réel
-    // plutôt qu'à un nombre écrit à la main — il vit dans
-    // `repechage-consequences.test.ts`.
     for (const mode of ["pool3", "shared_bronze"] as const) {
       expect(
         fightsPerCompetitor({
@@ -188,9 +157,6 @@ describe("fightsPerCompetitor", () => {
   });
 
   it("se replie AVEC le tirage quand le gabarit dépasse le plafond de poule", () => {
-    // Sept en poule, c'est au-dessus de six : `resolveDrawFormat` replie en
-    // élimination directe, et le ratio doit se replier avec lui. Un ratio de
-    // poule maintenu ici annoncerait une capacité deux fois trop basse.
     const sept: CategoryShape = {
       competitorsPerCategory: 7,
       format: "pools",
@@ -201,10 +167,6 @@ describe("fightsPerCompetitor", () => {
   });
 
   it("arrondit un gabarit fractionnaire AU-DESSUS, jamais en dessous", () => {
-    // « 4,6 combattants par catégorie » est une entrée légitime, et une
-    // catégorie contient des personnes. Arrondir en dessous rendrait 1,5 au
-    // lieu de 2,0 en poule — un tiers de capacité annoncée en trop, c'est-à-dire
-    // une salle qu'on n'a pas.
     const fractionnaire: CategoryShape = { competitorsPerCategory: 4.6, format: "pools" };
     expect(fightsPerCompetitor(fractionnaire)).toBe(2);
     expect(fightsPerCompetitor(fractionnaire)).not.toBe(
@@ -225,19 +187,12 @@ describe("fightsPerCompetitor", () => {
   });
 });
 
-// ===================================================================
-// LA CAPACITÉ
-// ===================================================================
-
 describe("computeFightCapacity", () => {
   it("compte 80 combats par tapis et 320 sur quatre", () => {
     expect(computeFightCapacity(JOURNEE)).toBe(320);
   });
 
   it("prend le plancher PAR TAPIS, pas sur le total", () => {
-    // 10 000 s ÷ 360 = 27,7 combats. Par tapis : 27 × 4 = 108. Sur le total,
-    // l'arrondi aurait rendu 111 — trois combats qu'aucun tapis ne peut tenir,
-    // une catégorie ne se coupant pas en deux.
     const capacite = computeFightCapacity({ ...JOURNEE, usableSecondsPerTatami: 10_000 });
     expect(capacite).toBe(108);
     expect(capacite).not.toBe(Math.floor((10_000 * 4) / 360));
@@ -283,18 +238,12 @@ describe("computeCompetitorCapacity", () => {
   });
 });
 
-// ===================================================================
-// LE TAUX, ET SON `null`
-// ===================================================================
-
 describe("computeFillRate", () => {
   it("rend la part occupée quand la capacité existe", () => {
     expect(computeFillRate(213, 426)).toBe(0.5);
   });
 
   it("rend null — JAMAIS 0 — quand la capacité est nulle", () => {
-    // Un 0 se lit comme un fait mesuré (« la compétition est vide ») alors que
-    // l'information réelle est « on ne sait pas ». À l'écran, null vaut « - ».
     expect(computeFillRate(0, 0)).toBeNull();
     expect(computeFillRate(120, 0)).toBeNull();
     expect(computeFillRate(120, -1)).toBeNull();
@@ -332,9 +281,6 @@ describe("computeFillReport", () => {
       capacity: JOURNEE,
       shape: ELIMINATION,
     });
-    // Le total de la base vaut 263 : le brancher sur le numérateur porterait le
-    // taux à 0,617 et ferait commander des médailles pour 50 personnes qui
-    // n'ont pas validé leur inscription.
     expect(rapport.breakdown.countedTotal).toBe(263);
     expect(rapport.breakdown.preRegistered).toBe(50);
     expect(rapport.fillRate).not.toBe(computeFillRate(263, rapport.competitorCapacity));
@@ -368,10 +314,6 @@ describe("explainCapacity", () => {
   });
 
   it("rend des combats par tapis ENTIERS, cohérents avec la capacité qu'ils composent", () => {
-    // 10 000 s ÷ 360 = 27,77. Le champ doit porter 27, le nombre réellement
-    // programmable, et non la division brute : un écran qui montre « 27,8
-    // combats par tapis » à côté de « 108 combats » invite à refaire le calcul
-    // à la main et à trouver 111.
     const explication = explainCapacity(
       { ...JOURNEE, usableSecondsPerTatami: 10_000 },
       ELIMINATION,

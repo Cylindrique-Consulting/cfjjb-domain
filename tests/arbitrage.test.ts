@@ -20,11 +20,6 @@ import {
 import { aCombattuDansLesCombats } from "../src/podium-officiel";
 import { K, P3, Tableau } from "./aides-classement";
 
-// ===================================================================
-// « ARBITRAGE REQUIS » (DQ1.3, DQ1.4, DQ1.5, SB3.2) : la table unique des fins
-// sans vainqueur, sa propagation, et les combats supplémentaires.
-// ===================================================================
-
 describe("la table REGLES_FIN_SANS_VAINQUEUR", () => {
   it("chaque ligne a un scénario, et chaque scénario rend la résolution annoncée", () => {
     const scenarios = scenariosFinSansVainqueur();
@@ -145,10 +140,6 @@ describe("la propagation attend l'arbitrage", () => {
     expect(isSlotImpossible(t.fights, t.combat(K(2, 0)), "A")).toBe(true);
   });
 
-  // DQ1.2 SANS AUCUN ÉLIMINÉ. Le passage sans adversaire ne doit rien à une
-  // élimination : borné aux éliminés, le point fixe laissait la demie à venir,
-  // case vide, et le tapis attendait un combat qui n'aurait jamais lieu. Aucun
-  // appel explicite à la cascade ici : c'est la fin de combat qui la déclenche.
   it("quart en double DQ, AUCUN éliminé : la fin de l'autre quart solde la demie sans adversaire", () => {
     const t = new Tableau(8).double(K(3, 0), "technique").gagne(K(3, 1), "A");
     expect(t.elimines.size).toBe(0);
@@ -183,7 +174,6 @@ describe("la propagation attend l'arbitrage", () => {
     t.double(K(2, 0), "technique").double(K(2, 1), "technique");
     const plan = planForfeit(t.fights, new Set());
     expect(plan.patches.find((p) => p.fightId === K(1, 0))).toBeUndefined();
-    // Arbitrage rendu (combats créés) : la finale d'origine n'aura jamais lieu.
     t.arbitre(K(2, 0), null, null).arbitre(K(2, 1), null, null);
     expect(t.combat(K(1, 0)).state).toBe("cancelled");
   });
@@ -254,7 +244,6 @@ describe("positionApresRepos : placé après le repos, jamais en tête (DQ1.3)",
         finReelleMs: T0,
       },
     ];
-    // Fin du repos : T0 + 2 × 5 min = T0 + 10 min. Rangs : 0 → T0, 1 → +5, 2 → +10.
     expect(
       positionApresRepos({
         file,

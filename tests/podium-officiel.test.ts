@@ -7,18 +7,6 @@ import {
 } from "../src/podium-officiel";
 import { compact, K, P3, Tableau } from "./aides-classement";
 
-// ===================================================================
-// LE MOTEUR DE PODIUM (release B, v0.17.0) — un cas nommé par règle, la
-// source dans le titre. Réponses du client du 15/09/2026 et IBJJF Rules Book
-// 6.1 (juin 2024), General Competition Guidelines.
-//
-// Disposition des tableaux de scénario (`tableauDeScenario`) :
-//   · 2 : finale r1–r2 ;
-//   · 3 : 1re demie r1–r3, 2e demie (repêchage) perdant–r2 ;
-//   · 4 : demies r1–r3 (côté A de la finale) et r2–r4 (côté B) ;
-//   · 5 à 8 : quarts r1–r5, r2–r6, r3–r7, r4–r8 (byes au bout).
-// ===================================================================
-
 const MODES = ["shared_bronze", "pool3"] as const;
 
 describe("personne seule (PO3, IBJJF 4.4)", () => {
@@ -117,7 +105,6 @@ describe("catégorie à deux (règle CFJJB DQ1.5, T2.3)", () => {
 
 describe("T2.3 : un inéligible sans combat ne prend jamais de place (IBJJF 2.4.1, 4.2)", () => {
   it("bronze jamais donné à l'éliminé sans combat : le quart du même côté devient la demie", () => {
-    // r2 arrive par bye en demie et ne se présente pas : r1 gagne par forfait.
     const t = new Tableau(5)
       .gagne(K(3, 0), "A")
       .absents("r2")
@@ -172,10 +159,6 @@ describe("T2.4 B : double forfait en demi-finale (IBJJF 2.4.2 dernier point, 4.2
     ]);
   });
 
-  // LA BRANCHE « FINALISTE ÉLIMINÉ SANS AVOIR COMBATTU » (T2.3, T2.4 B) : r2 n'a
-  // passé sa demie que par forfait, puis la finale est déclarée perdue par forfait
-  // à la table (il reste inscrit dans la finale). Il n'est pas un perdant de
-  // finale : la demie jouée vaut finale, son perdant est 2e.
   for (const mode of MODES) {
     it(`[${mode}] finaliste arrivé par forfait puis forfait en finale : la demie jouée vaut finale`, () => {
       const t = new Tableau(4, mode).gagne(K(2, 0), "A").absents("r4");
@@ -250,8 +233,6 @@ describe("IBJJF 2.4.1 : double disqualification en demi-finale (au moins quatre)
     expect([demie.slotA, demie.slotB]).not.toContain("r5");
     expect(demie).toMatchObject({ state: "finished", winMethod: "wo", winner: "r2" });
 
-    // Et la place de demie sans qualifié : le perdant du quart disputé du même
-    // côté est 3e (IBJJF 2.4.1, dernier point).
     t.gagne(K(3, 2), "A").gagne(K(3, 3), "A").gagne(K(2, 1), "A").gagne(K(1, 0), "A");
     expect(compact(t.classement().places)).toEqual(["1:r2", "2:r3", "3:r6", "3:r4"]);
   });
@@ -308,7 +289,6 @@ describe("IBJJF 2.4.3 : disqualification disciplinaire validée après combat, l
   };
 
   it("après une finale perdue : D reste champion, C 2e, B 3e (exemple DQ2.3)", () => {
-    // A = r1 bat B = r5 en quart, C = r2 en demie, perd contre D = r3.
     expect(compact(avecFinale("B").places)).toEqual(["1:r3", "2:r2", "3:r5", "3:r4"]);
   });
 
@@ -456,7 +436,6 @@ describe("combat pour la 3e place sans vainqueur (DQ1.4, SB3.2 : cas non écrit)
       const c = t.classement();
       expect(c.etat).toBe("arbitrage_requis");
       expect(c.arbitrage?.resolution).toBe("decision");
-      // Le côté A est le disqualifié technique du cas mixte : désignable.
       expect(compact(t.arbitre(P3, "decision", "A").classement().places)).toEqual([
         "1:r1",
         "2:r2",

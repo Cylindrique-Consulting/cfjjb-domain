@@ -4,27 +4,6 @@ import type { DrawFormat } from "./competition-format";
 import type { BeltDb, DisciplineDb } from "./enums";
 import { BELT_RANK_ORDER } from "./belts";
 
-/**
- * Planning generator: distributes categories over the physical tatamis and
- * computes sequential fight start times.
- *
- * - Phases: children first (default), then juveniles/adults/masters.
- * - Assignment: LPT (longest processing time) on the cumulated tatami load.
- * - Intra-tatami order: phase, then age group, belt, weight class,
- *   discipline (spectator-friendly grouping; load balance is unchanged).
- * - Times: one timeline per PHYSICAL tatami (Jour J splits a physical mat
- *   into one fight_area per Jour J competition, but the day is sequential
- *   on the mat). Within a category: deepest division first, index
- *   ascending, then the annexes — repêchage à trois, combat de 3e place —
- *   then the final (finalists get to rest).
- * - Byes get no start time (Jour J's planning hides fights without one).
- * - Days: a competition runs over ONE or TWO days (`second_day_date`), and
- *   les catégories sont réparties entre les jours AVANT le LPT par tatami.
- *   `planCategories` reste la brique d'un SEUL jour : à un jour,
- *   `planCategoriesOverDays` lui passe la même liste, dans le même ordre, et
- *   rend donc exactement le même planning.
- */
-
 export type PlanningCategory = {
   id: string;
   discipline: DisciplineDb;
@@ -32,7 +11,6 @@ export type PlanningCategory = {
   ageGroup: AgeGroup;
   weightClass: string;
   fightTimeSeconds: number;
-  /** Real (non-bye) fights, Pool3 included. */
   realFightCount: number;
 };
 
@@ -43,19 +21,11 @@ export type PlanningParams = {
 };
 
 export type TatamiPlan = {
-  tatamiIndex: number; // 0-based
-  categoryIds: string[]; // ordered
+  tatamiIndex: number;
+  categoryIds: string[];
   totalSeconds: number;
 };
 
-// CYL-434 — c'était une DUPLICATION LITTÉRALE de l'échelle des grades
-// (`lib/licensees/belts.ts`), au caractère près. Deux listes de grades
-// finissent toujours par diverger, et la divergence serait muette : un
-// planning trierait les catégories dans un ordre, l'éligibilité dans un autre.
-//
-// CYL-483 — c'est bien l'échelle de RANG, pas la liste des grades gérés : une
-// catégorie héritée portant un grade masqué doit garder sa place dans le tri,
-// et non retomber en tête sur un `indexOf` à -1.
 const BELT_ORDER: ReadonlyArray<BeltDb> = BELT_RANK_ORDER;
 
 function categoryDurationSeconds(cat: PlanningCategory, bufferSeconds: number): number {
@@ -80,10 +50,6 @@ function compareRanks(a: number[], b: number[]): number {
   return 0;
 }
 
-/**
- * Assign categories to tatamis (LPT per phase, cumulative loads) and order
- * them inside each tatami.
- */
 export function planCategories(
   categories: PlanningCategory[],
   params: PlanningParams,
@@ -126,78 +92,28 @@ export function planCategories(
   });
 }
 
-// ------------------------------------------------------------------
-// Dimension JOUR
-// ------------------------------------------------------------------
-
-/**
- * Un jour de compétition, en millisecondes epoch.
- *
- * POURQUOI CE TYPE EXISTE. Les compétitions sur deux jours sont en production
- * (`second_day_date`, `second_day_start_time`, `second_day_end_time`, affichées
- * « Jour 1 / Jour 2 »), et le générateur n'en avait aucune notion : une
- * compétition de deux jours recevait un planning d'un seul. Le planning pilote
- * la zone d'appel, l'échauffement et l'ordre de pesée — sans dimension jour,
- * l'écran de zone d'appel appelle le jour 1 des gens qui combattent le jour 2.
- *
- * `endAtMs <= startAtMs` vaut « fin inconnue » : les colonnes d'heure de fin
- * sont NULLABLES en base. Un jour sans fin connue est alors SANS BORNE — il
- * absorbe tout ce qu'on lui donne. On ne devine pas une heure de fin, et on ne
- * perd jamais une catégorie faute de place : elle serait invisible partout.
- */
 export type PlanningDay = {
   startAtMs: number;
   endAtMs: number;
 };
 
 export type MultiDayPlanningParams = PlanningParams & {
-  /** Ordonnés, jour 1 en tête. Un seul jour = comportement historique. */
   days: PlanningDay[];
 };
 
 export type DayPlan = {
-  dayIndex: number; // 0-based, le jour 1 porte l'indice 0
+  dayIndex: number;
   startAtMs: number;
   endAtMs: number;
   tatamis: TatamiPlan[];
-  /**
-   * Secondes de dépassement du tatami le plus chargé au-delà de l'heure de
-   * fin. 0 = la journée tient. Le dépassement est RENDU, jamais tu : le
-   * dernier jour absorbe ce qui ne tient nulle part, et l'organisateur doit
-   * pouvoir le lire (ajouter un tatami, allonger la journée).
-   */
   overrunSeconds: number;
 };
 
-/** Durée d'une journée en secondes ; `Infinity` si l'heure de fin est inconnue. */
 function dayLengthSeconds(day: PlanningDay): number {
   const ms = day.endAtMs - day.startAtMs;
   return ms > 0 ? ms / 1000 : Number.POSITIVE_INFINITY;
 }
 
-/**
- * Répartit les catégories entre les jours, AVANT tout LPT par tatami.
- *
- * Règle : on parcourt les catégories dans l'ORDRE CANONIQUE de la compétition
- * — celui-là même qui ordonne un tatami (`intraTatamiRank` : enfants d'abord,
- * puis âge, ceinture, poids, discipline) — et on remplit les jours dans
- * l'ordre. Le jour 1 est donc un PRÉFIXE de cet ordre : un bloc d'âge ou de
- * ceinture n'est jamais coupé en deux par une petite catégorie repêchée après
- * coup, et la journée reste lisible pour le public comme pour la pesée.
- *
- * Deux conditions pour qu'une catégorie tienne dans un jour :
- *   1. sa propre durée tient dans la JOURNÉE — une catégorie se déroule sur un
- *      seul tatami, elle ne peut pas être plus longue que le jour ;
- *   2. la charge cumulée du jour tient dans `tatamiCount × durée du jour`.
- *
- * Le DERNIER jour n'est pas plafonné : il absorbe le reste. Refuser une
- * catégorie reviendrait à la faire disparaître du planning ; le dépassement
- * est rendu par `DayPlan.overrunSeconds`.
- *
- * Chaque jour rend ses catégories dans l'ORDRE D'ENTRÉE, pas dans l'ordre
- * canonique : c'est ce qui garantit qu'à un seul jour, `planCategories`
- * reçoit exactement la liste d'origine et rend exactement le même planning.
- */
 export function assignCategoriesToDays(
   categories: PlanningCategory[],
   params: MultiDayPlanningParams,
@@ -220,7 +136,7 @@ export function assignCategoriesToDays(
   );
 
   const dayOf = new Map<string, number>();
-  let cursor = 0; // on n'ouvre jamais un jour déjà refermé
+  let cursor = 0;
   for (const cat of canonical) {
     const duration = categoryDurationSeconds(cat, buffer);
     let target = lastIndex;
@@ -240,14 +156,6 @@ export function assignCategoriesToDays(
   return days.map((_day, dayIndex) => categories.filter((c) => dayOf.get(c.id) === dayIndex));
 }
 
-/**
- * Planning complet : répartition par jour, puis LPT par tatami dans chaque
- * jour. À UN SEUL jour, la sortie est celle de `planCategories` — même
- * fonction, même liste, même ordre.
- *
- * Les horaires se calculent ensuite jour par jour :
- * `computeTatamiSchedule(catégories du tatami, day.startAtMs)`.
- */
 export function planCategoriesOverDays(
   categories: PlanningCategory[],
   params: MultiDayPlanningParams,
@@ -268,19 +176,14 @@ export function planCategoriesOverDays(
   });
 }
 
-// ------------------------------------------------------------------
-// Fight scheduling
-// ------------------------------------------------------------------
-
 export type SchedulableCategory = {
   id: string;
   fightTimeSeconds: number;
   fights: Array<Pick<GeneratedFight, "division" | "indexInDivision" | "type" | "isBye">>;
-  /** Le format RÉELLEMENT appliqué. Absent = `single_elim`, comportement d'avant ce lot. */
   format?: DrawFormat;
 };
 
-export type FightTimeKey = string; // `${categoryId}:${division}:${indexInDivision}:${type}`
+export type FightTimeKey = string;
 
 export function fightTimeKey(
   categoryId: string,
@@ -289,61 +192,6 @@ export function fightTimeKey(
   return `${categoryId}:${fight.division}:${fight.indexInDivision}:${fight.type}`;
 }
 
-/**
- * Spectator/fighter friendly running order inside a category:
- * deepest division first (index ascending), then the annexes (repêchage,
- * combat de 3e place), then the final.
- *
- * ┌─ POURQUOI CETTE FONCTION PREND LE FORMAT ─────────────────────────────────┐
- * │ Les seaux ci-dessous partent tous d'une hypothèse : `division >= 1`.       │
- * │ Un combat de POULE porte `division = 0`. Il n'est donc ni dans `finale`    │
- * │ (`=== 1`), ni dans `precedentes` (`> 1`), ni dans `annexes` (c'est un      │
- * │ `BraketFight`) : il DISPARAÎT purement et simplement du tableau rendu.     │
- * │                                                                            │
- * │ Et cette fonction est le calculateur d'horaires : un combat qui n'en sort  │
- * │ pas n'a pas d'heure de début, et le planning du jour J masque les combats  │
- * │ sans heure. Une poule entière serait invisible sur la zone d'appel, sans   │
- * │ une seule erreur. C'est mesuré par un test, pas déduit d'ici.              │
- * │                                                                            │
- * │ En poule, `index_in_division` EST l'ordre de passage — c'est le contrat de │
- * │ `pool-generator.ts` — donc l'ordre s'y lit directement, et la passe        │
- * │ d'ajustement du repos serait détruite par un autre tri.                    │
- * └───────────────────────────────────────────────────────────────────────────┘
- *
- * ┌─ ET POURQUOI LE SEAU DU MILIEU SE DÉFINIT PAR EXCLUSION ──────────────────┐
- * │ Il énumérait ses types : `BraketFight` d'un côté, `BraketFightPool3` de   │
- * │ l'autre. Le `BraketFightRepechage3` — le combat de repêchage du format à  │
- * │ trois inscrits, décision produit du 10/09/2026 — n'était donc dans NI     │
- * │ l'un NI l'autre, et il disparaissait : exactement la panne que le         │
- * │ cartouche ci-dessus décrit pour les poules, mot pour mot.                 │
- * │                                                                          │
- * │ Mesuré sur un vrai tirage à trois, avant ce correctif :                   │
- * │     entrent : rep(2.0) + demie(2.1) + finale(1.0)                        │
- * │     sortent : demie(2.1) + finale(1.0)        ← deux combats sur trois    │
- * │ En recette le 11/09/2026, 58 repêchages sur 58 étaient sans `time_starts`,│
- * │ seuls combats non-bye sans horaire des deux compétitions.                 │
- * │                                                                          │
- * │ ET LE TATAMI ENTIER GLISSAIT AVEC EUX. `computeTatamiSchedule` avance son │
- * │ curseur d'un créneau par combat RENDU ICI : une catégorie à trois n'en    │
- * │ consommait que deux. La finale était donc programmée un créneau après     │
- * │ l'ouverture, c'est-à-dire À LA PLACE du repêchage, et toutes les          │
- * │ catégories suivantes du même tapis avec elle — le décalage s'accumule sur │
- * │ la journée. Le budget, lui, comptait juste : `realFightCount` compte les  │
- * │ non-byes, donc trois. La répartition par jour et le LPT réservaient un    │
- * │ temps que la frise ne dépensait pas.                                      │
- * │                                                                          │
- * │ D'où la règle par DÉFAUT, la même que `occupeUneCase` côté générateur :   │
- * │ le seau du milieu est « tout ce qui n'est pas une ronde de l'arbre ». Un  │
- * │ type ajouté demain y tombe tout seul, avec un horaire ; il faudra l'en    │
- * │ sortir explicitement, et non penser à l'y mettre.                         │
- * │                                                                          │
- * │ SA PLACE EST ENTRE LES RONDES ET LA FINALE, et ce n'est pas cosmétique :  │
- * │ le repêchage attend le perdant de la demie (donc APRÈS elle) et son       │
- * │ vainqueur monte en finale (donc AVANT elle). Le ranger parmi les rondes   │
- * │ par sa division le ferait passer AVANT la demie : il occupe la case du    │
- * │ bye, donc l'index 0, quand la demie porte l'index 1 — toujours.            │
- * └───────────────────────────────────────────────────────────────────────────┘
- */
 export function categoryRunningOrder<
   T extends Pick<GeneratedFight, "division" | "indexInDivision" | "type">,
 >(fights: T[], opts: { format?: DrawFormat } = {}): T[] {
@@ -361,23 +209,11 @@ export function categoryRunningOrder<
 }
 
 export type ScheduleResult = {
-  /** Start time (epoch ms) per real fight; byes are absent. */
   fightTimes: Map<FightTimeKey, number>;
-  /** Start time (epoch ms) of each category's first real fight. */
   categoryStarts: Map<string, number>;
-  /** End of the tatami's day (epoch ms). */
   endsAt: number;
 };
 
-/**
- * Sequential schedule of one tatami: categories in order, each category's
- * real fights back-to-back (fight time + buffer).
- *
- * Le `bufferSeconds` est aussi le TAMPON DE REPOS des deux seules tailles de
- * poule où un enchaînement est structurellement inévitable (n = 3 et n = 4,
- * cf. `POOL_SIZES_WITHOUT_REST`). Le raccourcir n'est donc pas qu'un réglage
- * de fluidité.
- */
 export function computeTatamiSchedule(
   orderedCategories: SchedulableCategory[],
   startAtMs: number,

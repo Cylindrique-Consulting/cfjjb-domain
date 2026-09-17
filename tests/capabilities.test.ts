@@ -21,9 +21,6 @@ const poste = (
 
 describe("la matrice couvre tout et ne s'ouvre pas par défaut", () => {
   it("chaque verbe a une règle, et chaque règle nomme des postes existants", () => {
-    // Le `Record<MutationKind, …>` garantit déjà la couverture au compilateur.
-    // Ce test attrape l'autre moitié : une règle qui cite un poste inexistant
-    // n'autoriserait JAMAIS personne, en silence.
     const kinds = Object.keys(CAPABILITIES) as MutationKind[];
     expect(kinds.length).toBeGreaterThanOrEqual(14);
     for (const k of kinds) {
@@ -38,7 +35,6 @@ describe("la matrice couvre tout et ne s'ouvre pas par défaut", () => {
   });
 
   it("aucun verbe n'est ouvert à tous les postes", () => {
-    // Une règle qui liste les huit postes est une règle absente déguisée.
     for (const k of Object.keys(CAPABILITIES) as MutationKind[]) {
       expect(CAPABILITIES[k].roles.length, `${k} est ouvert à tout le monde`).toBeLessThan(
         STAFF_ROLES.length,
@@ -56,8 +52,6 @@ describe("la matrice couvre tout et ne s'ouvre pas par défaut", () => {
 
 describe("le périmètre tapis est consulté quand il compte, et ignoré sinon", () => {
   it("un poste sans tapis n'écrit aucun score", () => {
-    // `none` est le DÉFAUT en base, et il est fail-closed à dessein : un défaut
-    // fail-open sur la table qui garde l'écriture des scores serait inacceptable.
     expect(canPerform("fight.score", [poste("table_operator", "none")], T1)).toBe(false);
   });
 
@@ -72,14 +66,10 @@ describe("le périmètre tapis est consulté quand il compte, et ignoré sinon",
   });
 
   it("un verbe lié au tapis sans tapis connu est REFUSÉ", () => {
-    // On ne devine pas le tapis. Ne pas le connaître n'est pas une raison de
-    // laisser passer — c'est la règle qui empêche un opérateur du tatami 1 de
-    // scorer le tatami 3 en omettant l'information.
     expect(canPerform("fight.score", [poste("table_operator", "all")], null)).toBe(false);
   });
 
   it("un verbe non lié au tapis ignore le périmètre", () => {
-    // La balance sert toute la salle : exiger un tapis empêcherait la pesée.
     expect(canPerform("weighin.record", [poste("weighin", "none")], null)).toBe(true);
     expect(canPerform("presence.check_in", [poste("checkin_desk", "none")], null)).toBe(true);
   });
@@ -96,9 +86,6 @@ describe("les décisions de conception que la matrice porte", () => {
   });
 
   it("déplacer un combat n'appartient qu'au commissaire de journée", () => {
-    // Deux tapis sont concernés : seul un poste qui les voit tous les deux peut
-    // décider. C'est aussi la seule opération où deux appareils hors ligne
-    // prendraient des décisions inconciliables.
     expect(canPerform("fight.move", [poste("tatami_commissioner", "all")], null)).toBe(false);
     expect(canPerform("fight.move", [poste("day_commissioner", "all")], null)).toBe(true);
   });
@@ -109,8 +96,6 @@ describe("les décisions de conception que la matrice porte", () => {
   });
 
   it("le commissaire de journée touche à tout SAUF ce qui n'est pas son poste", () => {
-    // Il n'est pas omnipotent par magie : il l'est parce qu'il figure
-    // explicitement dans chaque règle. Un verbe futur ne l'inclura pas tout seul.
     const manquants = (Object.keys(CAPABILITIES) as MutationKind[]).filter(
       (k) => !CAPABILITIES[k].roles.includes("day_commissioner"),
     );
@@ -138,12 +123,6 @@ describe("l'absolut : l'inscription au micro, tout le reste au Responsable", () 
   const RESPONSABLE_SEUL = ABSOLUT.filter((v) => v !== "absolut.enter" && v !== "absolut.cancel");
 
   it("la famille `absolut.` est exactement celle-ci", () => {
-    // Le `Record<MutationKind, …>` couvre le compilateur. Ce test couvre l'autre
-    // sens : un verbe d'absolut AJOUTÉ sans que ses droits soient relus ici.
-    // L'annulation forcée d'un tableau commencé et l'annulation définitive d'un
-    // absolut n'y figurent pas, à dessein : elles sont réservées aux responsables
-    // désignés (compte personnel), hors postes. Aucun poste partagé ne doit
-    // pouvoir les lire comme permises.
     const verbes = (Object.keys(CAPABILITIES) as MutationKind[])
       .filter((k) => k.startsWith("absolut."))
       .sort();
@@ -169,8 +148,6 @@ describe("l'absolut : l'inscription au micro, tout le reste au Responsable", () 
   });
 
   it("clore, générer, rouvrir, annuler et déplacer l'heure limite n'appartiennent QU'AU Responsable", () => {
-    // Ces gestes engagent le programme de tapis que le poste podium ne voit pas
-    // (AB2.3) : aucun autre poste, même « tous les tapis », ne les propose.
     for (const v of RESPONSABLE_SEUL) {
       expect(CAPABILITIES[v], v).toEqual({ roles: ["day_commissioner"], tatamiBound: false });
       expect(canPerform(v, [poste("day_commissioner")], null), v).toBe(true);

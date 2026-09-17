@@ -1,25 +1,7 @@
 import type { BeltDb } from "./enums";
 
-/**
- * Grades PRÉSENTS dans l'enum `belt` de la base mais HORS PÉRIMÈTRE de la
- * confédération (CYL-483) : corail et rouge relèvent de l'IBJJF. Ils sont
- * masqués partout dans l'interface et ne peuvent plus être ni choisis ni
- * attribués. Les valeurs restent dans l'enum, et les tables exhaustives
- * ci-dessous (libellés, couleurs, bornes d'âge) continuent de les couvrir :
- * une donnée héritée doit s'afficher, pas rendre `undefined`.
- */
 export const HIDDEN_BELTS: ReadonlyArray<BeltDb> = ["coral", "red"];
 
-/**
- * Échelle COMPLÈTE des 11 grades, dans l'ordre — POUR LE RANG UNIQUEMENT
- * (`indexOf`, comparaison de deux grades, parité avec l'échelle de l'ETL).
- *
- * NE JAMAIS s'en servir pour peupler un choix, un filtre ou un enum Zod :
- * c'est `ALL_BELTS` qui porte les grades gérés. La distinction est le fond de
- * CYL-483 — une liste de RANG amputée rendrait `-1` en silence sur une donnée
- * héritée, tandis qu'une liste de CHOIX trop large ferait réapparaître le
- * corail à l'écran.
- */
 export const BELT_RANK_ORDER: ReadonlyArray<BeltDb> = [
   "white",
   "grey",
@@ -34,16 +16,8 @@ export const BELT_RANK_ORDER: ReadonlyArray<BeltDb> = [
   "red",
 ];
 
-// TODO: confirm exact kids belts list against Jour J once tokens repo is available.
 export const KIDS_BELTS: ReadonlyArray<BeltDb> = ["white", "grey", "yellow", "orange", "green"];
 
-/**
- * Grades GÉRÉS par la confédération : source unique des listes déroulantes,
- * des filtres, des enums Zod et des libellés acceptés à l'import. L'échelle
- * s'arrête à la NOIRE (CYL-483). Sous-ensemble de `BELT_RANK_ORDER` dans le
- * même ordre — écrit en toutes lettres, et non dérivé par filtrage, pour que
- * `tests/belts.test.ts` ait quelque chose à vérifier.
- */
 export const ALL_BELTS: ReadonlyArray<BeltDb> = [
   "white",
   "grey",
@@ -70,12 +44,9 @@ export const BELT_LABELS: Record<BeltDb, string> = {
   red: "Rouge",
 };
 
-/** Couleur de repli si la ceinture est inconnue (même valeur que la ceinture blanche). */
 const BELT_FALLBACK_COLOR = "#ffffff";
 
-/** Couleur (hex) de chaque ceinture, pour les pastilles d'affichage. */
 export const BELT_COLORS: Record<BeltDb, string> = {
-  // CYL-590 : blanc opaque et noir vrai (plus de cream / navy).
   white: "#ffffff",
   grey: "#9aa0aa",
   yellow: "#eed35c",
@@ -89,11 +60,9 @@ export const BELT_COLORS: Record<BeltDb, string> = {
   red: "#cc2d19",
 };
 
-/** Texte foncé / clair utilisés sur un fond de ceinture (tokens navy-800 / cream-50). */
 const BELT_ON_DARK = "#fbfaf5";
 const BELT_ON_LIGHT = "#0a1438";
 
-/** Luminance relative (WCAG 2.x) d'une couleur hex `#rrggbb`. */
 export function relativeLuminance(hex: string): number {
   const n = parseInt(hex.slice(1), 16);
   const channels = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => {
@@ -103,23 +72,15 @@ export function relativeLuminance(hex: string): number {
   return 0.2126 * channels[0]! + 0.7152 * channels[1]! + 0.0722 * channels[2]!;
 }
 
-/**
- * Palette du bandeau « fiche licencié » dérivée de la couleur réelle de la ceinture.
- * Le texte bascule en foncé sur les ceintures claires (blanche, jaune, orange…)
- * pour garder un contraste lisible.
- */
 export function beltBannerTheme(belt: BeltDb): {
   background: string;
   foreground: string;
-  /** Texte secondaire : même teinte que `foreground`, atténuée. */
   mutedForeground: string;
-  /** Fond des surfaces posées sur le bandeau (boutons, avatar). */
   surface: string;
   border: string;
   isLight: boolean;
 } {
   const background: string = BELT_COLORS[belt] ?? BELT_FALLBACK_COLOR;
-  // Seuil WCAG : au-dessus, le texte foncé contraste mieux que le texte clair.
   const isLight = relativeLuminance(background) > 0.179;
   const foreground = isLight ? BELT_ON_LIGHT : BELT_ON_DARK;
   return {
@@ -132,17 +93,6 @@ export function beltBannerTheme(belt: BeltDb): {
   };
 }
 
-/**
- * Grille IBJJF ceinture / âge (DEV-060 + DEV-086). Bornes en années RÉVOLUES
- * (cf. `ageInYears`) :
- *   - ceintures enfants : grise 4-15, jaune 7-15, orange 10-15, verte 13-15 ;
- *   - blanche : tout âge ;
- *   - adultes : bleue et violette ≥ 16, marron ≥ 18, noire ≥ 19.
- * Corail et rouge y figurent encore (≥ 50) parce que la table est exhaustive
- * sur `BeltDb`, mais ces grades ne sont plus attribuables (cf. HIDDEN_BELTS).
- * La grille s'applique à la CRÉATION d'une fiche ; l'ÉDITION reste libre
- * (autorité de correction du club / de la fédération).
- */
 export type BeltAgeBounds = { minAge?: number; maxAge?: number };
 
 export const BELT_AGE_BOUNDS: Record<BeltDb, BeltAgeBounds> = {
@@ -159,7 +109,6 @@ export const BELT_AGE_BOUNDS: Record<BeltDb, BeltAgeBounds> = {
   red: { minAge: 50 },
 };
 
-/** La ceinture est-elle autorisée pour cet âge (années révolues) ? */
 export function beltAllowedForAge(belt: BeltDb, ageYears: number): boolean {
   const bounds = BELT_AGE_BOUNDS[belt];
   if (!bounds) return true;
@@ -168,10 +117,6 @@ export function beltAllowedForAge(belt: BeltDb, ageYears: number): boolean {
   return true;
 }
 
-/**
- * Message d'erreur FR explicite si la ceinture n'est pas autorisée pour cet
- * âge ; `null` si elle l'est.
- */
 export function beltAgeErrorFr(belt: BeltDb, ageYears: number): string | null {
   if (beltAllowedForAge(belt, ageYears)) return null;
   const bounds = BELT_AGE_BOUNDS[belt] ?? {};
@@ -193,10 +138,6 @@ export function isMinor(birthDateIso: string, on: Date = new Date()): boolean {
   return on < eighteen;
 }
 
-/**
- * Âge civil révolu (en années) à la date `on` : nombre d'anniversaires atteints.
- * À ne pas confondre avec la catégorie IBJJF (année civile, cf. computeAgeGroup).
- */
 export function ageInYears(birthDateIso: string, on: Date = new Date()): number {
   const dob = new Date(birthDateIso);
   let age = on.getFullYear() - dob.getFullYear();

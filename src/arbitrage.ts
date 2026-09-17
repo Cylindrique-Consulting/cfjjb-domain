@@ -14,71 +14,27 @@ import {
 } from "./bracket-propagation";
 import { finDeReposDeLAthlete, type CombatAVenir, type CombatPasse } from "./fight-rest";
 
-/**
- * « ARBITRAGE REQUIS » — LES FINS SANS VAINQUEUR QUI ATTENDENT UNE DÉCISION
- * HUMAINE (DQ1.3, DQ1.4, DQ1.5, SB3.2 ; réponses du client du 15/09/2026).
- *
- * Une double disqualification ou un arrêt pour double blessure à égalité ne
- * désigne aucun vainqueur. Le règlement dit alors, selon le format du tableau
- * et le tour, que la suite est AUTOMATIQUE (l'adversaire du tour suivant passe
- * sans combattre, l'autre demi-finale devient la finale…) ou qu'elle demande
- * un geste du Responsable de compétition :
- *
- *   · `tirage`     : un tirage au sort fait devant les athlètes, dont le
- *                    Responsable saisit le résultat (le logiciel ne tire pas) ;
- *   · `decision`   : le Responsable saisit la suite retenue (un qualifié, ou
- *                    aucun) — cas non écrits de la double blessure, et le
- *                    combat pour la 3e place (le 3e désigné, ou personne) ;
- *   · `classement` : le Responsable saisit le classement retenu — cas non
- *                    écrits (tableau de trois disciplinaire ou mixte…) ;
- *   · `combats`    : des combats supplémentaires, hors grille, placés après le
- *                    repos des athlètes.
- *
- * ┌─ LA RÈGLE EST UNE DONNÉE, ET ELLE N'EST ÉCRITE QU'ICI ────────────────────┐
- * │ `REGLES_FIN_SANS_VAINQUEUR` est lue par la console (écran guidé), par la   │
- * │ propagation (`isSlotImpossible` attend l'arbitrage) et par le moteur de    │
- * │ podium. Son second exemplaire, `jour_j_fin_sans_vainqueur_arbitrage` en    │
- * │ SQL, est COMPARÉ ligne à ligne par `pnpm db:validate` de la plateforme,    │
- * │ qui importe cette table : deux exemplaires non comparés divergeraient en   │
- * │ silence, et un tableau attendrait chez l'un ce que l'autre solde.          │
- * └───────────────────────────────────────────────────────────────────────────┘
- */
-
-/** Le format d'un tableau, lu sur sa structure. */
 export type FormatDuTableau = "deux" | "trois" | "quatre_et_plus";
 
-/** Le tour d'un combat, au sens des règles de fin sans vainqueur. */
 export type TourDuCombat = "finale" | "demie" | "avant_demies" | "petite_finale" | "hors_grille";
 
-/** La nature d'une fin sans vainqueur. */
 export type NatureFinSansVainqueur = "technique" | "disciplinaire" | "mixte" | "blessure";
 
-/** Ce qu'une fin sans vainqueur demande au Responsable de compétition. */
 export type ResolutionArbitrage = "tirage" | "decision" | "classement" | "combats";
 
-/**
- * Pour une demi-finale d'au moins quatre inscrits : l'AUTRE demi-finale est-elle
- * aussi terminée sans vainqueur, et de la même nature ?
- */
 export type AutreDemie = "sans_double" | "meme_nature" | "autre_nature";
 
 export type RegleFinSansVainqueur = {
-  /** Identifiant stable, cité dans les journaux et les tests. */
   readonly id: string;
   readonly format: FormatDuTableau;
   readonly tour: TourDuCombat;
   readonly nature: NatureFinSansVainqueur;
-  /** Seulement pour `quatre_et_plus` × `demie`. */
   readonly autreDemie?: AutreDemie;
-  /** `null` : la suite est automatique. */
   readonly resolution: ResolutionArbitrage | null;
-  /** La référence citable, affichée telle quelle à l'écran guidé. */
   readonly source: string;
-  /** Ce que la règle fait, en une phrase lisible au bord d'un tapis. */
   readonly libelle: string;
 };
 
-/** Les libellés citables des références (demande T1.1 : version documentée). */
 export const SOURCES_DES_REGLES = {
   ibjjf241: "IBJJF Rules Book 6.1 (juin 2024), General Competition Guidelines art. 2.4.1",
   ibjjf242: "IBJJF Rules Book 6.1 (juin 2024), General Competition Guidelines art. 2.4.2",
@@ -89,13 +45,7 @@ export const SOURCES_DES_REGLES = {
 
 const S = SOURCES_DES_REGLES;
 
-/**
- * LA TABLE UNIQUE. Chaque ligne est un cas du règlement ou une décision du
- * client, et chaque ligne est éprouvée par un test du domaine et par une sonde
- * de parité SQL. L'ordre est celui de la lecture : format, tour, nature.
- */
 export const REGLES_FIN_SANS_VAINQUEUR: readonly RegleFinSansVainqueur[] = [
-  // ── Catégorie à deux inscrits : la seule rencontre est la finale ─────────────
   {
     id: "deux.finale.technique",
     format: "deux",
@@ -133,7 +83,6 @@ export const REGLES_FIN_SANS_VAINQUEUR: readonly RegleFinSansVainqueur[] = [
     libelle: "Finale à égalité parfaite : tirage au sort fait devant les athlètes.",
   },
 
-  // ── Tableau de trois (IBJJF, tableau de trois compris : DQ1.4, T1.1) ─────────
   {
     id: "trois.demie.technique",
     format: "trois",
@@ -208,7 +157,6 @@ export const REGLES_FIN_SANS_VAINQUEUR: readonly RegleFinSansVainqueur[] = [
     libelle: "Le Responsable saisit la suite retenue.",
   },
 
-  // ── Au moins quatre inscrits, tours avant les demi-finales ───────────────────
   {
     id: "quatre.avant_demies.technique",
     format: "quatre_et_plus",
@@ -246,7 +194,6 @@ export const REGLES_FIN_SANS_VAINQUEUR: readonly RegleFinSansVainqueur[] = [
     libelle: "Le Responsable saisit la suite retenue.",
   },
 
-  // ── Au moins quatre inscrits, demi-finales ───────────────────────────────────
   {
     id: "quatre.demie.technique",
     format: "quatre_et_plus",
@@ -342,7 +289,6 @@ export const REGLES_FIN_SANS_VAINQUEUR: readonly RegleFinSansVainqueur[] = [
     }),
   ),
 
-  // ── Au moins quatre inscrits, finale ─────────────────────────────────────────
   {
     id: "quatre.finale.technique",
     format: "quatre_et_plus",
@@ -383,13 +329,6 @@ export const REGLES_FIN_SANS_VAINQUEUR: readonly RegleFinSansVainqueur[] = [
     libelle: "Finale à égalité parfaite : tirage au sort fait devant les athlètes.",
   },
 
-  // ── Combat pour la 3e place et combats d'arbitrage ───────────────────────────
-  // LE COMBAT POUR LA 3E PLACE N'EXISTE PAS À L'IBJJF (bronzes partagés) : sa fin
-  // sans vainqueur n'est écrite nulle part. Deux 3es dans un format à un seul
-  // bronze serait une suite INVENTÉE ; le Responsable désigne donc le 3e, ou
-  // personne (DQ1.4, et SB3.2 pour la blessure : « les autres tours relèvent de
-  // Arbitrage requis »). Seule la double disqualification disciplinaire se lit
-  // sans décision : un disqualifié disciplinaire n'est jamais classé (DQ2.2).
   ...(["technique", "mixte", "blessure"] as const).map((nature): RegleFinSansVainqueur => ({
     id: `quatre.petite_finale.${nature}`,
     format: "quatre_et_plus",
@@ -423,12 +362,6 @@ export const REGLES_FIN_SANS_VAINQUEUR: readonly RegleFinSansVainqueur[] = [
   ),
 ];
 
-/**
- * LA RÈGLE DE L'ATHLÈTE DÉSIGNÉ INDISPONIBLE (décision interne DQ1) : quand la
- * suite d'une règle désigne un athlète absent, éliminé ou disqualifié (un
- * perdant de demi-finale qui devrait refaire la finale, par exemple), le
- * logiciel ne choisit pas à sa place.
- */
 export const REGLE_DESIGNE_INDISPONIBLE: RegleFinSansVainqueur = {
   id: "designe_indisponible",
   format: "quatre_et_plus",
@@ -439,10 +372,6 @@ export const REGLE_DESIGNE_INDISPONIBLE: RegleFinSansVainqueur = {
   libelle:
     "L'athlète que la règle désigne est indisponible : le Responsable saisit le classement retenu.",
 };
-
-// ------------------------------------------------------------------
-// Lecture de la structure
-// ------------------------------------------------------------------
 
 function trouver(
   fights: readonly PropagationFight[],
@@ -457,12 +386,6 @@ function trouver(
   );
 }
 
-/**
- * Le format d'un tableau : `trois` s'il porte un repêchage, `deux` s'il n'a
- * aucun combat ordinaire au-delà de la finale, `quatre_et_plus` sinon. Les
- * combats hors grille (division 2 index ≥ 2) ne font pas d'un tableau à deux un
- * tableau à quatre : seuls les index 0 et 1 comptent.
- */
 export function formatDuTableau(fights: readonly PropagationFight[]): FormatDuTableau {
   if (repechage3Of(fights)) return "trois";
   const auDela = fights.some(
@@ -472,7 +395,6 @@ export function formatDuTableau(fights: readonly PropagationFight[]): FormatDuTa
   return auDela ? "quatre_et_plus" : "deux";
 }
 
-/** Un combat HORS GRILLE : créé par l'arbitrage (finale rejouée, demies supplémentaires). */
 export function estHorsGrille(
   f: Pick<PropagationFight, "type" | "division" | "indexInDivision">,
 ): boolean {
@@ -493,12 +415,6 @@ export function tourDuCombat(
   return "avant_demies";
 }
 
-/**
- * La nature d'une fin sans vainqueur, ou `null` si le combat n'en est pas une.
- * Un motif manquant se lit « technique » : la contrainte SQL l'interdit, et la
- * lecture la plus prudente d'une disqualification sans motif est la moins
- * lourde de conséquences pour l'athlète.
- */
 export function natureDeLaFin(
   f: Pick<PropagationFight, "state" | "winMethod" | "dqReasonA" | "dqReasonB">,
 ): NatureFinSansVainqueur | null {
@@ -510,7 +426,6 @@ export function natureDeLaFin(
   return "mixte";
 }
 
-/** L'autre demi-finale d'un tableau d'au moins quatre, pour une demie d'index 0 ou 1. */
 function autreDemieDe(
   fights: readonly PropagationFight[],
   demie: PropagationFight,
@@ -518,11 +433,6 @@ function autreDemieDe(
   return trouver(fights, "BraketFight", 2, 1 - demie.indexInDivision);
 }
 
-/**
- * La LIGNE de la table qui s'applique à ce combat, ou `null` si le combat n'est
- * pas une fin sans vainqueur. Lecture STRUCTURELLE seulement : l'éligibilité des
- * athlètes désignés est lue par `arbitrageRequisPour`.
- */
 export function regleDeFinSansVainqueur(
   fights: readonly PropagationFight[],
   fight: PropagationFight,
@@ -551,9 +461,6 @@ export function regleDeFinSansVainqueur(
       r.nature === nature &&
       (r.autreDemie === undefined || r.autreDemie === autreDemie),
   );
-  // Une combinaison hors table (un repêchage hors d'un tableau de trois, un
-  // combat hors grille dans un tableau à deux) : la décision humaine, jamais une
-  // suite inventée.
   return (
     regle ?? {
       ...REGLE_DESIGNE_INDISPONIBLE,
@@ -566,13 +473,8 @@ export function regleDeFinSansVainqueur(
   );
 }
 
-/** L'éligibilité minimale dont la règle a besoin : qui peut encore être classé. */
 export type EstClassable = (registrationId: string) => boolean;
 
-/**
- * Les athlètes que la SUITE d'une règle désigne (la suite doit pouvoir compter
- * sur eux), ou `null` si la règle n'en désigne aucun.
- */
 export function athletesDesignes(
   fights: readonly PropagationFight[],
   fight: PropagationFight,
@@ -589,7 +491,6 @@ export function athletesDesignes(
       return demie && demie.state === "finished" ? loserOf(demie) : null;
     });
   }
-  // Les deux demies : les perdants des quatre quarts de finale.
   return [0, 1, 2, 3].map((i) => {
     const quart = trouver(fights, "BraketFight", 3, i);
     if (!quart || quart.isBye || quart.state !== "finished") return null;
@@ -601,18 +502,9 @@ export type ArbitrageRequis = {
   fightId: string;
   regle: RegleFinSansVainqueur;
   resolution: ResolutionArbitrage;
-  /** Déjà rendu (`arbitrage_le` posé) : la catégorie n'attend plus. */
   rendu: boolean;
 };
 
-/**
- * CE QUE CE COMBAT DEMANDE AU RESPONSABLE, ou `null` s'il ne demande rien.
- *
- * Miroir exact de `jour_j_fin_sans_vainqueur_arbitrage` (SQL) : la règle de la
- * table, puis la substitution « athlète désigné indisponible → classement ».
- * Rend l'exigence même quand l'arbitrage est déjà rendu (`rendu: true`), pour
- * que l'écran et le journal puissent citer la règle appliquée.
- */
 export function arbitrageRequisPour(
   fights: readonly PropagationFight[],
   fight: PropagationFight,
@@ -640,12 +532,6 @@ export function arbitrageRequisPour(
   };
 }
 
-/**
- * LA PROPAGATION ATTEND-ELLE CE COMBAT ? Vrai pour une fin sans vainqueur non
- * arbitrée dont la règle STRUCTURELLE demande un arbitrage. L'éligibilité des
- * désignés n'y entre pas : elle ne change qu'une règle `null` en `classement`
- * sur la finale d'un tableau de trois, qui ne nourrit aucun emplacement.
- */
 export function finSansVainqueurAttendUnArbitrage(
   fights: readonly PropagationFight[],
   fight: PropagationFight,
@@ -656,7 +542,6 @@ export function finSansVainqueurAttendUnArbitrage(
   return regle !== null && regle.resolution !== null;
 }
 
-/** Les arbitrages NON rendus d'une catégorie, dans l'ordre du tableau (premier tour d'abord). */
 export function arbitragesEnAttente(
   fights: readonly PropagationFight[],
   estClassable: EstClassable = () => true,
@@ -672,15 +557,9 @@ export function arbitragesEnAttente(
     });
 }
 
-// ------------------------------------------------------------------
-// Combats supplémentaires
-// ------------------------------------------------------------------
-
-/** Un combat supplémentaire à créer, hors grille. */
 export type CombatSupplementaire = {
   division: 1 | 2;
   indexInDivision: number;
-  /** Les emplacements écrits à la création ; `null` = nourri par un autre combat supplémentaire. */
   slotA: string | null;
   slotB: string | null;
   libelle: string;
@@ -689,24 +568,9 @@ export type CombatSupplementaire = {
 export type PropositionDeCombats = {
   regle: RegleFinSansVainqueur;
   combats: CombatSupplementaire[];
-  /** Les conséquences sur les places, en phrases (écran guidé). */
   consequences: string[];
 };
 
-/**
- * LES COMBATS QUE LA RÈGLE DEMANDE, sans les créer.
- *
- * ┌─ POURQUOI CES EMPLACEMENTS ────────────────────────────────────────────────┐
- * │ Aucune valeur d'enum nouvelle : une finale rejouée est un `BraketFight` en  │
- * │ division 1 index 1, deux demies supplémentaires sont en division 2 index 2  │
- * │ et 3. L'arithmétique existante les route déjà (`findNextSlot` : (2,2) → (1,1)│
- * │ côté A, (2,3) → (1,1) côté B ; `findPool3Slot` les ignore, index > 1), et   │
- * │ son miroir SQL (`jour_j_next_slot`, `jour_j_feeder_fight`) aussi.            │
- * └────────────────────────────────────────────────────────────────────────────┘
- *
- * `null` si le combat ne demande pas de combats, ou si un athlète désigné est
- * indisponible (la règle devient alors `classement`).
- */
 export function proposerCombatsSupplementaires(
   fights: readonly PropagationFight[],
   fight: PropagationFight,
@@ -786,19 +650,8 @@ export function proposerCombatsSupplementaires(
   };
 }
 
-/** Un combat de la file d'un tapis, tel que l'écran guidé le connaît. */
 export type CombatDeLaFile = { fightId: string; dureeSecondes: number };
 
-/**
- * LA POSITION D'UN COMBAT SUPPLÉMENTAIRE DANS LA FILE D'UN TAPIS (DQ1.3).
- *
- * Jamais en tête : le premier combat de la file est celui qui se joue ou qui
- * est appelé. La position rendue est le premier rang (≥ 1) dont l'heure de
- * début estimée — maintenant plus la somme des durées des combats devant —
- * tombe après la fin du repos des athlètes (`finDeReposDeLAthlete`, la règle
- * unique du repos). Sans repos à respecter, la position 1 (juste après le
- * combat en tête). Au-delà de la file, la dernière position.
- */
 export function positionApresRepos({
   file,
   maintenantMs,
@@ -807,7 +660,6 @@ export function positionApresRepos({
 }: {
   file: readonly CombatDeLaFile[];
   maintenantMs: number;
-  /** Les combats passés de CHACUN des athlètes du combat à placer. */
   combatsDesAthletes: readonly (readonly CombatPasse[])[];
   combatAVenir: CombatAVenir;
 }): number {
@@ -825,51 +677,25 @@ export function positionApresRepos({
   return file.length;
 }
 
-// ------------------------------------------------------------------
-// Scénarios de parité (sondes SQL de la plateforme, tests du domaine)
-// ------------------------------------------------------------------
-
-/**
- * Une élimination prononcée hors du tapis, pour un scénario : la ligne de
- * `competition_day_registrations` que la sonde SQL écrira.
- */
 export type EliminationDeScenario = {
   registrationId: string;
   statut: string;
   motif: string | null;
 };
 
-/**
- * UN SCÉNARIO DE FIN SANS VAINQUEUR : l'état FINAL d'un tableau (combats et
- * éliminations) et ce que la règle y répond. Exporté pour que
- * `db/audit/validate-migrations.ts` de la plateforme le rejoue en SQL et exige
- * la même réponse de `jour_j_fin_sans_vainqueur_arbitrage` : c'est la preuve de
- * parité, et elle ne peut se tenir que si les deux côtés lisent LES MÊMES cas.
- */
 export type ScenarioFinSansVainqueur = {
   id: string;
-  /** L'identifiant de la ligne de `REGLES_FIN_SANS_VAINQUEUR` visée (ou `designe_indisponible`). */
   regle: string;
   inscrits: number;
   thirdPlaceMode: "pool3" | "shared_bronze";
   fights: PropagationFight[];
   eliminations: EliminationDeScenario[];
-  /** Le combat dont on demande la règle. */
   cible: string;
   attendu: ResolutionArbitrage | null;
 };
 
-/** Les inscriptions d'un scénario : `r1`…`rn`. */
 const inscriptions = (n: number): string[] => Array.from({ length: n }, (_, i) => `r${i + 1}`);
 
-/**
- * UN TABLEAU NEUF ET DÉTERMINISTE de `n` inscrits (`r1`…`rn`), à la forme exacte
- * du générateur (byes au premier tour, repêchage à trois, combat de 3e place
- * dès quatre en `pool3`). Les identifiants sont les clés structurelles
- * `division:index:type`. Écrit ici plutôt qu'importé du générateur : un
- * scénario de parité ne doit pas changer quand le placement des têtes de série
- * change.
- */
 export function tableauDeScenario(
   n: number,
   thirdPlaceMode: "pool3" | "shared_bronze" = "shared_bronze",
@@ -878,9 +704,6 @@ export function tableauDeScenario(
   if (n < 2) return [];
   const taille = 2 ** Math.ceil(Math.log2(n));
   const profondeur = Math.log2(taille);
-  // Côté A de chaque combat du premier tour : r1…r(taille/2). Côté B : le reste,
-  // dans l'ordre. Les byes tombent donc sur les derniers combats, jamais deux
-  // cases vides dans le même combat.
   const moitie = taille / 2;
   const feuilles: (string | null)[] = Array.from({ length: taille }, () => null);
   regs.forEach((r, i) => {
@@ -928,7 +751,6 @@ export function tableauDeScenario(
     }
   }
   if (n === 3) {
-    // La case du bye devient le repêchage : le troisième attend en B.
     const bye = fights.find((f) => f.division === 2 && f.isBye)!;
     const rep = neuf(2, bye.indexInDivision, "BraketFightRepechage3", null, bye.winner);
     fights.splice(fights.indexOf(bye), 1, rep);
@@ -949,7 +771,6 @@ export function tableauDeScenario(
   return fights;
 }
 
-/** Jouer un combat de scénario : le côté `A` ou `B` gagne, par `methode`. */
 export function jouerDansLeScenario(
   fights: readonly PropagationFight[],
   id: string,
@@ -963,7 +784,6 @@ export function jouerDansLeScenario(
   return appliquerLePlan(fights, planFinish(fights, id, w, methode, eliminated));
 }
 
-/** Terminer un combat de scénario sans vainqueur, de la nature voulue (mixte : A technique, B disciplinaire). */
 export function doublerDansLeScenario(
   fights: readonly PropagationFight[],
   id: string,
@@ -981,7 +801,6 @@ export function doublerDansLeScenario(
   return appliquerLePlan(fights, planFinishSansVainqueur(fights, id, fin, eliminated));
 }
 
-/** Prononcer des éliminations dans un scénario : la cascade de forfait, comme le serveur. */
 export function eliminerDansLeScenario(
   fights: readonly PropagationFight[],
   elimines: ReadonlySet<string>,
@@ -996,12 +815,6 @@ const absent = (r: string): EliminationDeScenario => ({
   motif: "no_show",
 });
 
-/**
- * LES SCÉNARIOS DE LA TABLE : au moins un par ligne de
- * `REGLES_FIN_SANS_VAINQUEUR` (deux pour la demi-finale d'un tableau de trois,
- * qui vaut pour les DEUX demies), plus les substitutions « athlète désigné
- * indisponible ». Construits à l'appel, jamais au chargement du module.
- */
 export function scenariosFinSansVainqueur(): ScenarioFinSansVainqueur[] {
   const out: ScenarioFinSansVainqueur[] = [];
   const autreQue = (n: NatureFinSansVainqueur): NatureFinSansVainqueur =>
@@ -1089,10 +902,7 @@ export function scenariosFinSansVainqueur(): ScenarioFinSansVainqueur[] {
     }
   }
 
-  // ── Les substitutions : un athlète désigné indisponible ──────────────────────
   {
-    // Finale d'au moins quatre en double technique, mais un perdant de demie a
-    // perdu par forfait sans avoir jamais combattu.
     let t = tableauDeScenario(4);
     const s0 = t.find((f) => f.id === K(2, 0))!;
     const forfaitaire = s0.slotB!;
@@ -1111,7 +921,6 @@ export function scenariosFinSansVainqueur(): ScenarioFinSansVainqueur[] {
     });
   }
   {
-    // Les deux demies d'un tableau de quatre en double technique : aucun quart.
     let t = tableauDeScenario(4);
     t = doublerDansLeScenario(doublerDansLeScenario(t, K(2, 0), "technique"), K(2, 1), "technique");
     out.push({
@@ -1126,8 +935,6 @@ export function scenariosFinSansVainqueur(): ScenarioFinSansVainqueur[] {
     });
   }
   {
-    // Tableau de trois, finale en double technique, mais le perdant de la 2e
-    // demie l'a perdue par forfait sans avoir combattu.
     let t = tableauDeScenario(3);
     const demie = t.find((f) => f.type === "BraketFight" && f.division === 2)!.id;
     const rep = t.find((f) => f.type === "BraketFightRepechage3")!;

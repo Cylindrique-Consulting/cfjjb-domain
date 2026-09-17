@@ -14,10 +14,6 @@ import type { BracketEntry } from "../src/bracket-generator";
 import { fnv1a, mulberry32 } from "../src/prng";
 import { applySeedingPlan, DEFAULT_SEEDING_PLAN, separationKeyOf } from "../src/seeding-plan";
 
-// ===================================================================
-// Outils de lecture
-// ===================================================================
-
 function candidats(
   clubId: string,
   categoryKey: string,
@@ -31,7 +27,6 @@ function candidats(
   return out;
 }
 
-/** Les lettres attribuées, par inscription. C'est la SORTIE qui doit être stable. */
 function lettres(
   candidats: readonly SquadCandidate[],
   seed: string,
@@ -40,13 +35,11 @@ function lettres(
   return new Map(composition.assignments.map((a) => [a.registrationId, a.letter]));
 }
 
-/** Combien de fois chaque lettre est utilisée, dans l'ordre A, B, C. */
 function charge(candidats: readonly SquadCandidate[], seed: string): number[] {
   const posees = [...lettres(candidats, seed).values()];
   return SQUAD_LETTERS.map((l) => posees.filter((x) => x === l).length);
 }
 
-/** Permutation déterministe d'une liste, pour rejouer la MÊME population lue autrement. */
 function permute<T>(items: readonly T[], seed: string): T[] {
   const rng = mulberry32(fnv1a(seed));
   const out = [...items];
@@ -73,10 +66,6 @@ function pairCount(
   }
   return pairs;
 }
-
-// ===================================================================
-// LA RÈGLE : répartition équilibrée par catégorie
-// ===================================================================
 
 describe("équipes A/B/C : la répartition est équilibrée, catégorie par catégorie", () => {
   it("trois combattants d'un club dans une catégorie vont en A, B et C", () => {
@@ -106,8 +95,6 @@ describe("équipes A/B/C : la répartition est équilibrée, catégorie par cat�
     ]);
     expect(charge(candidats("club-lyon", "cat", 5), "g1"), "cinq").toEqual([2, 2, 1]);
     expect(charge(candidats("club-lyon", "cat", 7), "g1"), "sept").toEqual([3, 2, 2]);
-    // Le refus aurait rendu à un club la capacité de bloquer la génération,
-    // c'est-à-dire exactement ce que le délai ferme vient de lui retirer.
   });
 
   it("l'équilibre se calcule PAR CATÉGORIE, pas par club", () => {
@@ -157,10 +144,6 @@ describe("équipes A/B/C : la répartition est équilibrée, catégorie par cat�
     ]);
   });
 });
-
-// ===================================================================
-// DÉTERMINISME
-// ===================================================================
 
 describe("équipes A/B/C : la composition est reproductible, et l'ordre de lecture n'y entre pas", () => {
   const POPULATION: SquadCandidate[] = [
@@ -226,10 +209,6 @@ describe("équipes A/B/C : la composition est reproductible, et l'ordre de lectu
     ).toEqual(composition.assignments);
   });
 });
-
-// ===================================================================
-// L'AUTO-COMPOSITION COMPLÈTE, ELLE NE RÉÉCRIT PAS
-// ===================================================================
 
 describe("équipes A/B/C : une lettre posée par le club ne bouge jamais", () => {
   it("la lettre du club est conservée, et son origine avec elle", () => {
@@ -329,10 +308,6 @@ describe("équipes A/B/C : une lettre posée par le club ne bouge jamais", () =>
   });
 });
 
-// ===================================================================
-// SANS CLUB
-// ===================================================================
-
 describe("équipes A/B/C : une inscription sans club est rendue, pas effacée", () => {
   it("elle ne reçoit pas de lettre et figure dans `withoutClub`", () => {
     const composition = autoComposeSquads(
@@ -350,10 +325,6 @@ describe("équipes A/B/C : une inscription sans club est rendue, pas effacée", 
     ).toEqual(["orphelin", "vide"]);
   });
 });
-
-// ===================================================================
-// LA FENÊTRE DE COMPOSITION
-// ===================================================================
 
 describe("équipes A/B/C : le délai est ferme", () => {
   const CLOTURE = "2026-11-01T12:00:00.000Z";
@@ -385,23 +356,6 @@ describe("équipes A/B/C : le délai est ferme", () => {
   });
 });
 
-// ===================================================================
-// CE QUE LES LETTRES CHANGENT VRAIMENT AU TIRAGE
-// ===================================================================
-
-/**
- * ┌─ LA PROMESSE, ET SA MESURE ───────────────────────────────────────────────┐
- * │ « Répartir les combattants d'un club maximise leur séparation. » C'est la  │
- * │ raison d'être de la règle, et elle est PARTIELLEMENT fausse telle qu'on la │
- * │ lit d'habitude : à trois combattants ou moins, les trois lettres sont      │
- * │ différentes, donc AUCUNE paire de même équipe n'existe, donc les           │
- * │ contraintes d'équipe ne voient rien. Toute la séparation vient alors de    │
- * │ l'anti-club, qui est actif sans la moindre lettre.                         │
- * │                                                                            │
- * │ Les trois tests ci-dessous mesurent où la lettre commence à peser, plutôt  │
- * │ que de répéter la promesse.                                                │
- * └───────────────────────────────────────────────────────────────────────────┘
- */
 describe("équipes A/B/C : ce que la lettre apporte au tirage, mesuré", () => {
   function tableau(nClub: number, nAutres: number, seed: string) {
     const population = [
