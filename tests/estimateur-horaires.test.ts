@@ -331,6 +331,21 @@ describe("le repos des athlètes", () => {
     expect(r.combats.get("c")?.finDeReposMs).toBeNull();
   });
 
+  it("un repos écoulé avant le créneau ne fait pas attendre : attendRepos faux, fin de repos servie", () => {
+    const r = estimerLesHoraires(
+      entree({
+        maintenantMs: T(10),
+        tatamis: [tatami("T1", T(9))],
+        combats: [combat({ id: "c", athletes: ["ana", "bea"], division: 2 })],
+        reposParAthlete: { ana: T(9, 50) },
+      }),
+    );
+    const c = r.combats.get("c")!;
+    expect(hm(c.debutMs)).toBe("10:00");
+    expect(c.attendRepos).toBe(false);
+    expect(hm(c.finDeReposMs)).toBe("09:55");
+  });
+
   it("aucun réordonnancement : la tête de file en repos fait attendre le tatami", () => {
     const r = estimerLesHoraires(
       entree({
@@ -409,6 +424,19 @@ describe("« À présent »", () => {
 
   it("faux quand l'estimation est encore à venir", () => {
     expect(base(true, T(8, 30)).combats.get("tete")?.aPresent).toBe(false);
+  });
+
+  it("faux pour un combat d'une autre journée, même à l'heure atteinte", () => {
+    const r = estimerLesHoraires(
+      entree({
+        maintenantMs: T(10),
+        journee: { index: 0, commencee: true },
+        tatamis: [{ id: "T1", debutPrevuMs: [T(9), null] }],
+        combats: [combat({ id: "j2", rang: 1, jour: 1 })],
+      }),
+    );
+    expect(r.combats.get("j2")?.debutMs).toBe(T(10));
+    expect(r.combats.get("j2")?.aPresent).toBe(false);
   });
 
   it("faux derrière un combat en cours : l'estimation est après sa fin", () => {
