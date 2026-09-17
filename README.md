@@ -436,6 +436,41 @@ attend son résultat ou qui appartient à une autre journée de la compétition.
 Le début estimé à un rang est l'instant présent plus la durée pleine des combats prêts
 placés devant, sans battement.
 
+## Estimateur des heures de passage (v0.19.0)
+
+Réponses du client du 15/09/2026 (TB1, TB2, TB4, T9.1, T9.3, T12.1, T12.5, T12.6).
+
+| Module                       | Ce qu'il apporte                                                           |
+| ---------------------------- | -------------------------------------------------------------------------- |
+| `src/estimateur-horaires.ts` | `estimerLesHoraires`, `ecartDeRythmeMinutes`, `couleurDEcart`, le plancher |
+
+Un seul calcul d'heure sert tous les écrans : tableau de bord, check-in, prochains combats,
+ordre des combats, planning, tableaux, vue publique, et le refus d'un déplacement qui placerait
+un combat avant sa source.
+
+- **File réelle** de chaque tatami, dans son ordre de passage ; un combat soldé n'y est plus.
+- **Durée réglementaire plus espacement** entre deux combats d'un tatami.
+- **Repos** des athlètes, tous tatamis et compétitions liées confondus : la règle est celle de
+  `fight-rest.ts` (une durée, deux avant une finale), comptée depuis la fin réelle ou estimée du
+  combat précédent. Un combat aux adversaires inconnus attend la fin estimée de ses combats
+  sources, supposés disputés.
+- **Ancrage** : tant qu'un tatami n'a rien lancé dans la journée, il part de
+  max(maintenant, début prévu).
+- **Plancher** : jamais avant l'heure prévue de la catégorie moins 90 minutes, pour
+  l'affichage seulement (`PLANCHER_AFFICHAGE_MS`).
+- **« À présent »** : le prochain combat à lancer d'un tatami, journée commencée, heure atteinte.
+- **Enchaînement** : sur un même tatami physique, les combats non soldés d'une compétition
+  précédente passent devant (option `enchainement`).
+- **Jamais de réordonnancement** : si le prochain combat attend un repos, le tatami attend.
+
+L'écart de rythme d'un tatami vaut fin estimée − (fin prévue d'origine + effet des ajouts et
+retraits), arrondi à la minute ; sa couleur suit quatre seuils fixes : ≤ −10 bleu, −9 à +9
+vert, +10 à +30 orange, au-delà rouge.
+
+Le calcul est pur : l'instant courant est un paramètre, mêmes entrées, même sortie. Une source
+rangée après son dépendant ne bloque rien : la contrainte est ignorée et signalée
+(`dependanceIgnoree`).
+
 ## Pureté, vérifiée et non recommandée
 
 `eslint.config.mjs` interdit `node:*`, `fs`, `path`, `crypto`, `react`, `react-dom`,

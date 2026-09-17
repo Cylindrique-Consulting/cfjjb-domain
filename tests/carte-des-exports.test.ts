@@ -12,6 +12,7 @@ import {
   rangApresRepos,
   reposDuCombat,
 } from "../src/repos-jour-j";
+import { couleurDEcart, estimerLesHoraires } from "../src/estimateur-horaires";
 
 // ===================================================================
 // UN MODULE AJOUTÉ DOIT ÊTRE VISIBLE DES CONSOMMATEURS.
@@ -92,5 +93,12 @@ describe("la carte des exports", () => {
     expect(domaine.SCENARIOS_FIN_DE_REPOS).toBe(SCENARIOS_FIN_DE_REPOS);
     expect(domaine.SCENARIOS_PLACEMENT_APRES_REPOS).toBe(SCENARIOS_PLACEMENT_APRES_REPOS);
     expect(manifeste.exports?.["./repos-jour-j"]).toBe("./src/repos-jour-j.ts");
+  });
+
+  it("l'estimateur des heures (v0.19.0) est joignable depuis la racine et par son entrée", () => {
+    expect(modules).toContain("estimateur-horaires");
+    expect(domaine.estimerLesHoraires).toBe(estimerLesHoraires);
+    expect(domaine.couleurDEcart).toBe(couleurDEcart);
+    expect(manifeste.exports?.["./estimateur-horaires"]).toBe("./src/estimateur-horaires.ts");
   });
 });
