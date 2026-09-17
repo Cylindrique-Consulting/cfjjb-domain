@@ -81,7 +81,6 @@ export type MutationKind =
   | "absolut.close_early"
   | "absolut.reopen"
   | "absolut.ungenerate"
-  | "absolut.void"
   | "absolut.deadline_set"
   | "tshirt.give"
   | "paper.entry"
@@ -150,10 +149,12 @@ export const CAPABILITIES: Record<MutationKind, Capability> = {
   // │ ne voit pas : c'est le Responsable de compétition, et lui seul (AB2.3).   │
   // │ Le serveur ajoute `jour_j_appelant_responsable` aux gestes de retour.     │
   // │                                                                          │
-  // │ L'ANNULATION FORCÉE D'UN TABLEAU DÉJÀ COMMENCÉ N'EST PAS UN VERBE ICI.    │
-  // │ Elle est réservée aux responsables désignés sur la fiche de la            │
-  // │ compétition, connectés avec leur compte personnel (AB2.4, T21.1) : ce     │
-  // │ n'est pas un poste, et aucune affectation ne doit pouvoir l'accorder.     │
+  // │ DEUX GESTES NE SONT PAS DES VERBES ICI : L'ANNULATION FORCÉE D'UN TABLEAU │
+  // │ déjà commencé (AB2.4, T21.1) et L'ANNULATION DÉFINITIVE d'un absolut      │
+  // │ (T4.3). Ils sont réservés aux responsables désignés sur la fiche de la    │
+  // │ compétition, connectés avec leur compte personnel : ce n'est pas un       │
+  // │ poste, et aucune affectation ne doit pouvoir les accorder. Le serveur les │
+  // │ garde par `est_responsable_de_competition`.                               │
   // └──────────────────────────────────────────────────────────────────────────┘
 
   // L'inscription se prend AU MICRO, à la console podium, après la confirmation
@@ -186,9 +187,6 @@ export const CAPABILITIES: Record<MutationKind, Capability> = {
   // Annuler un tableau généré dont aucun combat n'est réellement disputé
   // (AB2.2) : ses combats disparaissent des files et des écrans.
   "absolut.ungenerate": { roles: ["day_commissioner"], tatamiBound: false },
-
-  // Annuler définitivement un absolut (état « Annulé », sans podium, T4.3).
-  "absolut.void": { roles: ["day_commissioner"], tatamiBound: false },
 
   // Déplacer l'heure limite de la noire Adulte tant que ses inscriptions ne sont
   // pas closes (T5.1).

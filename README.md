@@ -422,7 +422,7 @@ T5.3, PL1.2 ; relance R1 du 16/09/2026).
 | Module                  | Ce qu'il apporte                                                                                  |
 | ----------------------- | ------------------------------------------------------------------------------------------------- |
 | `src/absolut-regles.ts` | périmètre (noire Adulte, juvénile Leve / Pesado), échéance, garde de génération, tapis, scénarios |
-| `src/capabilities.ts`   | `absolut.generate`, `close_early`, `reopen`, `ungenerate`, `void`, `deadline_set` (Responsable)   |
+| `src/capabilities.ts`   | `absolut.generate`, `close_early`, `reopen`, `ungenerate`, `deadline_set` (Responsable)           |
 
 - **Une source est terminée** quand son podium est confirmé, ou qu'elle est terminée sans
   médaillé. La remise des médailles n'est jamais exigée.
@@ -443,7 +443,8 @@ T5.3, PL1.2 ; relance R1 du 16/09/2026).
 
 Chaque règle a un miroir SQL : la plateforme rejoue `scenariosInscriptionsAbsolut()` et
 `scenariosGroupeJuvenile()` dans `pnpm db:validate`. L'annulation forcée d'un tableau déjà
-commencé n'est pas un verbe de la matrice : elle est réservée aux responsables désignés.
+commencé et l'annulation définitive d'un absolut ne sont pas des verbes de la matrice : elles
+sont réservées aux responsables désignés, connectés avec leur compte personnel.
 
 ## Pureté, vérifiée et non recommandée
 

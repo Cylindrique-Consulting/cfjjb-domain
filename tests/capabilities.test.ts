@@ -134,15 +134,16 @@ describe("l'absolut : l'inscription au micro, tout le reste au Responsable", () 
     "absolut.generate",
     "absolut.reopen",
     "absolut.ungenerate",
-    "absolut.void",
   ] as const;
   const RESPONSABLE_SEUL = ABSOLUT.filter((v) => v !== "absolut.enter" && v !== "absolut.cancel");
 
   it("la famille `absolut.` est exactement celle-ci", () => {
     // Le `Record<MutationKind, …>` couvre le compilateur. Ce test couvre l'autre
     // sens : un verbe d'absolut AJOUTÉ sans que ses droits soient relus ici.
-    // L'annulation forcée d'un tableau commencé n'y figure pas, à dessein : elle
-    // est réservée aux responsables désignés (compte personnel), hors postes.
+    // L'annulation forcée d'un tableau commencé et l'annulation définitive d'un
+    // absolut n'y figurent pas, à dessein : elles sont réservées aux responsables
+    // désignés (compte personnel), hors postes. Aucun poste partagé ne doit
+    // pouvoir les lire comme permises.
     const verbes = (Object.keys(CAPABILITIES) as MutationKind[])
       .filter((k) => k.startsWith("absolut."))
       .sort();
@@ -151,6 +152,7 @@ describe("l'absolut : l'inscription au micro, tout le reste au Responsable", () 
       "la famille `absolut.` a changé : relisez les droits de chaque verbe avant de l'ajouter",
     ).toEqual([...ABSOLUT]);
     expect(verbes).not.toContain("absolut.force_ungenerate");
+    expect(verbes).not.toContain("absolut.void");
   });
 
   it("l'inscription et le désistement se prennent à la console podium", () => {
