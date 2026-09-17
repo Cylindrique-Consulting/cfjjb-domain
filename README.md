@@ -471,6 +471,38 @@ Le calcul est pur : l'instant courant est un paramètre, mêmes entrées, même 
 rangée après son dépendant ne bloque rien : la contrainte est ignorée et signalée
 (`dependanceIgnoree`).
 
+## Release v0.20.0 : les absoluts
+
+Règles de l'absolut (réponses du client du 15/09/2026 : AB1 à AB7, T2.5, T4.3, T5.1 à
+T5.3, PL1.2 ; relance R1 du 16/09/2026).
+
+| Module                  | Ce qu'il apporte                                                                                  |
+| ----------------------- | ------------------------------------------------------------------------------------------------- |
+| `src/absolut-regles.ts` | périmètre (noire Adulte, juvénile Leve / Pesado), échéance, garde de génération, tapis, scénarios |
+| `src/capabilities.ts`   | `absolut.generate`, `close_early`, `reopen`, `ungenerate`, `deadline_set` (Responsable)           |
+
+- **Une source est terminée** quand son podium est confirmé, ou qu'elle est terminée sans
+  médaillé. La remise des médailles n'est jamais exigée.
+- **Échéance dérivée** (`etatInscriptionsAbsolut`) : 20 minutes
+  (`DELAI_INSCRIPTION_ABSOLUT_MINUTES`) après la dernière source terminée, pour tout absolut
+  qualifié par une médaille, noires Masters et juvéniles compris ; heure limite de la
+  compétition pour la ceinture noire Adulte (`estNoireAdulte`) ; aucune pour un absolut
+  rouvert. Une source qui repasse « Attendu » suspend le délai.
+- **Clôture** : un seul inscrit actif annule l'absolut (`statutALaCloture`).
+- **Génération** (`manquesDeGeneration`) : inscriptions closes, toutes les sources
+  terminées (noire Adulte selon `attendLesPoids`, vrai par défaut), au moins deux inscrits.
+- **Juvéniles** : bleue et violette seulement, en deux absoluts « Leve » (Galo à Leve) et
+  « Pesado » (Medio à Pesadissimo), `groupeAbsolutJuvenile` et `perimetreAbsolut`.
+- **Tapis par parties** (`tapisDuCombatAbsolut`) : 1, 2, 4 ou 8 tapis ; un combat reste sur
+  le tapis de ses combats nourriciers tant que le tour compte au moins autant de combats que
+  de tapis ; finale et combat pour la 3e place sur le premier tapis choisi ; tableau de trois
+  sur un seul tapis.
+
+Chaque règle a un miroir SQL : la plateforme rejoue `scenariosInscriptionsAbsolut()` et
+`scenariosGroupeJuvenile()` dans `pnpm db:validate`. L'annulation forcée d'un tableau déjà
+commencé et l'annulation définitive d'un absolut ne sont pas des verbes de la matrice : elles
+sont réservées aux responsables désignés, connectés avec leur compte personnel.
+
 ## Pureté, vérifiée et non recommandée
 
 `eslint.config.mjs` interdit `node:*`, `fs`, `path`, `crypto`, `react`, `react-dom`,

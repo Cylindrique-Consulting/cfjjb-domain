@@ -13,6 +13,11 @@ import {
   reposDuCombat,
 } from "../src/repos-jour-j";
 import { couleurDEcart, estimerLesHoraires } from "../src/estimateur-horaires";
+import {
+  DELAI_INSCRIPTION_ABSOLUT_MINUTES,
+  etatInscriptionsAbsolut,
+  tapisDuCombatAbsolut,
+} from "../src/absolut-regles";
 
 // ===================================================================
 // UN MODULE AJOUTÉ DOIT ÊTRE VISIBLE DES CONSOMMATEURS.
@@ -100,5 +105,13 @@ describe("la carte des exports", () => {
     expect(domaine.estimerLesHoraires).toBe(estimerLesHoraires);
     expect(domaine.couleurDEcart).toBe(couleurDEcart);
     expect(manifeste.exports?.["./estimateur-horaires"]).toBe("./src/estimateur-horaires.ts");
+  });
+
+  it("les règles de l'absolut sont joignables depuis la racine et par leur entrée (v0.20.0)", () => {
+    expect(modules).toContain("absolut-regles");
+    expect(domaine.DELAI_INSCRIPTION_ABSOLUT_MINUTES).toBe(DELAI_INSCRIPTION_ABSOLUT_MINUTES);
+    expect(domaine.etatInscriptionsAbsolut).toBe(etatInscriptionsAbsolut);
+    expect(domaine.tapisDuCombatAbsolut).toBe(tapisDuCombatAbsolut);
+    expect(manifeste.exports?.["./absolut-regles"]).toBe("./src/absolut-regles.ts");
   });
 });

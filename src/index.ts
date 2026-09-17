@@ -50,3 +50,4 @@ export * from "./podium-officiel";
 export * from "./arbitrage";
 export * from "./repos-jour-j";
 export * from "./estimateur-horaires";
+export * from "./absolut-regles";
