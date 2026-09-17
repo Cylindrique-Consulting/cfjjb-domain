@@ -48,3 +48,4 @@ export * from "./fight-rest";
 export * from "./points";
 export * from "./podium-officiel";
 export * from "./arbitrage";
+export * from "./repos-jour-j";

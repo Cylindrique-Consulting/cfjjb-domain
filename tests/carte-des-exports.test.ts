@@ -5,6 +5,13 @@ import { pointsDeResultat, saisonSportive } from "../src/points";
 import { divisionMaxDuTableau, nomDuTour } from "../src/round-names";
 import { REGLES_FIN_SANS_VAINQUEUR } from "../src/arbitrage";
 import { classementOfficiel, estTermineeSansMedaille } from "../src/podium-officiel";
+import {
+  SCENARIOS_FIN_DE_REPOS,
+  SCENARIOS_PLACEMENT_APRES_REPOS,
+  etatDuRepos,
+  rangApresRepos,
+  reposDuCombat,
+} from "../src/repos-jour-j";
 
 // ===================================================================
 // UN MODULE AJOUTÉ DOIT ÊTRE VISIBLE DES CONSOMMATEURS.
@@ -75,5 +82,15 @@ describe("la carte des exports", () => {
     // `computePodium` est retiré (rupture assumée en 0.x) : un consommateur qui
     // l'importerait encore doit échouer à la compilation, pas lire `undefined`.
     expect("computePodium" in domaine).toBe(false);
+  });
+
+  it("le repos du jour J est joignable depuis la racine et par son entrée (v0.18.0)", () => {
+    expect(modules).toContain("repos-jour-j");
+    expect(domaine.etatDuRepos).toBe(etatDuRepos);
+    expect(domaine.reposDuCombat).toBe(reposDuCombat);
+    expect(domaine.rangApresRepos).toBe(rangApresRepos);
+    expect(domaine.SCENARIOS_FIN_DE_REPOS).toBe(SCENARIOS_FIN_DE_REPOS);
+    expect(domaine.SCENARIOS_PLACEMENT_APRES_REPOS).toBe(SCENARIOS_PLACEMENT_APRES_REPOS);
+    expect(manifeste.exports?.["./repos-jour-j"]).toBe("./src/repos-jour-j.ts");
   });
 });

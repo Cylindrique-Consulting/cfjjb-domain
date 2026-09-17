@@ -414,6 +414,28 @@ La table a un second exemplaire en SQL (`jour_j_fin_sans_vainqueur_arbitrage`) :
 plateforme importe `scenariosFinSansVainqueur()` et `scenariosTermineeSansMedaille()` et
 exige la même réponse dans `pnpm db:validate`.
 
+## Repos au lancement et placement (v0.18.0)
+
+`src/repos-jour-j.ts` consomme la règle de `src/fight-rest.ts` sans la modifier : un
+combat disputé ouvre un repos d'une durée de combat de la catégorie à venir, deux avant
+une finale (IBJJF Rules Book 6.1, GCG art. 1.4).
+
+| Export                            | Rôle                                                                         |
+| --------------------------------- | ---------------------------------------------------------------------------- |
+| `finReelleDuCombatDispute`        | fin réelle d'un combat terminé : arrêt du chrono, sinon fin enregistrée      |
+| `etatDuRepos`                     | repos requis, écoulé et restant d'un athlète à un instant donné              |
+| `reposDuCombat`                   | une seule alerte pour un combat : côtés encore en repos, fin la plus tardive |
+| `rangApresRepos`                  | rang du combat suivant dans la file de son tapis après le repos              |
+| `SCENARIOS_FIN_DE_REPOS`          | cas de fin de repos rejoués par les exemplaires SQL et par le faux serveur   |
+| `SCENARIOS_PLACEMENT_APRES_REPOS` | cas de placement rejoués par l'exemplaire SQL                                |
+
+Le placement ne recule jamais un combat vers l'avant, ne franchit que des combats prêts
+(en cours, ou visibles au check-in avec les contrôles validés des deux côtés, sans athlète
+encore en repos ni engagé dans un autre combat), et s'arrête devant le premier combat qui
+attend son résultat ou qui appartient à une autre journée de la compétition.
+Le début estimé à un rang est l'instant présent plus la durée pleine des combats prêts
+placés devant, sans battement.
+
 ## Pureté, vérifiée et non recommandée
 
 `eslint.config.mjs` interdit `node:*`, `fs`, `path`, `crypto`, `react`, `react-dom`,
