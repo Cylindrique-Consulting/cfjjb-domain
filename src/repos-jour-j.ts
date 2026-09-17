@@ -114,6 +114,13 @@ export type CombatDeLaFileDuRepos = {
    * En cours, en pause, ou visible au check-in avec les contrôles des deux côtés
    * validés. Un combat non prêt arrête le recul : le franchir laisserait le
    * tapis sans combat jouable à la fin du repos.
+   *
+   * Pour un combat placé DERRIÈRE le combat à placer (donc candidat au
+   * franchissement), l'appelant exige en plus qu'il soit jouable tout de suite
+   * (TB2.2) : aucun de ses athlètes n'est encore en repos ni engagé dans un autre
+   * combat en cours ou en pause. Passé en tête, un tel combat ferait attendre le
+   * tapis plus longtemps que le combat placé. Pour un combat placé devant, seule
+   * compte sa durée dans l'estimation : il se jouera avant, repos ou non.
    */
   compte: boolean;
 };

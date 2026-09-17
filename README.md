@@ -430,8 +430,9 @@ une finale (IBJJF Rules Book 6.1, GCG art. 1.4).
 | `SCENARIOS_PLACEMENT_APRES_REPOS` | cas de placement rejoués par l'exemplaire SQL                                |
 
 Le placement ne recule jamais un combat vers l'avant, ne franchit que des combats prêts
-(en cours, ou visibles au check-in avec les contrôles validés des deux côtés), et
-s'arrête devant le premier combat qui attend son résultat ou qui est prévu un autre jour.
+(en cours, ou visibles au check-in avec les contrôles validés des deux côtés, sans athlète
+encore en repos ni engagé dans un autre combat), et s'arrête devant le premier combat qui
+attend son résultat ou qui appartient à une autre journée de la compétition.
 Le début estimé à un rang est l'instant présent plus la durée pleine des combats prêts
 placés devant, sans battement.
 
