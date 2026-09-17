@@ -1,8 +1,7 @@
 import type { FightState, WinMethod } from "./bracket-propagation";
 
 /**
- * LE REPOS D'UN ATHLÈTE ENTRE DEUX COMBATS — la règle pure, sans consommateur
- * dans cette version.
+ * LE REPOS D'UN ATHLÈTE ENTRE DEUX COMBATS — la règle pure.
  *
  * Réponses du client du 15/09/2026 (T9.1, T9.3, TR1.1, DQ4.5) et IBJJF Rules
  * Book 6.1, GCG art. 1.4 :
@@ -18,10 +17,10 @@ import type { FightState, WinMethod } from "./bracket-propagation";
  *     si la 2e demi-finale est gagnée par forfait, le repos avant la finale se
  *     compte depuis la fin de la 1re demi-finale.
  *
- * Une seule règle sert quatre usages à venir : le planning publié, les heures
- * estimées, l'alerte « Lancer quand même » et le placement du jour J. Ils sont
- * livrés par d'autres versions ; les écrire chacun de leur côté produirait
- * quatre définitions du repos qui divergeraient en silence.
+ * Une seule règle sert quatre usages : le planning publié, les heures estimées,
+ * l'alerte « Lancer quand même » et le placement du jour J. Les deux derniers la
+ * consomment par `src/repos-jour-j.ts` (v0.18.0) ; les écrire chacun de leur
+ * côté produirait quatre définitions du repos qui divergeraient en silence.
  *
  * Décision interne notée : le combat pour la 3e place est un repos SIMPLE. Il
  * n'est pas une finale au sens de la règle (il ne désigne pas le champion).
