@@ -8,10 +8,6 @@ import {
   type PoolRankingOptions,
 } from "../src/pool-ranking";
 
-// ===================================================================
-// Outils de lecture
-// ===================================================================
-
 function bout(
   a: string,
   b: string,
@@ -36,10 +32,6 @@ const OPTS: PoolRankingOptions = { seed: "championnat-2026", categoryId: "cat-42
 function ordre(ids: readonly string[], bouts: readonly PoolBout[], opts = OPTS): string[] {
   return rankPool(ids, bouts, opts).standings.map((s) => s.registrationId);
 }
-
-// ===================================================================
-// Le classement de base
-// ===================================================================
 
 describe("le classement d'une poule complète", () => {
   const ids = ["A", "B", "C", "D"];
@@ -93,16 +85,7 @@ describe("le classement d'une poule complète", () => {
   });
 });
 
-// ===================================================================
-// LA CONFRONTATION DIRECTE : une mini-table, restreinte au sous-ensemble
-// ===================================================================
-
 describe("la confrontation directe", () => {
-  // A et B sont à deux victoires. B a battu A, mais A a un bien meilleur écart
-  // de points. C'est ce contraste qui rend la restriction MESURABLE : évaluée
-  // sur toute la poule, la confrontation directe ne séparerait rien (les deux
-  // ont le même nombre de victoires, par définition du groupe), on tomberait
-  // sur l'écart de points, et A passerait devant B.
   const ids = ["A", "B", "C", "D"];
   const bouts = [
     bout("A", "B", "B", { pointsA: 0, pointsB: 2 }),
@@ -120,7 +103,6 @@ describe("la confrontation directe", () => {
       ["B", 2],
       ["A", 2],
     ]);
-    // Et l'écart de points, qui aurait dit l'inverse, n'a jamais été consulté.
     expect(r.tieBreakApplied.map((t) => t.criterion)).toEqual(["head-to-head", "head-to-head"]);
   });
 
@@ -133,14 +115,7 @@ describe("la confrontation directe", () => {
   });
 });
 
-// ===================================================================
-// LE CYCLE : trois ex æquo qui ne s'ordonnent pas, et AUCUNE BOUCLE
-// ===================================================================
-
 describe("le cycle de confrontation directe", () => {
-  // A bat B, B bat C, C bat A : trois à deux victoires, et un ordre qui
-  // n'existe pas. Ce n'est pas une anomalie de saisie, c'est un résultat
-  // normal d'une poule de quatre.
   const ids = ["A", "B", "C", "D"];
   const bouts = [
     bout("A", "B", "A", { pointsA: 10, pointsB: 0 }),
@@ -153,15 +128,12 @@ describe("le cycle de confrontation directe", () => {
 
   it("ne sépare pas, PASSE au critère suivant, et rend un classement total", () => {
     const r = rankPool(ids, bouts, OPTS);
-    // Écarts : C +20, A +13, B -3.
     expect(r.standings.map((s) => s.registrationId)).toEqual(["C", "A", "B", "D"]);
     expect(r.podium).toEqual({ gold: "C", silver: "A", bronze: "B" });
   });
 
   it("essaie la confrontation directe UNE FOIS, échoue, et n'y revient pas", () => {
     const r = rankPool(ids, bouts, OPTS);
-    // Deux entrées, pas trois, pas trente : la trace EST la preuve de
-    // terminaison observable. Un critère rejoué sur le même groupe s'y verrait.
     expect(r.tieBreakApplied).toEqual([
       { criterion: "head-to-head", registrationIds: ["A", "B", "C"], separated: false },
       { criterion: "point-differential", registrationIds: ["A", "B", "C"], separated: true },
@@ -169,10 +141,6 @@ describe("le cycle de confrontation directe", () => {
   });
 
   it("ne réévalue JAMAIS un critère sur un sous-ensemble déjà vu", () => {
-    // L'invariant de terminaison, énoncé plutôt que supposé. Un critère rejoué
-    // sur le même groupe est la forme bornée du bug de boucle : celle-ci se
-    // voit ici, par assertion. Sa forme non bornée, elle, ne peut se manifester
-    // que par un blocage — aucune assertion ne peut l'attraper de l'intérieur.
     for (const cas of [
       { ids, bouts },
       { ids: ["A", "B"], bouts: [bout("A", "B", null)] },
@@ -202,14 +170,7 @@ describe("le cycle de confrontation directe", () => {
   });
 });
 
-// ===================================================================
-// Le tuple se REJOUE depuis le début sur un sous-ensemble réduit
-// ===================================================================
-
 describe("le départage sur un sous-ensemble réduit", () => {
-  // Trois à une victoire, en cycle, à zéro point partout : seule la soumission
-  // sépare A. Restent B et C, sur qui la confrontation directe — qui cyclait à
-  // trois — tranche parfaitement à deux.
   const ids = ["A", "B", "C"];
   const bouts = [
     bout("A", "B", "A", { submission: true }),
@@ -229,10 +190,6 @@ describe("le départage sur un sous-ensemble réduit", () => {
     ]);
   });
 });
-
-// ===================================================================
-// Les critères de queue de tuple
-// ===================================================================
 
 describe("les derniers critères du tuple", () => {
   it("classe devant celui qui a MOINS de pénalités", () => {
@@ -261,9 +218,6 @@ describe("les derniers critères du tuple", () => {
   });
 
   it("respecte un ordre fourni par l'appelant, jusqu'à renverser le podium", () => {
-    // Double forfait : personne n'a de victoire, le tuple s'ouvre donc tout de
-    // suite. A mène 9 à 1 mais collectionne les pénalités. Deux ordres, deux
-    // podiums opposés — c'est la seule preuve que l'ordre est LU.
     const ids = ["A", "B"];
     const bouts = [bout("A", "B", null, { pointsA: 9, pointsB: 1, penaltiesA: 5, penaltiesB: 0 })];
     expect(ordre(ids, bouts), "défaut : l'écart de points passe avant les pénalités").toEqual([
@@ -277,20 +231,13 @@ describe("les derniers critères du tuple", () => {
   });
 
   it("ne laisse pas le tuple s'ouvrir tant que les victoires séparent", () => {
-    // Les victoires ne sont pas un départage : elles le précèdent. B gagne, A
-    // mène aux points — et aucun critère du tuple n'est consulté.
     const r = rankPool(["A", "B"], [bout("A", "B", "B", { pointsA: 9, pointsB: 1 })], OPTS);
     expect(r.standings.map((s) => s.registrationId)).toEqual(["B", "A"]);
     expect(r.tieBreakApplied).toEqual([]);
   });
 });
 
-// ===================================================================
-// LE TIRAGE AU SORT : déterministe, auditable, et jamais Math.random
-// ===================================================================
-
 describe("le tirage au sort", () => {
-  /** Deux compétiteurs rigoureusement indiscernables : seul le tirage peut trancher. */
   const jumeaux = (categoryId: string) =>
     rankPool(["A", "B"], [bout("A", "B", null)], { ...OPTS, categoryId });
 
@@ -309,9 +256,6 @@ describe("le tirage au sort", () => {
   });
 
   it("rejoue à l'identique sur DOUZE catégories : une source non déterministe s'y voit", () => {
-    // Douze tirages indépendants : la probabilité qu'un `Math.random()` rende
-    // deux fois la même série est de 2^-12. Un test à un seul tirage serait
-    // instable dans les deux sens.
     const cats = Array.from({ length: 12 }, (_, i) => `cat-${i}`);
     const passe1 = cats.map((c) => jumeaux(c).standings[0]?.registrationId);
     const passe2 = cats.map((c) => jumeaux(c).standings[0]?.registrationId);
@@ -325,14 +269,6 @@ describe("le tirage au sort", () => {
   });
 
   it("ne dépend PAS de l'ordre d'arrivée des lignes, sur DOUZE catégories", () => {
-    // La graine canonise l'ENSEMBLE des identifiants. Deux lectures de la base
-    // qui rendraient les lignes dans un ordre différent doivent produire le
-    // même 2e — sans quoi le podium dépendrait du plan d'exécution SQL.
-    //
-    // Douze catégories, et non trois : une canonisation retirée ne fait diverger
-    // qu'une catégorie sur deux en moyenne, et un test à trois cas la laisserait
-    // passer une fois sur huit. Mesuré : la version à quatre cas survivait à la
-    // mutation, celle-ci non.
     const cats = Array.from({ length: 12 }, (_, i) => `cat-${i}`);
     const droit = cats.map(
       (c) =>
@@ -356,10 +292,6 @@ describe("le tirage au sort", () => {
     expect(r.standings.map((s) => s.rank)).toEqual([1, 2]);
   });
 });
-
-// ===================================================================
-// UNE POULE INCOMPLÈTE N'A PAS DE CLASSEMENT VALIDE
-// ===================================================================
 
 describe("la poule incomplète", () => {
   const ids = ["A", "B", "C"];
@@ -396,10 +328,6 @@ describe("la poule incomplète", () => {
     expect(r.podium).toEqual({ gold: "A", silver: "B", bronze: null });
   });
 });
-
-// ===================================================================
-// Refuser une saisie incohérente plutôt que de la classer
-// ===================================================================
 
 describe("la validation des combats", () => {
   it("refuse un combat contre soi-même", () => {

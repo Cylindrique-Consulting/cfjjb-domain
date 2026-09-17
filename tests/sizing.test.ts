@@ -37,21 +37,13 @@ function inscriptions(
   }));
 }
 
-/** Trois catégories de huit, sur trois durées de combat différentes. */
 function troisCategoriesDeHuit(): SizingRegistration[] {
   return [
-    // bleue / Adulte : 6 min de combat.
     ...inscriptions(8, { ageGroup: "Adulte", weightClass: "Pena" }),
-    // blanche / Adulte : 5 min.
     ...inscriptions(8, { ageGroup: "Adulte", weightClass: "Leve", belt: "white" }),
-    // grise / U11 : 4 min.
     ...inscriptions(8, { ageGroup: "U11", weightClass: "Pena", belt: "grey" }),
   ];
 }
-
-// ===================================================================
-// LA PROJECTION VIRTUELLE : des catégories AVANT toute génération
-// ===================================================================
 
 describe("projectCategories", () => {
   it("produit des catégories, leurs combats et leurs médailles SANS aucune ligne de base", () => {
@@ -62,8 +54,6 @@ describe("projectCategories", () => {
       "Bleue - Adulte - Homme - Pena",
       "Grise - U11 - Garçon - Pena",
     ]);
-    // Huit inscrits, arbre complet, aucun bye, aucun combat de 3e place en
-    // bronze partagé : sept combats par catégorie.
     expect(projection.categories.map((c) => c.realFightCount)).toEqual([7, 7, 7]);
     expect(projection.categories.map((c) => c.fightTimeSeconds)).toEqual([360, 300, 240]);
   });
@@ -78,7 +68,6 @@ describe("projectCategories", () => {
     const projection = projectCategories(rows, SHARED);
     expect(projection.categories).toHaveLength(1);
     expect(projection.categories[0]?.competitorCount).toBe(4);
-    // Le décompte complet reste rendu, pour être affiché À CÔTÉ.
     expect(projection.breakdown).toEqual({
       active: 4,
       preRegistered: 3,
@@ -90,17 +79,12 @@ describe("projectCategories", () => {
   });
 
   it("groupe sur le tuple BRUT : deux vocabulaires font deux catégories, comme chez le générateur", () => {
-    // `adult` (code ETL) et `Adulte` (libellé plateforme) désignent la même
-    // tranche, mais `tupleKeyOf` groupe sur la colonne telle quelle : le
-    // générateur produira DEUX tableaux et DEUX podiums. Les fusionner ici
-    // annoncerait une catégorie et un jeu de médailles de moins que la réalité.
     const rows = [
       ...inscriptions(4, { ageGroup: "Adulte", weightClass: "Pena" }),
       ...inscriptions(4, { ageGroup: "adult", weightClass: "Pena" }),
     ];
     const projection = projectCategories(rows, SHARED);
     expect(projection.categories).toHaveLength(2);
-    // Les deux sont bien résolues vers la même tranche pour la DURÉE.
     expect(projection.categories.map((c) => c.ageGroup)).toEqual(["Adulte", "Adulte"]);
     expect(projection.categories.map((c) => c.fightTimeSeconds)).toEqual([360, 360]);
   });
@@ -108,13 +92,9 @@ describe("projectCategories", () => {
   it("ÉCARTE et COMPTE ce qu'il ne sait pas nommer, sans jamais approximer une durée", () => {
     const rows = [
       ...inscriptions(2, { ageGroup: "Adulte", weightClass: "Pena" }),
-      // `master` ne désigne aucune tranche unique : refus assumé.
       ...inscriptions(3, { ageGroup: "master", weightClass: "Pena" }),
-      // « 500 » est une aberration mesurée de la colonne.
       ...inscriptions(2, { ageGroup: "Adulte", weightClass: "500" }),
-      // Colonnes de catégorie absentes : les lignes miroir legacy.
       ...inscriptions(1, { ageGroup: null, weightClass: "Pena" }),
-      // Marron en Juvénile : la combinaison n'existe pas au référentiel.
       ...inscriptions(4, { ageGroup: "Juvénile", weightClass: "Pena", belt: "brown" }),
     ];
     const projection = projectCategories(rows, SHARED);
@@ -146,10 +126,6 @@ describe("projectCategories", () => {
   });
 });
 
-// ===================================================================
-// LES MÉDAILLES, COMMANDÉES AVANT LA GÉNÉRATION
-// ===================================================================
-
 describe("buildSizingPanel — les médailles", () => {
   const OPTS_BASE = {
     dayStartMs: JOUR,
@@ -158,7 +134,6 @@ describe("buildSizingPanel — les médailles", () => {
 
   it("chiffre les médailles à partir des seules inscriptions, sans competition_categories", () => {
     const panneau = buildSizingPanel(troisCategoriesDeHuit(), { ...SHARED, ...OPTS_BASE });
-    // Trois catégories de huit en bronze partagé : or + argent + deux bronzes.
     expect(panneau.medals).toEqual({ gold: 3, silver: 3, bronze: 6, total: 12 });
     expect(panneau.categoryCount).toBe(3);
     expect(panneau.competitorCount).toBe(24);
@@ -173,7 +148,6 @@ describe("buildSizingPanel — les médailles", () => {
     const panneau = buildSizingPanel(rows, { ...SHARED, ...OPTS_BASE });
     expect(panneau.singleCompetitorCount).toBe(1);
     expect(panneau.medals).toEqual({ gold: 2, silver: 1, bronze: 2, total: 5 });
-    // La catégorie à un inscrit n'entre pas dans le planning.
     expect(toPlanningCategories(panneau.projection.categories)).toHaveLength(1);
   });
 
@@ -187,10 +161,6 @@ describe("buildSizingPanel — les médailles", () => {
   });
 });
 
-// ===================================================================
-// LA RECOMMANDATION DE TAPIS : LE PLANNING RÉEL, EXÉCUTÉ
-// ===================================================================
-
 describe("recommendTatamiCount", () => {
   const OPTS = { dayStartMs: JOUR, dayEndMs: JOUR + DEUX_HEURES };
 
@@ -199,8 +169,6 @@ describe("recommendTatamiCount", () => {
   }
 
   it("rend le plus PETIT nombre de tapis qui tient dans la journée", () => {
-    // Un tapis porte les 7 560 s des trois catégories, soit 2 h 06 : la journée
-    // de deux heures déborde. À deux tapis, le plus chargé tombe à 4 620 s.
     const reco = recommendTatamiCount(categories(), OPTS);
     expect(reco.recommended).toBe(2);
     expect(reco.candidates.map((c) => ({ t: c.tatamiCount, tient: c.fits }))).toEqual([
@@ -213,12 +181,6 @@ describe("recommendTatamiCount", () => {
   });
 
   it("NE PEUT PAS diverger du planning réel : chaque candidat se rejoue à l'identique", () => {
-    // Ce test est le verrou du lot. Il refait, depuis l'API publique et sans
-    // passer par `evaluateTatamiCount`, exactement ce que la recommandation
-    // prétend avoir fait : `planCategories` puis `computeTatamiSchedule`. Une
-    // estimation parallèle (charge ÷ journée, arrondie au-dessus) donnerait un
-    // nombre plausible et faux — elle ignorerait le LPT, l'ordre intra-tapis et
-    // l'indivisibilité d'une catégorie — et ce test la nommerait.
     const cats = categories();
     const reco = recommendTatamiCount(cats, OPTS);
     const schedulables = toSchedulableCategories(cats);
@@ -265,17 +227,12 @@ describe("recommendTatamiCount", () => {
   });
 
   it("BOUGE quand un format bascule en poule, à effectif constant", () => {
-    // Une poule de quatre coûte six combats là où l'élimination en coûte
-    // trois : la même compétition demande plus de tapis. La recommandation doit
-    // le voir, sinon le format n'est qu'un mot dans un formulaire.
     const enPoule: FormatByAgeGroup = { ...DEFAULT_FORMAT_BY_AGE_GROUP, Adulte: "pools" };
     const rows = [
       ...inscriptions(4, { ageGroup: "Adulte", weightClass: "Pena" }),
       ...inscriptions(4, { ageGroup: "Adulte", weightClass: "Leve" }),
       ...inscriptions(4, { ageGroup: "Adulte", weightClass: "Medio" }),
     ];
-    // 70 minutes : les 3 × 1 260 s de l'élimination tiennent sur UN tapis, les
-    // 3 × 2 520 s de la poule en demandent TROIS.
     const courte = { dayStartMs: JOUR, dayEndMs: JOUR + 70 * 60 * 1000 };
     const elimination = recommendTatamiCount(projectCategories(rows, SHARED).categories, courte);
     const poule = recommendTatamiCount(
@@ -289,8 +246,6 @@ describe("recommendTatamiCount", () => {
   });
 
   it("traite une heure de fin inconnue comme SANS BORNE, plutôt que d'en deviner une", () => {
-    // Même convention que `PlanningDay` : `end_time` est nullable en base. On
-    // ne recommande pas du matériel sur une heure inventée.
     const reco = recommendTatamiCount(categories(), { dayStartMs: JOUR, dayEndMs: JOUR });
     expect(reco.recommended).toBe(1);
     expect(reco.candidates[0]?.overrunSeconds).toBe(0);

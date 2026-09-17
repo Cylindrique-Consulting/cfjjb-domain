@@ -15,22 +15,6 @@ import {
 } from "../src/podium-officiel";
 import { Tableau } from "./aides-classement";
 
-// ===================================================================
-// « TERMINÉE SANS MÉDAILLÉ » : LE PRÉDICAT SIMPLE ⇔ L'ÉTAT DU MOTEUR.
-//
-// Le prédicat est le miroir exact de la fonction SQL que liront la garde de
-// génération de l'absolut (L11) et la clôture (L18). Il ne recalcule aucune
-// place : s'il divergeait du moteur, un absolut attendrait pour toujours une
-// catégorie qu'aucun podium ne peut plus confirmer, ou partirait sans elle.
-//
-// Propriété EXHAUSTIVE : tableaux de 1 à 5 inscrits, deux modes de 3e place,
-// chaque inscrit présent, absent avant tout combat, absent après son premier
-// combat, disqualifié technique ou disciplinaire à son premier combat (deux
-// disqualifiés qui se rencontrent font une double disqualification). Chaque
-// tableau est JOUÉ jusqu'au bout par les plans du domaine, arbitrages compris,
-// et la propriété est vérifiée à CHAQUE état intermédiaire.
-// ===================================================================
-
 type Statut = "present" | "absent_avant" | "absent_apres" | "dq_tech" | "dq_disc";
 const STATUTS: Statut[] = ["present", "absent_avant", "absent_apres", "dq_tech", "dq_disc"];
 
@@ -50,7 +34,6 @@ function* combinaisons(n: number): Generator<Statut[]> {
 const ordre = (f: PropagationFight) =>
   f.type === "BraketFightPool3" ? -1 : f.type === "BraketFightRepechage3" ? 1.5 : f.division;
 
-/** Joue un tableau et rend chaque état traversé. */
 function jouer(n: number, mode: "pool3" | "shared_bronze", statuts: Statut[]): EntreeClassement[] {
   const statutDe = (r: string) => statuts[Number(r.slice(1)) - 1]!;
   if (n === 1) {
@@ -79,7 +62,6 @@ function jouer(n: number, mode: "pool3" | "shared_bronze", statuts: Statut[]): E
   const avant = t.fights
     .flatMap((f) => [f.slotA, f.slotB])
     .filter((r): r is string => r !== null && statutDe(r) === "absent_avant");
-  // Le 3e d'un tableau de trois (côté B du repêchage) est connu d'emblée aussi.
   if (avant.length > 0) t.absents(...new Set(avant));
   etats.push(t.entree());
 
@@ -168,7 +150,6 @@ describe("le prédicat « terminée sans médaillé » est le miroir du moteur",
                 `divergence n=${n} ${mode} [${statuts.join(",")}] : prédicat ${predicat}, moteur ${moteur.etat} ${JSON.stringify(moteur.places)}\n${JSON.stringify(entree.fights.map((f) => [f.id, f.slotA, f.slotB, f.state, f.winMethod, f.winner, f.dqReasonA, f.dqReasonB, f.dqReason, f.arbitrage]))}`,
               );
             }
-            // Les invariants du moteur, au passage.
             const parRang = [1, 2, 3].map((r) => moteur.places.filter((p) => p.rang === r).length);
             expect(parRang[0]).toBeLessThanOrEqual(1);
             expect(parRang[1]).toBeLessThanOrEqual(2);
@@ -186,7 +167,6 @@ describe("le prédicat « terminée sans médaillé » est le miroir du moteur",
           }
         }
         expect(verifies).toBeGreaterThan(0);
-        // Sentinelle anti-vacuité : la propriété n'est pas vraie par « jamais ».
         if (n >= 2) expect(sansMedaille).toBeGreaterThan(0);
       });
     }

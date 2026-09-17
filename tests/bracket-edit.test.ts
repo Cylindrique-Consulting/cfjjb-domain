@@ -8,11 +8,6 @@ import {
   type GeneratedFight,
 } from "../src/bracket-generator";
 
-// ===================================================================
-// Jour J runtime replica (same as bracket-generator.test.ts) - proves a
-// manually edited bracket still propagates to a complete podium.
-// ===================================================================
-
 type SimFight = {
   id: number;
   category_id: number;
@@ -40,7 +35,6 @@ function findNextFight(
   return next ? { fight: next, slot: idx % 2 === 0 ? 1 : 2 } : null;
 }
 
-/** ids allocated in emission order, exactly like generate.ts. */
 function toSim(fights: GeneratedFight[]): SimFight[] {
   return fights.map((f, i) => ({
     id: 1_000_000 + i,
@@ -70,8 +64,6 @@ function simulateDay(fights: SimFight[]): void {
       if (next.slot === 1) next.fight.competitor_1_id = fight.winner_id;
       else next.fight.competitor_2_id = fight.winner_id;
     }
-    // À TROIS : le perdant de la demie descend au REPÊCHAGE, toujours en
-    // emplacement 1 — le générateur pose celui qui attend en 2.
     if (repechage && fight.division === 2 && fight.type === "BraketFight") {
       const loser =
         fight.competitor_1_id === fight.winner_id ? fight.competitor_2_id : fight.competitor_1_id;
@@ -115,7 +107,6 @@ describe("swapBracketLeafSlots - invariants", () => {
     const after = readLeafOccupants(out);
     expect(after[0]).toBe(before[3]);
     expect(after[3]).toBe(before[0]);
-    // The original is untouched (pure).
     expect(readLeafOccupants(fights)).toEqual(before);
   });
 
@@ -129,8 +120,6 @@ describe("swapBracketLeafSlots - invariants", () => {
           try {
             out = swapBracketLeafSlots(fights, a, b);
           } catch (e) {
-            // Two legitimate rejections: a double bye, and the repechage slot
-            // that is reserved for the semi-final loser.
             expect(e).toBeInstanceOf(BracketEditError);
             continue;
           }
@@ -141,15 +130,10 @@ describe("swapBracketLeafSlots - invariants", () => {
   });
 
   it("rejects a swap that creates a fight with two byes", () => {
-    // N=5, S=8 → 3 byes. Find two bye leaves in different fights and merge them.
     const fights = gen(5);
     const occ = readLeafOccupants(fights);
     const byeLeaves = occ.map((o, i) => (o === null ? i : -1)).filter((i) => i >= 0);
-    // A real competitor adjacent to a bye, swapped to co-locate two byes.
-    // Construct: pick a bye leaf b1 in fight j1 and the partner (real) of
-    // another bye leaf so the swap empties a fight.
     expect(byeLeaves.length).toBe(3);
-    // Brute force: there must exist at least one rejected swap.
     let rejected = 0;
     const size = occ.length;
     for (let a = 0; a < size; a++) {
@@ -173,20 +157,6 @@ describe("swapBracketLeafSlots - invariants", () => {
 });
 
 describe("à trois inscrits, le repêchage est une case du premier tour", () => {
-  /**
-   * ┌─ LE TROISIÈME INSCRIT AVAIT DISPARU ─────────────────────────────────────┐
-   * │ `readLeafOccupants` filtrait sur `type === "BraketFight"`. Quand le bye   │
-   * │ de la catégorie à trois est devenu un repêchage, ce filtre a retiré sa    │
-   * │ case du premier tour : la liste des feuilles est passée de quatre à       │
-   * │ deux, et celui qui attend au repêchage est devenu INDÉPLAÇABLE par        │
-   * │ l'admin. La suite est restée verte de bout en bout, parce qu'elle         │
-   * │ mesurait « tout échange valide se résout » sans jamais mesurer COMBIEN    │
-   * │ d'échanges sont valides.                                                   │
-   * │                                                                            │
-   * │ Les deux sondes ci-dessous ferment ce trou par les deux bouts : le        │
-   * │ nombre de feuilles, et la présence nominative des trois inscrits.          │
-   * └───────────────────────────────────────────────────────────────────────────┘
-   */
   it("les trois inscrits sont tous atteignables par l'admin", () => {
     const occ = readLeafOccupants(gen(3));
     expect(occ).toHaveLength(4);
@@ -216,7 +186,6 @@ describe("à trois inscrits, le repêchage est une case du premier tour", () => 
     const fights = gen(3);
     const occ = readLeafOccupants(fights);
     const reservee = occ.findIndex((x) => x === null);
-    // Le voisin de la case réservée EST celui qui attend : même combat.
     const attend = reservee % 2 === 0 ? reservee + 1 : reservee - 1;
     const autre = occ.findIndex((x, i) => x !== null && i !== attend);
     const out = swapBracketLeafSlots(fights, attend, autre);
@@ -225,13 +194,10 @@ describe("à trois inscrits, le repêchage est une case du premier tour", () => 
     expect(apres[attend]).toBe(occ[autre]);
     expect(apres[autre]).toBe(occ[attend]);
     expect(apres[reservee]).toBeNull();
-    // L'original n'a pas bougé.
     expect(readLeafOccupants(fights)).toEqual(occ);
   });
 
   it("le repêchage ne devient jamais un bye après un échange", () => {
-    // Sinon son occupant serait déclaré gagnant d'avance et monterait en
-    // finale sans combattre : le pire résultat possible de cette édition.
     const fights = gen(3);
     const occ = readLeafOccupants(fights);
     const reservee = occ.findIndex((x) => x === null);
@@ -257,16 +223,13 @@ describe("swapBracketLeafSlots - Jour J propagation after edit", () => {
           try {
             out = swapBracketLeafSlots(base, a, b);
           } catch {
-            continue; // rejected double-bye
+            continue;
           }
           const sim = toSim(out);
           simulateDay(sim);
-          // No fight stuck.
           expect(sim.filter((f) => f.status !== "finished")).toHaveLength(0);
-          // Final produces a single winner.
           const final = sim.find((f) => f.division === 1 && f.type === "BraketFight");
           expect(final?.winner_id).toBeTruthy();
-          // Pool3 (if any) fully resolved.
           const pool3 = sim.find((f) => f.type === "BraketFightPool3");
           if (pool3) {
             expect(pool3.competitor_1_id && pool3.competitor_2_id && pool3.winner_id).toBeTruthy();

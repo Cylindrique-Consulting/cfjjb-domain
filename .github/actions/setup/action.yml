@@ -4,10 +4,6 @@ description: >-
   la CI. Le `checkout` reste dans les jobs : une action locale n'est trouvable
   qu'une fois le dépôt sur le disque, elle ne peut donc pas s'en charger.
 
-# La version de pnpm vit à UN endroit, et c'est la MÊME que celle de
-# `cfjjb-platform` (10.33.2). Deux dépôts qui résolvent le même arbre avec deux
-# versions de pnpm produisent deux lockfiles qui ne se signalent pas comme
-# divergents : ils marchent tous les deux, séparément.
 runs:
   using: composite
   steps:

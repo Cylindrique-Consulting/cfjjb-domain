@@ -11,10 +11,6 @@ import {
   type ScoreEvent,
 } from "../src/fight-stats";
 
-// ===================================================================
-// Fixtures
-// ===================================================================
-
 const scores = (o: Partial<FightScores> = {}): FightScores => ({
   pointsA: 0,
   pointsB: 0,
@@ -34,7 +30,6 @@ const combat = (o: Partial<FightRecord> & { fightId: string }): FightRecord => (
   ...o,
 });
 
-/** Raccourci : un combat terminé entre deux athlètes, gagné par l'un d'eux. */
 const gagne = (
   id: string,
   a: string,
@@ -52,36 +47,22 @@ const gagne = (
     ...reste,
   });
 
-/** Le bilan, en supposant qu'il a combattu. Échoue clairement sinon. */
 function bilan(id: string, fights: readonly FightRecord[]) {
   const r = statistiquesCombattant(id, fights);
   if (!r.aDesCombats) throw new Error(`attendu : des combats pour ${id}`);
   return r;
 }
 
-// ===================================================================
-// L'ÉTAT VIDE, DE PREMIÈRE CLASSE
-//
-// La bascule vers le nouvel outil est nette : aucune reprise de l'historique.
-// Toute statistique vaut zéro pour les 90 000 licenciés jusqu'à la première
-// compétition jouée dessus. « Aucun combat enregistré » et « zéro soumission »
-// sont deux phrases différentes, et une seule est vraie ce jour-là.
-// ===================================================================
-
 describe("l'état vide n'est pas un objet de compteurs à zéro", () => {
   it("ne porte AUCUN compteur — la forme l'empêche, pas un commentaire", () => {
     const vide = statistiquesCombattant("ANA", []);
     expect(vide).toEqual({ aDesCombats: false });
-    // La formulation compte : un test sur `combats === 0` passerait aussi bien
-    // sur un objet de compteurs à zéro, c'est-à-dire sur le défaut lui-même.
     expect("combats" in vide).toBe(false);
     expect("soumissions" in vide).toBe(false);
     expect("victoires" in vide).toBe(false);
   });
 
   it("un combattant qui n'a que des byes n'a pas combattu", () => {
-    // Un bye est un placement : personne n'est monté sur le tapis. Le compter
-    // comme une victoire donnerait un palmarès à qui n'a jamais combattu.
     const f = [
       combat({ fightId: "F1", registrationA: "ANA", winner: "ANA", winMethod: "bye" }),
       combat({ fightId: "F2", registrationB: "ANA", winner: "ANA", winMethod: "bye" }),
@@ -120,7 +101,6 @@ describe("l'état vide n'est pas un objet de compteurs à zéro", () => {
     const r = bilan("ANA", [gagne("F1", "ANA", "BOB", "ANA", "points")]);
     expect(r.combats).toBe(1);
     expect(r.soumissions.total).toBe(0);
-    // …et sans temps mesuré, on ne rend jamais 0 ms : on rend « on ne sait pas ».
     expect(r.soumissions.plusRapideMs).toBeNull();
     expect(r.soumissions.medianeMs).toBeNull();
   });
@@ -131,10 +111,6 @@ describe("l'état vide n'est pas un objet de compteurs à zéro", () => {
     expect(faceAFace("ANA", "ANA", f)).toEqual({ seSontRencontres: false });
   });
 });
-
-// ===================================================================
-// LE BILAN, ET LE RANGEMENT DES MÉTHODES
-// ===================================================================
 
 describe("victoires, défaites, et la méthode rangée dans sa case", () => {
   const F: FightRecord[] = [
@@ -159,7 +135,6 @@ describe("victoires, défaites, et la méthode rangée dans sa case", () => {
     expect(r.victoires).toBe(4);
     expect(r.defaites).toBe(2);
     expect(r.sansVainqueur).toBe(1);
-    // Le double forfait ne crédite personne, dans aucune case de méthode.
     expect(Object.values(r.victoiresParMethode).reduce((s, v) => s + v, 0)).toBe(4);
     expect(Object.values(r.defaitesParMethode).reduce((s, v) => s + v, 0)).toBe(2);
   });
@@ -185,7 +160,6 @@ describe("victoires, défaites, et la méthode rangée dans sa case", () => {
       disqualification: 1,
       forfait: 0,
     });
-    // Le même combat, vu de l'autre côté.
     expect(bilan("FLO", F).victoiresParMethode.disqualification).toBe(1);
   });
 
@@ -203,8 +177,6 @@ describe("victoires, défaites, et la méthode rangée dans sa case", () => {
   });
 
   it("une méthode non relevée se compte à part, jamais dans une case arbitraire", () => {
-    // La base l'interdit sur un combat terminé ; un état construit hors ligne,
-    // lui, peut être incomplet, et le trou doit rester visible.
     const r = bilan("ANA", [gagne("F1", "ANA", "BOB", "ANA", null)]);
     expect(r.victoires).toBe(1);
     expect(r.victoiresSansMethode).toBe(1);
@@ -230,14 +202,7 @@ describe("victoires, défaites, et la méthode rangée dans sa case", () => {
   });
 });
 
-// ===================================================================
-// LE DÉDOUBLONNAGE — la faute que la lecture en deux requêtes fabrique
-// ===================================================================
-
 describe("un combat compté deux fois double un bilan", () => {
-  // Les combats d'un athlète se lisent en DEUX requêtes (`registration_a = X`
-  // puis `registration_b = X`), et leur union se fait par concaténation côté
-  // appelant. Un combat présent dans les deux réponses arrive donc en double.
   const doublon = [
     gagne("F1", "ANA", "BOB", "ANA", "points", { scores: scores({ pointsA: 4 }) }),
     gagne("F1", "ANA", "BOB", "ANA", "points", { scores: scores({ pointsA: 4 }) }),
@@ -259,10 +224,6 @@ describe("un combat compté deux fois double un bilan", () => {
   });
 });
 
-// ===================================================================
-// LE FACE-À-FACE
-// ===================================================================
-
 describe("l'historique entre deux combattants", () => {
   const F: FightRecord[] = [
     gagne("F1", "ANA", "BOB", "ANA", "submission", { submissionType: "triangle" }),
@@ -274,7 +235,6 @@ describe("l'historique entre deux combattants", () => {
       winner: null,
       winMethod: "double_wo",
     }),
-    // Bruit : des combats des deux athlètes, mais pas l'un contre l'autre.
     gagne("F4", "ANA", "CLE", "ANA", "points"),
     gagne("F5", "BOB", "DAN", "BOB", "points"),
   ];
@@ -328,34 +288,23 @@ describe("l'historique entre deux combattants", () => {
   });
 });
 
-// ===================================================================
-// LE PLIAGE DU JOURNAL — jumeau de `jour_j_fold_scores`
-// ===================================================================
-
 describe("le score EST la somme des deltas", () => {
   const journal: ScoreEvent[] = [
-    { fightId: "F1", side: null, scope: null, delta: null }, // start
+    { fightId: "F1", side: null, scope: null, delta: null },
     { fightId: "F1", side: "a", scope: "points", delta: 2 },
     { fightId: "F1", side: "a", scope: "points", delta: 3 },
     { fightId: "F1", side: "b", scope: "advantages", delta: 1 },
     { fightId: "F1", side: "b", scope: "penalties", delta: 1 },
-    // `undo` porte un delta NÉGATIF de même (side, scope).
     { fightId: "F1", side: "a", scope: "points", delta: -2 },
   ];
 
   it("annule ce qu'un `undo` a annulé — on ne filtre pas sur le genre d'événement", () => {
-    // Ne garder que `score` / `advantage` / `penalty` recompterait le point
-    // annulé : 5 au lieu de 3. Le nombre resterait plausible.
     expect(foldScores(journal).get("F1")).toEqual(
       scores({ pointsA: 3, advantagesB: 1, penaltiesB: 1 }),
     );
   });
 
   it("crée une entrée pour tout combat vu, même sans le moindre delta", () => {
-    // Une soumission portée à la première seconde n'a que `start` et `finish` :
-    // son journal EXISTE, et son score est nul. Le distinguer d'un journal
-    // absent est ce qui permet à l'appelant de ne pas afficher « 0 point marqué »
-    // pour une reprise papier.
     const plie = foldScores([{ fightId: "F9", side: null, scope: null, delta: null }]);
     expect(plie.has("F9")).toBe(true);
     expect(plie.get("F9")).toEqual(scores());
@@ -379,8 +328,6 @@ describe("les points, du bon côté", () => {
     { fightId: "F2", side: "a", scope: "penalties", delta: 1 },
   ];
   const plie = foldScores(journal);
-  // ANA est en A sur F1 et en B sur F2 : c'est le cas qui attrape une
-  // attribution figée sur le côté A.
   const F: FightRecord[] = [
     gagne("F1", "ANA", "BOB", "ANA", "points", { scores: plie.get("F1") }),
     gagne("F2", "CLE", "ANA", "CLE", "points", { scores: plie.get("F2") }),
@@ -408,7 +355,7 @@ describe("les points, du bon côté", () => {
   it("un combat sans journal n'entre dans AUCUN total, et se compte", () => {
     const r = bilan("ANA", [
       gagne("F1", "ANA", "BOB", "ANA", "points", { scores: scores({ pointsA: 4 }) }),
-      gagne("F2", "ANA", "CLE", "ANA", "points"), // reprise papier : aucun journal
+      gagne("F2", "ANA", "CLE", "ANA", "points"),
     ]);
     expect(r.combats).toBe(2);
     expect(r.pointsMarques).toBe(4);
@@ -425,10 +372,6 @@ describe("les points, du bon côté", () => {
   });
 });
 
-// ===================================================================
-// LES SOUMISSIONS — la seule technique qu'on nomme, parce qu'elle est vue
-// ===================================================================
-
 describe("les soumissions portées", () => {
   it("les 17 types sont ceux de la contrainte de base, et `other` en fait partie", () => {
     expect(SUBMISSION_TYPES).toHaveLength(17);
@@ -439,9 +382,6 @@ describe("les soumissions portées", () => {
   });
 
   it("`other` est une soumission VUE, un type absent ne l'est pas", () => {
-    // Ranger les non-relevées dans `other` gonflerait une catégorie réelle avec
-    // de l'absence de saisie, et le classement des soumissions s'en trouverait
-    // faux sans que rien ne le dise.
     const r = bilan("ANA", [
       gagne("F1", "ANA", "BOB", "ANA", "submission", { submissionType: "other" }),
       gagne("F2", "ANA", "CLE", "ANA", "submission", { submissionType: null }),
@@ -466,8 +406,6 @@ describe("les soumissions portées", () => {
   });
 
   it("un abandon n'est pas une soumission", () => {
-    // Le tapotement d'abandon et la soumission se ressemblent au bord du tapis ;
-    // en base ce sont deux méthodes, et les fondre inventerait des soumissions.
     const r = bilan("ANA", [gagne("F1", "ANA", "BOB", "ANA", "abandon")]);
     expect(r.soumissions.total).toBe(0);
     expect(r.victoiresParMethode.abandon).toBe(1);
@@ -477,8 +415,6 @@ describe("les soumissions portées", () => {
 
 describe("le temps jusqu'à la soumission", () => {
   it("se prend sur LE combat soumis, et sur aucun autre", () => {
-    // Le piège : la soumission SUBIE est le combat le plus court du lot. La
-    // compter donnerait « meilleur temps : 30 s », un chiffre plausible et faux.
     const F = [
       gagne("F1", "ANA", "BOB", "BOB", "submission", {
         submissionType: "armbar",
@@ -502,9 +438,6 @@ describe("le temps jusqu'à la soumission", () => {
   });
 
   it("rend une MÉDIANE, et non une moyenne : un combat qui traîne ne déplace pas le centre", () => {
-    // Trouvé par la passe de mutation : sur deux valeurs, médiane et moyenne
-    // coïncident, et le premier jeu d'essai ne séparait donc pas les deux. Il
-    // faut un nombre IMPAIR de temps et un traînard pour que l'écart existe.
     const F = [
       gagne("F1", "ANA", "BOB", "ANA", "submission", {
         submissionType: "armbar",
@@ -522,16 +455,11 @@ describe("le temps jusqu'à la soumission", () => {
     const r = bilan("ANA", F);
     expect(r.soumissions.tempsMesures).toBe(3);
     expect(r.soumissions.medianeMs).toBe(60_000);
-    // La moyenne vaudrait 160 000 ms : le traînard tirerait le « temps typique »
-    // à près du triple de tout ce qui a été observé sauf lui.
     expect(r.soumissions.medianeMs).not.toBe(160_000);
     expect(r.soumissions.plusRapideMs).toBe(20_000);
   });
 
   it("un temps NON RELEVÉ se compte comme tel, jamais comme zéro", () => {
-    // C'est l'état du système au jour de la bascule : `day_fight_finish` insère
-    // son événement `finish` SANS `fight_clock_ms`. Compter l'absence comme 0 ms
-    // ferait de chaque combattant un recordman.
     const r = bilan("ANA", [
       gagne("F1", "ANA", "BOB", "ANA", "submission", { submissionType: "armbar" }),
       gagne("F2", "ANA", "CLE", "ANA", "submission", {
@@ -561,8 +489,6 @@ describe("le temps jusqu'à la soumission", () => {
   });
 
   it("une soumission à la première seconde est mesurée, pas absente", () => {
-    // `0` fourni est un fait ; `null` est un trou. Les confondre effacerait la
-    // seule soumission éclair du lot.
     const r = bilan("ANA", [
       gagne("F1", "ANA", "BOB", "ANA", "submission", {
         submissionType: "guillotine",
@@ -574,13 +500,6 @@ describe("le temps jusqu'à la soumission", () => {
     expect(r.soumissions.plusRapideMs).toBe(0);
   });
 });
-
-// ===================================================================
-// L'ORDRE DE LECTURE NE CHANGE RIEN
-//
-// Une lecture PostgREST ne garantit aucun ordre : deux appels sur la même
-// population doivent rendre le même bilan.
-// ===================================================================
 
 describe("l'ordre d'entrée ne change aucun compteur", () => {
   const F: FightRecord[] = [

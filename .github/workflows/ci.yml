@@ -5,10 +5,6 @@ on:
     branches: [main]
   pull_request:
 
-# Groupe indexé sur le SHA pour un push et sur la ref pour une PR : une fusion
-# ne doit jamais annuler le run de `main` qu'elle vient de créer. Un job annulé
-# n'apparaît pas en rouge — il disparaît, et l'absence de signal se lit comme
-# une réussite.
 concurrency:
   group: ci-${{ github.event_name == 'push' && github.sha || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -37,12 +33,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # POURQUOI UN JOB SÉPARÉ ALORS QU'ESLINT COUVRE DÉJÀ LES IMPORTS.
-      #
-      # La règle eslint ne voit que ce qu'un fichier IMPORTE. Elle ne voit pas
-      # une dépendance de production ajoutée au package.json — or c'est
-      # exactement par là qu'un noyau « pur » cesse de l'être, et ça ne casse
-      # aucun test. Ce job lit le manifeste, pas le code.
       - name: Aucune dépendance de production
         run: |
           deps=$(node -e "const p=require('./package.json');console.log(Object.keys(p.dependencies??{}).join(' '))")

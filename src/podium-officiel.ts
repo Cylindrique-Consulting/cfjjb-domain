@@ -24,76 +24,29 @@ import {
 import type { ThirdPlaceMode } from "./enums";
 import { METHODES_SANS_COMBAT } from "./fight-rest";
 
-/**
- * LE CLASSEMENT OFFICIEL D'UNE CATÉGORIE — le moteur de podium de la release B
- * (v0.17.0), qui remplace `computePodium`.
- *
- * Réponses du client du 15/09/2026 (PO3, DQ1, DQ2.2, DQ2.3, SB3, T2.1 à T2.5,
- * T4.1, T4.2) et IBJJF Rules Book 6.1 (juin 2024), General Competition
- * Guidelines art. 2.3.1, 2.4.1 à 2.4.3, 4.2, 4.2.1, 4.3, 4.4.
- *
- * ┌─ UN SEUL CALCUL, QUATRE LECTEURS ─────────────────────────────────────────┐
- * │ La console Podium, les écrans de salle, le classement sous le tableau     │
- * │ (PO4.5) et le besoin en médailles lisent CE calcul. Le serveur, lui, ne   │
- * │ recalcule aucune remontée : `day_podium_confirm` refuse ce qui contredit  │
- * │ l'éligibilité (inéligible nommé, seul inscrit sans check-in validé,       │
- * │ arbitrage en attente), et c'est tout. Deux exemplaires des remontées      │
- * │ divergeraient exactement là où une médaille change de main.               │
- * └───────────────────────────────────────────────────────────────────────────┘
- *
- * CE QUE LE MOTEUR REND :
- *   · 0 ou 1 or, 0 à 2 argents, 0 à 4 bronzes ;
- *   · des places VACANTES motivées, seulement quand une place que le règlement
- *     attribue est retirée à un athlète inéligible (ou quand la règle dit « la
- *     place reste vacante ») — jamais pour une place que le format ne prévoit
- *     pas : une catégorie à deux n'a pas de 3e place ;
- *   · un ÉTAT : en cours, complet, terminée sans médaillé, arbitrage requis,
- *     disqualification disciplinaire en attente.
- */
-
-/** Statut d'une disqualification disciplinaire. `en_attente` sera posé par L7. */
 export type StatutDisciplinaire = "aucune" | "en_attente" | "validee";
 
-/**
- * L'élimination prononcée hors du tapis (pointage, pesée) : le statut et le
- * motif BRUTS de `competition_day_registrations` (`no_show`, `eliminated` +
- * `overweight`, `disqualified` + `invalid_id`…).
- */
 export type EliminationDuJour = { statut: string; motif: string | null };
 
-/** Ce que le moteur doit savoir d'une inscription. */
 export type EligibiliteInscription = {
   registrationId: string;
-  /** `null` : en compétition. */
   elimination: EliminationDuJour | null;
-  /**
-   * A disputé au moins un combat dans la catégorie (`aDisputeLeCombat`,
-   * miroir SQL `jour_j_a_combattu`) : le chrono a été lancé, ou le combat est
-   * terminé par une méthode autre que bye, forfait, double forfait ou
-   * désignation. L'absent qui a combattu garde sa place (IBJJF 4.2.1).
-   */
   aCombattu: boolean;
-  /** Check-in validé (identité et pesée) : exigé pour l'or d'un seul inscrit (IBJJF 4.4). */
   checkInValide: boolean;
-  /** Tant que L7 n'existe pas, une DQ disciplinaire saisie à la table vaut `validee`. */
   disciplinaire: StatutDisciplinaire;
 };
 
-/** Le motif d'une place vacante, tel que la console l'écrit. */
 export type MotifVacance = "disqualification" | "disqualification_disciplinaire";
 
 export type RangDePodium = 1 | 2 | 3;
 
 export type PlaceOfficielle = {
   rang: RangDePodium;
-  /** L'ordre dans le rang, à partir de 1 (deux argents, jusqu'à quatre bronzes). */
   ordre: number;
   registrationId: string | null;
-  /** Non nul exactement quand `registrationId` est nul. */
   motifVacance: MotifVacance | null;
 };
 
-/** Une place du classement saisi par le Responsable (sans ordre : il est recalculé). */
 export type PlaceSaisie = {
   rang: RangDePodium;
   registrationId: string | null;
@@ -103,11 +56,8 @@ export type PlaceSaisie = {
 export type EntreeClassement = {
   fights: readonly PropagationFight[];
   thirdPlaceMode: ThirdPlaceMode;
-  /** L'inscrit unique d'une catégorie `single_competitor`, s'il y en a un. */
   seulInscrit?: string | null;
-  /** Une entrée par inscription connue ; une inscription absente vaut « en compétition, non validée ». */
   eligibilite?: readonly EligibiliteInscription[];
-  /** Le classement saisi par le Responsable (`competition_podiums.classement_saisi`). */
   classementSaisi?: readonly PlaceSaisie[] | null;
 };
 
@@ -120,17 +70,12 @@ export type EtatClassement =
 
 export type ClassementOfficiel = {
   etat: EtatClassement;
-  /** Triées par rang puis ordre. Vides tant que l'état n'est ni complet ni terminé. */
   places: PlaceOfficielle[];
-  /** Le premier arbitrage en attente, quand l'état est `arbitrage_requis`. */
   arbitrage: ArbitrageRequis | null;
-  /** Ce qui manque, en clair, pour l'écrire à l'écran plutôt que de rester muet. */
   manquant: string[];
-  /** La mention rouge d'un seul inscrit inéligible : « Disqualifié(e) : absent. Aucune médaille. » */
   motifSansMedaille: string | null;
 };
 
-/** Les libellés des motifs d'élimination bruts, en français de salle. */
 export function libelleElimination(e: EliminationDuJour): string {
   if (e.motif === "overweight") return "hors poids";
   if (e.motif === "invalid_id") return "identité non valide";
@@ -140,26 +85,16 @@ export function libelleElimination(e: EliminationDuJour): string {
   return "éliminé au check-in";
 }
 
-/** Les libellés des motifs de vacance, tels que la console les écrit entre parenthèses. */
 export const LIBELLES_MOTIF_VACANCE: Record<MotifVacance, string> = {
   disqualification: "disqualification",
   disqualification_disciplinaire: "disqualification disciplinaire",
 };
 
-/**
- * CLASSABLE : ni disqualifié disciplinaire (validé), ni éliminé au check-in sans
- * avoir combattu (IBJJF 4.2, 4.2.1, 4.3). La disqualification technique n'est
- * qu'une défaite ; l'absent qui a combattu garde sa place.
- */
 export function estClassable(e: EligibiliteInscription): boolean {
   if (e.disciplinaire === "validee") return false;
   return e.aCombattu || e.elimination === null;
 }
 
-/**
- * « A disputé un combat » lu sur les seuls combats (chrono inconnu : faux). Le
- * défaut d'une inscription dont l'appelant n'a pas fourni l'éligibilité.
- */
 export function aCombattuDansLesCombats(
   fights: readonly PropagationFight[],
   registrationId: string,
@@ -173,17 +108,11 @@ export function aCombattuDansLesCombats(
   );
 }
 
-// ===================================================================
-// Outils internes
-// ===================================================================
-
 type PlaceBrute = {
   rang: RangDePodium;
   registrationId: string | null;
   motifVacance: MotifVacance | null;
-  /** Le combat qui a décidé de cette place (perdu ou gagné par son titulaire). */
   source: PropagationFight | null;
-  /** Titulaire disqualifié disciplinaire « après » : la chaîne 2.4.3 s'en charge. */
   aChainer?: boolean;
 };
 
@@ -221,12 +150,10 @@ function combat(ctx: Contexte, division: number, indexInDivision: number): Propa
 const fini = (f: PropagationFight | null): f is PropagationFight =>
   f !== null && f.state === "finished";
 
-/** Une fin sans vainqueur, non arbitrée avec un vainqueur. */
 function sansVainqueur(f: PropagationFight | null): boolean {
   return fini(f) && estFinSansVainqueur(f) && f.winner === null;
 }
 
-/** La victime d'un athlète dans le combat qui l'a amené à `f` (IBJJF 2.4.1, T2.3). */
 function victimeAnterieure(
   ctx: Contexte,
   f: PropagationFight,
@@ -241,7 +168,6 @@ function victimeAnterieure(
   return perdant === null ? null : { registrationId: perdant, source: nourricier };
 }
 
-/** Le rang de récence d'un combat : plus petit = plus tardif. */
 function recence(f: PropagationFight): number {
   if (f.type === "BraketFightPool3") return 1;
   if (f.type === "BraketFightRepechage3") return 1.5;
@@ -250,7 +176,6 @@ function recence(f: PropagationFight): number {
   return f.division;
 }
 
-/** Une disqualification disciplinaire PRONONCÉE DANS ce combat contre cet athlète. */
 function dqDisciplinaireDans(f: PropagationFight, r: string): boolean {
   if (!fini(f)) return false;
   if (f.winMethod === "dq") return f.dqReason === "disciplinaire" && loserOf(f) === r;
@@ -263,11 +188,6 @@ function dqDisciplinaireDans(f: PropagationFight, r: string): boolean {
   return false;
 }
 
-/**
- * La disqualification disciplinaire de `r` est-elle celle de `f`, son DERNIER
- * combat (IBJJF 2.4.2, « pendant ») ? Sinon (validée après coup, ou athlète
- * relancé après sa sanction) c'est la chaîne de l'art. 2.4.3.
- */
 function disciplinairePendant(ctx: Contexte, r: string, f: PropagationFight | null): boolean {
   if (f === null || !dqDisciplinaireDans(f, r)) return false;
   return !ctx.fights.some(
@@ -275,7 +195,6 @@ function disciplinairePendant(ctx: Contexte, r: string, f: PropagationFight | nu
   );
 }
 
-/** Les places d'une fin sans vainqueur, selon les motifs (IBJJF 2.4.1, SB3.2, DQ1.5). */
 function placesDeLaDoubleFin(ctx: Contexte, rang: RangDePodium, f: PropagationFight): PlaceBrute[] {
   const nature = natureDeLaFin(f);
   if (nature === "technique" || nature === "blessure") {
@@ -289,14 +208,12 @@ function placesDeLaDoubleFin(ctx: Contexte, rang: RangDePodium, f: PropagationFi
   return [];
 }
 
-/** Les participants d'un double forfait qui ont combattu et gardent leur place (IBJJF 4.2.1). */
 function quiOntCombattu(ctx: Contexte, rang: RangDePodium, f: PropagationFight): PlaceBrute[] {
   return [f.slotA, f.slotB]
     .filter((r): r is string => r !== null && ctx.elig(r).aCombattu && ctx.classable(r))
     .flatMap((r) => pourvue(rang, r, f));
 }
 
-/** La contribution d'une demi-finale aux bronzes partagés. */
 function bronzeDeLaDemie(ctx: Contexte, demie: PropagationFight | null): PlaceBrute[] {
   if (!fini(demie) || demie.isBye) return [];
   if (sansVainqueur(demie)) return placesDeLaDoubleFin(ctx, 3, demie);
@@ -304,13 +221,10 @@ function bronzeDeLaDemie(ctx: Contexte, demie: PropagationFight | null): PlaceBr
   if (demie.winner === null) return [];
   const perdant = loserOf(demie);
   if (perdant !== null) return pourvue(3, perdant, demie);
-  // IBJJF 2.4.1, dernier point : un seul qualifié pour cette demie, faute
-  // d'adversaire possible — le perdant du quart disputé du même côté est 3e.
   const victime = victimeAnterieure(ctx, demie, demie.winner);
   return victime ? pourvue(3, victime.registrationId, victime.source) : [];
 }
 
-/** Le bronze du combat pour la 3e place. */
 function bronzeDuCombatDe3e(
   ctx: Contexte,
   p3: PropagationFight,
@@ -319,10 +233,6 @@ function bronzeDuCombatDe3e(
   if (fini(p3)) {
     if (p3.winner !== null) return pourvue(3, p3.winner, p3);
     if (sansVainqueur(p3)) {
-      // DÉCISION « PERSONNE » DU RESPONSABLE (`quatre.petite_finale.*`) : la 3e
-      // place reste vacante. Sans arbitrage, seule la double disqualification
-      // disciplinaire arrive ici (règle nulle) ; les autres natures attendent la
-      // décision, et le classement s'arrête avant (`arbitrage_requis`).
       if (p3.arbitrage !== null && p3.arbitrage !== undefined) {
         return [vacante(3, "disqualification")];
       }
@@ -330,8 +240,6 @@ function bronzeDuCombatDe3e(
     }
     if (p3.winMethod === "double_wo") return [vacante(3, "disqualification")];
   }
-  // Annulé : personne n'a pu y descendre. Si c'est parce qu'un perdant de demie
-  // identifié est inéligible, la place est vacante et dite.
   for (const d of demies) {
     if (!fini(d) || d.winner === null) continue;
     const perdant = loserOf(d);
@@ -348,7 +256,6 @@ function motifDInegibilite(ctx: Contexte, r: string): MotifVacance {
     : "disqualification";
 }
 
-/** Les bronzes « ordinaires » d'un tableau d'au moins quatre. */
 function bronzesOrdinaires(ctx: Contexte): PlaceBrute[] {
   const demies = [combat(ctx, 2, 0), combat(ctx, 2, 1)];
   const p3 = pool3Of(ctx.fights);
@@ -356,7 +263,6 @@ function bronzesOrdinaires(ctx: Contexte): PlaceBrute[] {
   return demies.flatMap((d) => bronzeDeLaDemie(ctx, d));
 }
 
-/** Les perdants des quarts de finale qui menaient à la demie `i` (T2.4 B, IBJJF 2.4.2 dernier point). */
 function perdantsDesQuarts(ctx: Contexte, i: 0 | 1): PlaceBrute[] {
   return [2 * i, 2 * i + 1].flatMap((k) => {
     const quart = combat(ctx, 3, k);
@@ -365,7 +271,6 @@ function perdantsDesQuarts(ctx: Contexte, i: 0 | 1): PlaceBrute[] {
   });
 }
 
-/** Le côté `i` de l'arbre (sous-arbre de la demie `i`) : quelqu'un y a-t-il combattu ? */
 function quelquunACombattuDuCote(ctx: Contexte, i: 0 | 1): boolean {
   for (const f of ctx.fights) {
     if (f.type !== "BraketFight" || f.division < 2) continue;
@@ -379,16 +284,6 @@ function quelquunACombattuDuCote(ctx: Contexte, i: 0 | 1): boolean {
   return false;
 }
 
-/**
- * LE VAINQUEUR D'UNE FINALE, lu comme le règlement le lit.
- *
- * Une finale terminée rend son vainqueur. Une finale ANNULÉE dont un seul
- * finaliste est connu, et qui a combattu pour y arriver, le rend aussi : son
- * adversaire est structurellement impossible, et l'absence d'un athlète qui a
- * déjà combattu ne lui retire pas la place atteinte (IBJJF 4.2.1). La cascade
- * annule ce combat (l'occupant est éliminé face à un emplacement impossible) ;
- * le classement, lui, ne peut pas oublier qui l'a atteint.
- */
 function vainqueurDeFinale(ctx: Contexte, finale: PropagationFight | null): string | null {
   if (finale === null) return null;
   if (finale.state === "finished") return finale.winner;
@@ -399,7 +294,6 @@ function vainqueurDeFinale(ctx: Contexte, finale: PropagationFight | null): stri
   return ctx.classable(seul) && ctx.elig(seul).aCombattu ? seul : null;
 }
 
-/** Remplace, dans `places`, la place de bronze de `r` par une place vacante. */
 function vacanceDuBronzeDe(places: PlaceBrute[], r: string, motif: MotifVacance): PlaceBrute[] {
   const i = places.findIndex((p) => p.rang === 3 && p.registrationId === r);
   if (i < 0) return places;
@@ -408,10 +302,6 @@ function vacanceDuBronzeDe(places: PlaceBrute[], r: string, motif: MotifVacance)
   return copie;
 }
 
-// ===================================================================
-// Les formats
-// ===================================================================
-
 function placesDeux(ctx: Contexte): PlaceBrute[] {
   const finale = combat(ctx, 1, 0);
   if (!fini(finale)) return [];
@@ -419,7 +309,6 @@ function placesDeux(ctx: Contexte): PlaceBrute[] {
     return [...pourvue(1, finale.winner, finale), ...pourvue(2, loserOf(finale), finale)];
   }
   if (estFinSansVainqueur(finale)) {
-    // DQ1.5 (règle CFJJB) : aucun champion.
     const nature = natureDeLaFin(finale);
     if (nature === "disciplinaire") {
       return [
@@ -448,8 +337,6 @@ function placesTrois(ctx: Contexte): PlaceBrute[] {
     if (rep.winner !== null) {
       const perdant = loserOf(rep);
       if (perdant !== null) return pourvue(3, perdant, rep);
-      // Le côté A du repêchage attendait le perdant de la 1re demie : s'il est
-      // inéligible, sa place est vacante (T2.3).
       const perdantDemie = fini(demie) && demie.winner !== null ? loserOf(demie) : null;
       if (perdantDemie !== null && !ctx.classable(perdantDemie)) {
         return [vacante(3, motifDInegibilite(ctx, perdantDemie))];
@@ -466,7 +353,6 @@ function placesTrois(ctx: Contexte): PlaceBrute[] {
     const places = [...pourvue(1, champion, finale)];
     if (perdant !== null) {
       if (!ctx.classable(perdant) && disciplinairePendant(ctx, perdant, finale)) {
-        // IBJJF 2.4.2 : l'athlète battu par le nouveau champion en demi-finale est 2e.
         const victime = victimeAnterieure(ctx, finale, champion);
         if (victime && ctx.classable(victime.registrationId)) {
           return [
@@ -483,7 +369,6 @@ function placesTrois(ctx: Contexte): PlaceBrute[] {
       }
       return [...places, ...pourvue(2, perdant, finale), ...bronze()];
     }
-    // Côté vide : le nourricier s'est soldé en double forfait après un combat disputé.
     const cote = finale.slotA === champion ? "B" : "A";
     const nourricier = findFeederFight(ctx.fights, finale, cote);
     if (fini(nourricier) && nourricier.winMethod === "double_wo") {
@@ -496,8 +381,6 @@ function placesTrois(ctx: Contexte): PlaceBrute[] {
   if (!fini(finale)) return bronze();
 
   if (estFinSansVainqueur(finale) && natureDeLaFin(finale) === "technique") {
-    // IBJJF 2.4.2 : le perdant de la 2e demi-finale devient champion, les deux
-    // disqualifiés sont 2es.
     const champion = fini(rep) ? loserOf(rep) : null;
     return [
       ...pourvue(1, champion, rep),
@@ -517,7 +400,6 @@ function placesQuatre(ctx: Contexte): PlaceBrute[] {
   const rejouee = combat(ctx, 1, 1);
   const demies = [combat(ctx, 2, 0), combat(ctx, 2, 1)] as const;
 
-  // ── (A) Les deux demi-finales sans vainqueur, résolues par des combats (2.4.1) ──
   const [demie0, demie1] = demies;
   if (demie0 && demie1 && sansVainqueur(demie0) && sansVainqueur(demie1) && fini(rejouee)) {
     const places = [
@@ -537,7 +419,6 @@ function placesQuatre(ctx: Contexte): PlaceBrute[] {
     return places;
   }
 
-  // ── (B) La finale sans vainqueur, résolue par une finale rejouée (2.4.2) ──────
   if (finale && sansVainqueur(finale) && natureDeLaFin(finale) !== "blessure" && fini(rejouee)) {
     const nature = natureDeLaFin(finale);
     const vainqueur = rejouee.winner;
@@ -557,7 +438,6 @@ function placesQuatre(ctx: Contexte): PlaceBrute[] {
         ...pourvue(3, perdant, rejouee),
       ];
     }
-    // Double disciplinaire : les perdants des quarts battus par les nouveaux finalistes sont 3es.
     const troisiemes = [rejouee.slotA, rejouee.slotB].flatMap((finaliste) => {
       if (finaliste === null) return [];
       const demie = demies.find((d) => fini(d) && loserOf(d) === finaliste) ?? null;
@@ -567,7 +447,6 @@ function placesQuatre(ctx: Contexte): PlaceBrute[] {
     return [...pourvue(1, vainqueur, rejouee), ...pourvue(2, perdant, rejouee), ...troisiemes];
   }
 
-  // ── (C) Une finale avec un vainqueur ─────────────────────────────────────────
   const champion = vainqueurDeFinale(ctx, finale);
   if (finale && champion !== null) {
     const i: 0 | 1 = finale.slotA === champion ? 0 : 1;
@@ -579,8 +458,6 @@ function placesQuatre(ctx: Contexte): PlaceBrute[] {
 
     if (perdant !== null && !eliminationSansCombat) {
       if (!ctx.classable(perdant) && disciplinairePendant(ctx, perdant, finale)) {
-        // IBJJF 2.4.2 : le demi-finaliste battu par le nouveau champion devient
-        // 2e, et la 3e place qu'il libère reste vacante (DQ2.2).
         const victime = victimeAnterieure(ctx, finale, champion);
         const bronzes = bronzesOrdinaires(ctx);
         if (victime && ctx.classable(victime.registrationId)) {
@@ -595,22 +472,16 @@ function placesQuatre(ctx: Contexte): PlaceBrute[] {
       return [...places, ...pourvue(2, perdant, finale), ...bronzesOrdinaires(ctx)];
     }
 
-    // LE CÔTÉ j NE DONNE AUCUN FINALISTE ÉLIGIBLE.
     const demieI = demies[i];
     const demieJ = demies[j];
     if (demieJ && sansVainqueur(demieJ)) {
-      // IBJJF 2.4.1 : l'autre demi-finale compte comme la finale.
       const argent = fini(demieI) && demieI.winner !== null ? loserOf(demieI) : null;
       return [...places, ...pourvue(2, argent, demieI), ...placesDeLaDoubleFin(ctx, 3, demieJ)];
     }
     if (!quelquunACombattuDuCote(ctx, j)) {
-      // T2.4 B, IBJJF 2.4.2 dernier point : tout ce côté éliminé sans combat,
-      // la demie restante vaut finale et ses quarts valent demies.
       const argent = fini(demieI) && demieI.winner !== null ? loserOf(demieI) : null;
       return [...places, ...pourvue(2, argent, demieI), ...perdantsDesQuarts(ctx, i)];
     }
-    // T2.4 B : l'un d'eux avait combattu — finale gagnée par forfait, 2e place
-    // vacante, l'absent qui avait combattu garde la 3e place.
     places.push(vacante(2, "disqualification"));
     const p3 = pool3Of(ctx.fights);
     if (p3) return [...places, ...bronzeDuCombatDe3e(ctx, p3, demies)];
@@ -623,7 +494,6 @@ function placesQuatre(ctx: Contexte): PlaceBrute[] {
     ];
   }
 
-  // ── (D) Finale en double forfait : les finalistes qui ont combattu gardent la 2e place ──
   if (fini(finale) && finale.winMethod === "double_wo") {
     return [
       vacante(1, "disqualification"),
@@ -632,22 +502,9 @@ function placesQuatre(ctx: Contexte): PlaceBrute[] {
     ];
   }
 
-  // ── (E) Aucun finaliste : seules les 3es places se lisent sur les demies ──────
   return demies.flatMap((d) => bronzeDeLaDemie(ctx, d));
 }
 
-// ===================================================================
-// Éligibilité et remontées
-// ===================================================================
-
-/**
- * LES SUBSTITUTIONS : un titulaire inéligible ne garde jamais sa place.
- *
- *   · disqualifié disciplinaire dans ce combat, son dernier (2.4.2) : vacante ;
- *   · éliminé sans avoir combattu (T2.3) : la place revient à l'athlète battu
- *     plus tôt par son adversaire, sinon elle reste vacante ;
- *   · disqualifié disciplinaire « après » (2.4.3) : marqué pour la chaîne.
- */
 function appliquerEligibilite(ctx: Contexte, places: PlaceBrute[]): PlaceBrute[] {
   const sortie: PlaceBrute[] = [];
   for (const p of places) {
@@ -665,7 +522,6 @@ function appliquerEligibilite(ctx: Contexte, places: PlaceBrute[]): PlaceBrute[]
       );
       continue;
     }
-    // Éliminé sans combat (T2.3).
     const adversaire =
       p.source && p.source.winner !== null && p.source.winner !== r ? p.source.winner : null;
     const victime = adversaire && p.source ? victimeAnterieure(ctx, p.source, adversaire) : null;
@@ -680,14 +536,6 @@ function appliquerEligibilite(ctx: Contexte, places: PlaceBrute[]): PlaceBrute[]
   return sortie;
 }
 
-/**
- * LA CHAÎNE DE L'ART. 2.4.3 : les adversaires battus par le disqualifié
- * remontent chacun d'une place, du plus récent au plus ancien. La place que
- * personne ne reprend reste vacante.
- *
- * Exemple du client (DQ2.3) : A bat B en quart, C en demie, perd contre D en
- * finale. A disqualifié après la finale : D champion, C 2e, B 3e.
- */
 function appliquerRemontees(ctx: Contexte, places: PlaceBrute[]): PlaceBrute[] {
   const out = places.map((p) => ({ ...p }));
   const aChainer = out
@@ -747,10 +595,6 @@ function normaliser(places: readonly PlaceBrute[]): PlaceOfficielle[] {
   });
 }
 
-// ===================================================================
-// Le moteur
-// ===================================================================
-
 function lecteurDEligibilite(entree: EntreeClassement) {
   const table = new Map((entree.eligibilite ?? []).map((e) => [e.registrationId, e] as const));
   const elig = (r: string): EligibiliteInscription =>
@@ -759,7 +603,6 @@ function lecteurDEligibilite(entree: EntreeClassement) {
       elimination: null,
       aCombattu: aCombattuDansLesCombats(entree.fights, r),
       checkInValide: false,
-      // D4 : tant que L7 n'existe pas, une DQ disciplinaire saisie à la table vaut validée.
       disciplinaire: estDisqualifieDisciplinaire(entree.fights, r) ? "validee" : "aucune",
     };
   return { elig, classable: (r: string) => estClassable(elig(r)), table };
@@ -797,18 +640,10 @@ const resultat = (
   ...extra,
 });
 
-/**
- * LE CLASSEMENT OFFICIEL.
- *
- * Ordre des verdicts : un arbitrage en attente passe avant tout (même si
- * d'autres combats restent), puis les combats restants, puis une
- * disqualification disciplinaire en attente (L7), puis les places.
- */
 export function classementOfficiel(entree: EntreeClassement): ClassementOfficiel {
   const { elig, classable } = lecteurDEligibilite(entree);
   const brut = entree.fights;
 
-  // ── Aucun combat : le seul inscrit (IBJJF 4.4) ──────────────────────────────
   if (brut.length === 0) {
     const seul = entree.seulInscrit ?? null;
     if (seul === null)
@@ -837,7 +672,6 @@ export function classementOfficiel(entree: EntreeClassement): ClassementOfficiel
     return resultat("complet", { places: normaliser(pourvue(1, seul, null)) });
   }
 
-  // ── Classement saisi par le Responsable ─────────────────────────────────────
   if (entree.classementSaisi) {
     const places = normaliser(
       entree.classementSaisi.map((p) =>
@@ -857,14 +691,12 @@ export function classementOfficiel(entree: EntreeClassement): ClassementOfficiel
     );
   }
 
-  // ── Arbitrage en attente ────────────────────────────────────────────────────
   const attente = arbitragesEnAttente(brut, classable);
   if (attente.length > 0) {
     const premier = attente[0]!;
     return resultat("arbitrage_requis", { arbitrage: premier, manquant: [premier.regle.libelle] });
   }
 
-  // ── Le tableau tel que la cascade l'aura soldé ──────────────────────────────
   const participants = participantsDe(brut);
   const elimines = new Set([...participants].filter((r) => elig(r).elimination !== null));
   const fights = appliquerLePlan(brut, planForfeit(brut, elimines));
@@ -893,20 +725,6 @@ export function classementOfficiel(entree: EntreeClassement): ClassementOfficiel
   );
 }
 
-/**
- * « TERMINÉE SANS MÉDAILLÉ » — le prédicat SIMPLE, miroir exact de
- * `jour_j_categorie_terminee_sans_medaille` (SQL), que lisent la garde de
- * génération de l'absolut (L11) et la clôture (L18).
- *
- * Il ne recalcule aucune place : une catégorie est terminée sans médaillé quand
- * tout est joué, qu'aucun arbitrage n'attend, et qu'aucun athlète CLASSABLE n'a
- * atteint la zone des médailles (les combats de division 1 et 2 : finales,
- * demi-finales, combat pour la 3e place, repêchage, combats d'arbitrage). Un
- * athlète éliminé plus tôt ne remonte jamais que par un titulaire de cette
- * zone. La propriété « ce prédicat ⇔ l'état du moteur » est prouvée
- * exhaustivement sur les tableaux de 1 à 5 inscrits
- * (`tests/terminee-sans-medaille.test.ts`).
- */
 export function estTermineeSansMedaille(entree: EntreeClassement): boolean {
   const { elig, classable } = lecteurDEligibilite(entree);
   const fights = entree.fights;
@@ -941,7 +759,6 @@ export function estTermineeSansMedaille(entree: EntreeClassement): boolean {
   return ![...zone].some(classable);
 }
 
-/** Les médailles d'un classement : les places POURVUES seulement (T4.2). */
 export function medaillesDuClassement(places: readonly PlaceOfficielle[]): {
   or: number;
   argent: number;
@@ -955,30 +772,16 @@ export function medaillesDuClassement(places: readonly PlaceOfficielle[]): {
   };
 }
 
-/** « 3e place vacante (disqualification disciplinaire) » — le libellé de la console. */
 export function libellePlaceVacante(place: Pick<PlaceOfficielle, "rang" | "motifVacance">): string {
   const rang = place.rang === 1 ? "1re" : `${place.rang}e`;
   const motif = place.motifVacance ? ` (${LIBELLES_MOTIF_VACANCE[place.motifVacance]})` : "";
   return `${rang} place vacante${motif}`;
 }
 
-// ===================================================================
-// Scénarios de parité « terminée sans médaillé »
-// ===================================================================
-
-/**
- * UN SCÉNARIO « TERMINÉE SANS MÉDAILLÉ » : l'état d'une catégorie et la réponse
- * attendue du prédicat. Exporté pour la sonde de parité SQL de la plateforme
- * (`jour_j_categorie_terminee_sans_medaille`), qui rejoue ces états en base.
- * L'éligibilité n'y est PAS fournie : la sonde la dérive de la base
- * (éliminations, combats disputés, disqualifications disciplinaires), et le
- * domaine la dérive des combats — c'est précisément ce qui est comparé.
- */
 export type ScenarioSansMedaille = {
   id: string;
   inscrits: number;
   thirdPlaceMode: "pool3" | "shared_bronze";
-  /** Catégorie `single_competitor` : l'inscrit unique. */
   seulInscrit: string | null;
   fights: PropagationFight[];
   eliminations: EliminationDeScenario[];
@@ -986,7 +789,6 @@ export type ScenarioSansMedaille = {
   attendu: boolean;
 };
 
-/** L'entrée du moteur pour un scénario, éligibilité dérivée comme la base la dérive. */
 export function entreeDuScenario(s: ScenarioSansMedaille): EntreeClassement {
   const regs = new Set<string>();
   for (const f of s.fights) {
@@ -1012,7 +814,6 @@ export function entreeDuScenario(s: ScenarioSansMedaille): EntreeClassement {
   };
 }
 
-/** Les scénarios de parité, construits à l'appel. */
 export function scenariosTermineeSansMedaille(): ScenarioSansMedaille[] {
   const K = (d: number, i: number) => `${d}:${i}:BraketFight`;
   const absent = (r: string): EliminationDeScenario => ({

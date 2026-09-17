@@ -6,19 +6,6 @@ import {
   type SquadCandidate,
 } from "../src/squad-composition";
 
-/**
- * LA RÈGLE PORTE SUR L'ÉQUIPE, PAS SUR LE CLUB (CYL-502).
- *
- * ┌─ CE QUE LE GROUPEMENT PAR CLUB LAISSAIT PASSER ───────────────────────────┐
- * │ Une team fédère plusieurs clubs — INFINITY en compte 33 en production.     │
- * │ Équilibrer par CLUB donne la lettre A à un combattant de chacun des deux   │
- * │ clubs d'une même équipe : le tirage les tient alors pour deux sous-équipes │
- * │ différentes, et ne les sépare pas. La règle fédérale « deux au plus par    │
- * │ équipe et par catégorie » n'était donc pas appliquée là où elle compte le  │
- * │ plus : sur les grosses équipes.                                            │
- * └───────────────────────────────────────────────────────────────────────────┘
- */
-
 const c = (
   registrationId: string,
   clubId: string,
@@ -28,8 +15,6 @@ const c = (
 
 describe("autoComposeSquads — l'entité de rattachement", () => {
   it("ÉQUILIBRE SUR L'ÉQUIPE quand deux clubs la partagent", () => {
-    // Deux clubs, une seule équipe, deux combattants : ils doivent recevoir
-    // des lettres DIFFÉRENTES. Groupés par club, ils auraient tous deux le A.
     const compo = autoComposeSquads([c("r1", "k1", "t1"), c("r2", "k2", "t1")], "graine");
 
     const lettres = compo.assignments.map((a) => a.letter);
@@ -39,8 +24,6 @@ describe("autoComposeSquads — l'entité de rattachement", () => {
   it("rattache la sous-équipe à l'ÉQUIPE, et non à chaque club", () => {
     const compo = autoComposeSquads([c("r1", "k1", "t1"), c("r2", "k2", "t1")], "graine");
 
-    // Une ligne par (équipe, lettre) — pas une par (club, lettre), sinon les
-    // deux combattants resteraient deux entités distinctes au tirage.
     expect(compo.squads.every((q) => q.teamId === "t1")).toBe(true);
     expect(compo.assignments.every((a) => a.ownerId === "t1")).toBe(true);
   });
@@ -55,12 +38,10 @@ describe("autoComposeSquads — l'entité de rattachement", () => {
   it("ne mélange PAS deux équipes différentes", () => {
     const compo = autoComposeSquads([c("r1", "k1", "t1"), c("r2", "k2", "t2")], "graine");
 
-    // Chaque équipe repart de zéro : toutes deux peuvent prendre le A.
     expect(compo.assignments.map((a) => a.letter)).toEqual(["A", "A"]);
   });
 
   it("la clé de séparation du tirage est celle de l'ENTITÉ", () => {
-    // C'est cette chaîne que la plateforme pose sur `BracketEntry.teamId`.
     expect(squadTeamId("t1", "A")).toBe("t1#A");
     expect(squadTeamId("t1", "A")).not.toBe(squadTeamId("k1", "A"));
   });

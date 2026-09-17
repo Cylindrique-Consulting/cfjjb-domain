@@ -41,9 +41,6 @@ describe("computeMedalNeed — 2 competitors → or + argent, jamais de bronze",
 
 describe("computeMedalNeed — pool3 (miroir du générateur : Pool3 seulement pour n≥4)", () => {
   it("n=3 → bronze=1 : le REPÊCHAGE le décerne, quel que soit le mode", () => {
-    // Avant le 10/09/2026 : bronze=0. Trois compétiteurs, deux médailles, et une
-    // troisième marche vide sur le podium — c'était un défaut, pas une règle.
-    // Le repêchage tranche la 3e place par un COMBAT, et son perdant l'occupe.
     expect(computeMedalNeed([cat(3)], POOL3)).toEqual({
       gold: 1,
       silver: 1,
@@ -88,25 +85,12 @@ describe("computeMedalNeed — shared_bronze (les perdants de demi partagent le 
 
 describe("computeMedalNeed — agrégation multi-catégories", () => {
   it("somme correctement plusieurs catégories (pool3)", () => {
-    const need = computeMedalNeed(
-      [
-        cat(4), // pool3 → 3 médailles (1+1+1)
-        cat(3), // repêchage → 3 médailles (1+1+1)
-        cat(1), // → 1 médaille (or)
-      ],
-      POOL3,
-    );
+    const need = computeMedalNeed([cat(4), cat(3), cat(1)], POOL3);
     expect(need).toEqual({ gold: 3, silver: 2, bronze: 2, total: 7 });
   });
 
   it("somme correctement plusieurs catégories (shared_bronze)", () => {
-    const need = computeMedalNeed(
-      [
-        cat(4), // shared_bronze → 4 médailles (1+1+2)
-        cat(3), // → 3 médailles (1+1+1)
-      ],
-      SHARED,
-    );
+    const need = computeMedalNeed([cat(4), cat(3)], SHARED);
     expect(need).toEqual({ gold: 2, silver: 2, bronze: 3, total: 7 });
   });
 
@@ -120,7 +104,6 @@ describe("computeMedalNeed — agrégation multi-catégories", () => {
 describe("computeMedalSummary — remaining borné à 0", () => {
   it("distributed > need → remaining=0, pas négatif", () => {
     const summary = computeMedalSummary([cat(2)], POOL3, 99);
-    // need.total = 2, distributed=99 → remaining=0
     expect(summary.remaining).toBe(0);
     expect(summary.distributed).toBe(99);
     expect(summary.need.total).toBe(2);
@@ -133,6 +116,6 @@ describe("computeMedalSummary — remaining borné à 0", () => {
 
   it("distributed < need → remaining > 0", () => {
     const summary = computeMedalSummary([cat(4)], POOL3, 1);
-    expect(summary.remaining).toBe(2); // need=3, distributed=1
+    expect(summary.remaining).toBe(2);
   });
 });

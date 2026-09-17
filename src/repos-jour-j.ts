@@ -1,31 +1,6 @@
 import type { FightState, WinMethod } from "./bracket-propagation";
 import { finDeReposDeLAthlete, type CombatAVenir, type CombatPasse } from "./fight-rest";
 
-/**
- * LE REPOS LE JOUR J : ALERTE AU LANCEMENT ET PLACEMENT DU COMBAT SUIVANT.
- *
- * Consommateurs purs de `src/fight-rest.ts`, qui reste la SEULE définition du
- * repos (combat disputé, multiplicateur, fin de repos). Ce module n'ajoute
- * aucune règle de repos : il dit comment la présenter au lancement d'un combat
- * et où placer le combat suivant d'un athlète quand un résultat le désigne.
- *
- * Deux exemplaires SQL en dépendent (plateforme) : `jour_j_repos_du_combat`
- * pour la fin de repos, `jour_j_rang_apres_repos` pour le placement. Les
- * scénarios exportés en bas de fichier sont rejoués par les deux côtés.
- */
-
-// ------------------------------------------------------------------
-// La fin réelle d'un combat
-// ------------------------------------------------------------------
-
-/**
- * La fin RÉELLE d'un combat terminé : l'instant où le chrono s'est arrêté
- * (`paused_at`, figé à l'ouverture de « Terminer le combat » et conservé par la
- * fin), sinon l'instant d'enregistrement de la fin (`finished_at`).
- *
- * Miroir de `jour_j_fin_reelle_du_combat(paused_at, finished_at)`. L'appelant
- * ne la demande que pour un combat terminé : un combat en pause n'est pas fini.
- */
 export function finReelleDuCombatDispute(
   pausedAtMs: number | null,
   finishedAtMs: number | null,
@@ -33,24 +8,13 @@ export function finReelleDuCombatDispute(
   return pausedAtMs ?? finishedAtMs;
 }
 
-// ------------------------------------------------------------------
-// L'état d'un repos à un instant donné
-// ------------------------------------------------------------------
-
 export type EtatDuRepos = {
-  /** Vrai tant que la fin du repos est dans le futur (faux à l'échéance exacte). */
   enRepos: boolean;
-  /** Le repos exigé : fin du repos moins fin du combat précédent. */
   requisMs: number;
-  /** Le temps écoulé depuis la fin du combat précédent (jamais négatif). */
   ecouleMs: number;
-  /** Le temps qui reste avant la fin du repos (jamais négatif). */
   restantMs: number;
 };
 
-/**
- * Ce que l'alerte affiche pour UN athlète : repos requis, écoulé et restant.
- */
 export function etatDuRepos({
   finPrecedenteMs,
   finDeReposMs,
@@ -68,7 +32,6 @@ export function etatDuRepos({
   };
 }
 
-/** Le repos d'un côté du combat à venir, tel que le serveur le rend. */
 export type CoteDuRepos = {
   cote: "a" | "b";
   finPrecedenteMs: number;
@@ -76,17 +39,10 @@ export type CoteDuRepos = {
 };
 
 export type ReposDuCombat = {
-  /** La fin de repos la plus tardive des athlètes encore en repos. */
   finDeReposMs: number;
-  /** Les côtés encore en repos, dans l'ordre A puis B. */
   cotes: CoteDuRepos[];
 };
 
-/**
- * UNE SEULE ALERTE POUR UN COMBAT, même si les deux athlètes sont en repos :
- * les côtés dont le repos court encore, et la fin la plus tardive. `null` si
- * aucun des deux n'est en repos.
- */
 export function reposDuCombat(
   cotes: readonly CoteDuRepos[],
   maintenantMs: number,
@@ -101,49 +57,12 @@ export function reposDuCombat(
   };
 }
 
-// ------------------------------------------------------------------
-// Le placement du combat suivant après le repos
-// ------------------------------------------------------------------
-
-/** Un AUTRE combat de la file du tapis (le combat à placer en est exclu). */
 export type CombatDeLaFileDuRepos = {
   fightId: string;
   dureeSecondes: number;
-  /**
-   * Le combat est-il PRÊT, donc compté dans l'estimation et franchissable ?
-   * En cours, en pause, ou visible au check-in avec les contrôles des deux côtés
-   * validés. Un combat non prêt arrête le recul : le franchir laisserait le
-   * tapis sans combat jouable à la fin du repos.
-   *
-   * Pour un combat placé DERRIÈRE le combat à placer (donc candidat au
-   * franchissement), l'appelant exige en plus qu'il soit jouable tout de suite
-   * (TB2.2) : aucun de ses athlètes n'est encore en repos ni engagé dans un autre
-   * combat en cours ou en pause. Passé en tête, un tel combat ferait attendre le
-   * tapis plus longtemps que le combat placé. Pour un combat placé devant, seule
-   * compte sa durée dans l'estimation : il se jouera avant, repos ou non.
-   */
   compte: boolean;
 };
 
-/**
- * LE RANG D'UN COMBAT DANS LA FILE DE SON TAPIS APRÈS LE REPOS DE SES ATHLÈTES
- * (T7.1, TR1.1).
- *
- * `file` : les autres combats du tapis, dans l'ordre de passage, SANS le combat
- * à placer. `rangActuel` : le nombre de combats de `file` placés devant lui.
- * Le rang rendu a la même convention : le combat s'insère juste avant
- * `file[rang]`.
- *
- * Le début estimé au rang `r` vaut `maintenantMs` plus la durée pleine de chaque
- * combat compté de `file[0..r-1]` (sans battement ni retard, même hypothèse que
- * `positionApresRepos`). En partant du rang actuel, le combat recule d'un rang
- * tant que ce début tombe avant la fin du repos ET que le combat qu'il
- * franchirait est compté ET que le rang reste sous `rangMax`.
- *
- * Garanties : jamais vers l'avant (rang ≥ rangActuel) ; rang inchangé sans repos
- * ou repos échu ; jamais au-delà de `rangMax` (premier combat qui attend le
- * résultat de ce combat, ou combat d'une autre journée) ni de la fin de file.
- */
 export function rangApresRepos({
   file,
   rangActuel,
@@ -155,7 +74,6 @@ export function rangApresRepos({
   rangActuel: number;
   maintenantMs: number;
   finDuReposMs: number | null;
-  /** Le rang au-delà duquel le combat ne peut pas reculer (`file.length` si aucun). */
   rangMax: number;
 }): number {
   const depart = Math.max(0, Math.min(rangActuel, file.length));
@@ -178,45 +96,29 @@ export function rangApresRepos({
   return rang;
 }
 
-// ------------------------------------------------------------------
-// Scénarios de parité (sondes SQL de la plateforme, faux serveur du module)
-// ------------------------------------------------------------------
-
 const MINUTE_MS = 60_000;
-/** L'origine des scénarios : 20/09/2026 09:00:00 UTC. */
 export const ORIGINE_DES_SCENARIOS_DE_REPOS_MS = Date.UTC(2026, 8, 20, 9, 0, 0);
 const T0 = ORIGINE_DES_SCENARIOS_DE_REPOS_MS;
 
-/** Un combat passé d'un athlète, tel que la base le porte. */
 export type CombatPasseDeScenario = {
   id: string;
   state: FightState;
   winMethod: WinMethod | null;
-  /** Un événement `start` figure au journal du combat. */
   chronoLance: boolean;
   pausedAtMs: number | null;
   finishedAtMs: number | null;
-  /** Le combat appartient à une autre catégorie que le combat à venir. */
   autreCategorie?: boolean;
 };
 
-/**
- * UN SCÉNARIO DE FIN DE REPOS : les combats passés d'un athlète, le combat à
- * venir et la fin de repos attendue (`null` : aucun repos). La plateforme les
- * écrit en base et exige la même réponse de `jour_j_repos_du_combat` ; le faux
- * serveur du module les rejoue aussi.
- */
 export type ScenarioFinDeRepos = {
   id: string;
   libelle: string;
   combatsPasses: CombatPasseDeScenario[];
   combatAVenir: CombatAVenir;
-  /** La fin du combat précédent retenue (`null` si aucun combat disputé). */
   finPrecedenteAttendueMs: number | null;
   attendu: number | null;
 };
 
-/** Les combats passés d'un scénario, au format de `finDeReposDeLAthlete`. */
 export function combatsPassesDuScenario(s: ScenarioFinDeRepos): CombatPasse[] {
   return s.combatsPasses.map((c) => ({
     id: c.id,
@@ -228,7 +130,6 @@ export function combatsPassesDuScenario(s: ScenarioFinDeRepos): CombatPasse[] {
   }));
 }
 
-/** La fin de repos d'un scénario selon la règle du domaine. */
 export function finDeReposDuScenario(s: ScenarioFinDeRepos): number | null {
   return finDeReposDeLAthlete(combatsPassesDuScenario(s), s.combatAVenir);
 }
@@ -403,10 +304,6 @@ export const SCENARIOS_FIN_DE_REPOS: readonly ScenarioFinDeRepos[] = [
   },
 ];
 
-/**
- * UN SCÉNARIO DE PLACEMENT : l'entrée de `rangApresRepos` et le rang attendu.
- * La plateforme exige la même réponse de `jour_j_rang_apres_repos`.
- */
 export type ScenarioPlacementApresRepos = {
   id: string;
   libelle: string;

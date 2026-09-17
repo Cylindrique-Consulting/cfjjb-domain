@@ -1,20 +1,6 @@
 import type { BeltDb, GenderDb } from "./enums";
 import { BELT_LABELS, KIDS_BELTS } from "./belts";
 
-/**
- * Competition referential: age groups, weight classes, fight durations and
- * the Jour J category fullname format.
- *
- * The weight and duration tables are ported VERBATIM from the Jour J app
- * ("CFJJB - Jour J" repo, src/lib/weight-limits.ts and
- * src/lib/fight-durations.ts - same source spreadsheets). Keep both sides in
- * sync; do not "fix" irregular values, they match the official documents.
- *
- * Jour J category fullname format (parsed by Jour J with split(" - ")):
- *   "Ceinture - AgeGroup - Genre - WeightClass"
- *   e.g. "Bleue - Adulte - Homme - Pena", "Grise - U11 - Garçon - Pena"
- */
-
 export type Discipline = "gi" | "nogi";
 
 export const AGE_GROUPS = [
@@ -33,11 +19,6 @@ export const AGE_GROUPS = [
 ] as const;
 export type AgeGroup = (typeof AGE_GROUPS)[number];
 
-/**
- * Tailles de T-shirt proposées (F11), enum figé. Source unique importée par
- * les schémas Zod, les formulaires d'inscription et l'écran de distribution
- * (F11b). L'ordre est l'ordre canonique d'affichage (XS → XXL).
- */
 export const TSHIRT_SIZES = ["XS", "S", "M", "L", "XL", "XXL"] as const;
 export type TshirtSize = (typeof TSHIRT_SIZES)[number];
 
@@ -54,23 +35,6 @@ export const WEIGHT_CLASSES = [
 ] as const;
 export type WeightClassName = (typeof WEIGHT_CLASSES)[number];
 
-/**
- * CYL-435 — libellé d'affichage d'un `competition_registrations.age_group`.
- *
- * La colonne stocke des CODES, hérités de l'ancien site : `adult`,
- * `master_1_2`, `juvenil`, `premirim`… Recopiés tels quels, ils produisaient
- * « Ceinture bleue - adult - 3 » sur l'attestation officielle de résultats.
- *
- * Les 18 codes ci-dessous sont ceux RÉELLEMENT présents en production, relevés
- * le 2026-08-10 sur 131 215 inscriptions — pas ceux que le référentiel déclare.
- * Un code absent de cette table retombe sur le libellé de l'organisateur : on
- * n'imprime jamais un code brut sur un document officiel.
- *
- * Les catégories brésiliennes (mirim, infantil, juvenil…) sont des NOMS DE
- * CATÉGORIE, pas des mots à traduire : on les accentue et on les capitalise,
- * on ne les remplace pas. L'attestation doit nommer la catégorie effectivement
- * disputée.
- */
 export const AGE_GROUP_LABELS: Record<string, string> = {
   adult: "Adulte",
   child: "Enfant",
@@ -92,26 +56,11 @@ export const AGE_GROUP_LABELS: Record<string, string> = {
   u15: "U15",
 };
 
-/** Libellé d'une catégorie d'âge stockée, ou `null` si le code est inconnu. */
 export function ageGroupLabel(code: string | null | undefined): string | null {
   if (!code) return null;
   return AGE_GROUP_LABELS[code.trim().toLowerCase()] ?? null;
 }
 
-/**
- * CYL-435 — libellé d'un `competition_registrations.weight_class`.
- *
- * LA COLONNE PORTE DEUX VOCABULAIRES, mesuré le 2026-08-10 :
- *   - 130 462 lignes = un INDICE 0–8 dans `WEIGHT_CLASSES` (99,4 %) ;
- *   -     701 lignes = 10 à 500, toutes en `age_group = "child"` : des kilos,
- *         mais « 500 » y figure aussi — la colonne n'y est pas fiable ;
- *   -      47 lignes = 9, hors bornes du référentiel (9 entrées, 0 à 8) ;
- *   -       5 lignes = « -30 », « -40 », « -62 ».
- *
- * Seul l'indice est traduit. Tout le reste rend `null` et laisse l'appelant
- * retomber sur le libellé de l'organisateur — imprimer « 500 » ou inventer une
- * unité sur une attestation officielle serait pire que de ne rien dire.
- */
 export function weightClassLabel(value: string | null | undefined): string | null {
   if (!value) return null;
   const brut = value.trim();
@@ -120,7 +69,6 @@ export function weightClassLabel(value: string | null | undefined): string | nul
   return WEIGHT_CLASSES[index] ?? null;
 }
 
-/** Belts that can enter adult/master/juvenile competition categories. */
 export const ADULT_COMPETITION_BELTS: ReadonlyArray<BeltDb> = [
   "white",
   "blue",
@@ -129,7 +77,6 @@ export const ADULT_COMPETITION_BELTS: ReadonlyArray<BeltDb> = [
   "black",
 ];
 
-/** Belts that can enter children categories (U7..U15). */
 export const KIDS_COMPETITION_BELTS: ReadonlyArray<BeltDb> = [
   "white",
   "grey",
@@ -138,10 +85,6 @@ export const KIDS_COMPETITION_BELTS: ReadonlyArray<BeltDb> = [
   "green",
 ];
 
-// ------------------------------------------------------------------
-// Weight limits (kg). null = class does not exist for that group.
-// Adults/masters/juveniles share the adult limits (masters = adulte_*).
-// ------------------------------------------------------------------
 type AdultWeightRow = {
   juvenile_homme: number | null;
   adulte_homme: number | null;
@@ -228,34 +171,6 @@ const NOGI_CHILDREN: Record<WeightClassName, ChildWeightRow> = {
   Pesadissimo: { U7: null, U9: null, U11: null, U13: null, U15: null },
 };
 
-// ------------------------------------------------------------------
-// Fight durations (minutes). null = belt × age combination does not exist.
-//
-// LA TABLE DE RÉFÉRENCE EST CELLE DE L'IBJJF 6.1, PAS CELLE DE LA CFJJB 5.2.
-//
-// Réponse du client du 15/09/2026 (T1.1, T1.2) : les durées réglementaires
-// sont celles de l'IBJJF Rules Book 6.1 (juin 2024, General Competition
-// Guidelines art. 1.3), et plus celles du règlement CFJJB 5.2 ni de l'article
-// 1.3 du règlement CFJJB 2024, là où ils diffèrent.
-//
-// UN SEUL ÉCART avec la table précédente : Master 2 en ceinture violette,
-// marron et noire passe de 6 à 5 minutes. Master 1 reste à 6 minutes pour ces
-// trois ceintures, conforme à l'IBJJF.
-//
-// UNE SEULE EXCEPTION CLIENT : U7 = 3 minutes. Les catégories « 6 ans »
-// n'existent pas à la CFJJB ; la tranche U7 couvre jusqu'à 7 ans et garde la
-// durée des 6-7 ans IBJJF.
-//
-// Version documentée (`REGLEMENT_DE_REFERENCE`) : la copie publique du fichier
-// « 2024JUN_IBJJF_Rules_EN » porte « VERSION 6.2 » dans son colophon, alors que
-// sa page de titre et sa date sont celles de la 6.1. C'est la 6.1 qui fait foi ;
-// l'anomalie est notée plutôt que corrigée.
-// ------------------------------------------------------------------
-
-/**
- * La version de règlement appliquée par ce référentiel, à citer à l'écran là où
- * une décision en découle (libellés « Arbitrage requis », feuilles papier).
- */
 export const REGLEMENT_DE_REFERENCE = {
   nom: "IBJJF Rules Book",
   version: "6.1",
@@ -276,9 +191,6 @@ type AdultDurationRow = {
 };
 type ChildDurationRow = Record<"U7" | "U9" | "U11" | "U13" | "U15", number | null>;
 
-// IBJJF 6.1 (GCG 1.3). Master 2 purple / brown / black = 5 minutes since the
-// 15/09/2026 client answer (T1.2); they inherited the old "Master 1/2" 6 minutes
-// before. Master 3 and Master 4 keep the old "Master 3/4" duration.
 const DURATIONS_ADULT: Partial<Record<BeltDb, AdultDurationRow>> = {
   white: {
     Juvénile: 5,
@@ -335,28 +247,14 @@ const DURATIONS_CHILDREN: Partial<Record<BeltDb, ChildDurationRow>> = {
   green: { U7: null, U9: null, U11: null, U13: 4, U15: 4 },
 };
 
-// Gi and No-Gi share the same duration tables in the source document.
-// Kept as a parameter so a future divergence is a data change only.
-
-// ------------------------------------------------------------------
-// Public API
-// ------------------------------------------------------------------
-
 export function isChildAgeGroup(ageGroup: AgeGroup): boolean {
   return ageGroup.startsWith("U");
 }
 
-/**
- * Classement « enfant / adulte » unique pour toute la plateforme.
- * « Enfants » = U7…U15 + Juvénile ; « Adultes » = Adulte + Master 1…5+.
- * Source de vérité partagée entre `bucketAgeSplit` (analytics) et
- * `buildAffiliationHistory` (historique club) - ne pas dupliquer la règle.
- */
 export function isChildAgeCategory(ageGroup: AgeGroup): boolean {
   return isChildAgeGroup(ageGroup) || ageGroup === "Juvénile";
 }
 
-/** Chaîne des catégories adultes, de la plus basse à la plus haute. */
 const ADULT_AGE_CHAIN: ReadonlyArray<AgeGroup> = [
   "Adulte",
   "Master 1",
@@ -366,37 +264,17 @@ const ADULT_AGE_CHAIN: ReadonlyArray<AgeGroup> = [
   "Master 5+",
 ];
 
-/**
- * Catégories d'âge qu'un licencié peut viser à l'inscription, règle
- * « qui peut le plus peut le moins » (CYL-110) :
- * - mineurs (U7…U15 et Juvénile) : aucune descente possible, la catégorie
- *   réelle s'impose ;
- * - adultes/masters : la catégorie réelle plus toute catégorie ADULTE
- *   inférieure (Master 2 -> M2 / M1 / Adulte), jamais une catégorie jeune.
- * Résultat ordonné de la catégorie réelle vers la plus basse.
- */
 export function listEligibleAgeGroups(actual: AgeGroup): AgeGroup[] {
   const idx = ADULT_AGE_CHAIN.indexOf(actual);
-  if (idx < 0) return [actual]; // U7…U15 et Juvénile : pas de choix.
+  if (idx < 0) return [actual];
   return ADULT_AGE_CHAIN.slice(0, idx + 1).reverse();
 }
 
-/**
- * Age group from the age reached during the calendar year of the competition
- * (IBJJF rule for the reference date). Bornes CFJJB :
- * U7 <=7, U9 8-9, U11 10-11, U13 12-13, U15 14-15, Juvénile 16-17,
- * Adulte 18-29, Master 1 = 30-35, Master 2 = 36-40, Master 3 = 41-45,
- * Master 4 = 46-50, Master 5+ = 51+.
- */
 export function computeAgeGroup(birthDateIso: string, competitionDateIso: string): AgeGroup {
   const birthYear = new Date(birthDateIso).getFullYear();
   const competitionYear = new Date(competitionDateIso).getFullYear();
   const age = competitionYear - birthYear;
 
-  // Bornes CFJJB (DEV-086 étendu). U15 absorbe l'âge civil 15 ; Juvénile ne
-  // commence qu'à 16 ans, en phase avec la bascule ceinture bleue automatique
-  // (BELT_AGE_BOUNDS blue minAge 16). Auparavant un athlète de 15 ans était
-  // « Juvénile » un an avant que sa ceinture ne passe bleue.
   if (age <= 7) return "U7";
   if (age <= 9) return "U9";
   if (age <= 11) return "U11";
@@ -411,30 +289,14 @@ export function computeAgeGroup(birthDateIso: string, competitionDateIso: string
   return "Master 5+";
 }
 
-/**
- * Prochaine bascule de catégorie d'âge (CYL-126, pur, testable) :
- * à partir de la date `on` (défaut « maintenant »), on cherche le prochain
- * 1er janvier où `computeAgeGroup` change de valeur, et on renvoie ce groupe
- * + la date ISO (`YYYY-01-01`). Réutilise `computeAgeGroup`/`AGE_GROUPS`
- * comme unique source de vérité pour les seuils (aucun âge dupliqué).
- *
- * Renvoie `null` quand il n'y a plus de bascule (dernière catégorie
- * `Master 5+`, qui est ouverte). Un licencié né un 1er janvier voit sa
- * bascule le jour même de son entrée dans la nouvelle catégorie (la règle
- * IBJJF « âge atteint dans l'année » place la bascule au 1er janvier).
- */
 export function nextAgeCategoryChange(
   birthDateIso: string,
   on: Date = new Date(),
 ): { nextGroup: AgeGroup; changeDate: string } | null {
   const currentGroup = computeAgeGroup(birthDateIso, on.toISOString());
-  // La dernière catégorie est ouverte : plus aucune bascule à venir.
   if (currentGroup === AGE_GROUPS[AGE_GROUPS.length - 1]) return null;
 
-  // Le prochain 1er janvier après `on` (borne minimale de recherche).
   const startYear = on.getUTCFullYear() + 1;
-  // Borne haute : le 1er janvier de l'année des 51 ans suffit à atteindre la
-  // dernière tranche (Master 5+ = 51+). +1 par sécurité d'arrondi.
   const birthYear = new Date(birthDateIso).getUTCFullYear();
   const maxYear = birthYear + 52;
 
@@ -448,37 +310,21 @@ export function nextAgeCategoryChange(
   return null;
 }
 
-/**
- * Notice « ceinture bleue automatique » (CYL-126, pur) : vrai uniquement si
- * la prochaine bascule est vers `Juvénile` ET que la ceinture courante est
- * une couleur Kids (grise/jaune/orange/verte, jamais blanche). Réutilise
- * `KIDS_BELTS` de `lib/licensees/belts` (source unique). La règle métier
- * d'auto-attribution + la notification club sont possédées par R19 ; ce
- * prédicat ne sert qu'à l'affichage prévisionnel côté licencié.
- */
 export function willGetBlueBeltAtJuvenile(
   currentBelt: BeltDb,
   birthDateIso: string,
   on: Date = new Date(),
 ): boolean {
-  // Couleurs Kids = KIDS_BELTS sans la blanche (le blanc obtient le bleu par
-  // la progression normale, pas par la règle « couleur → bleue »).
   if (currentBelt === "white" || !KIDS_BELTS.includes(currentBelt)) return false;
   const next = nextAgeCategoryChange(birthDateIso, on);
   return next?.nextGroup === "Juvénile";
 }
 
-/**
- * Majorité « CFJJB » : un licencié est majeur dès le 1er janvier de l'année
- * civile de ses 18 ans (referenceYear - année de naissance >= 18).
- * Cohérent avec computeAgeGroup : Adulte/Master => majeur, U7-U15/Juvénile => mineur.
- */
 export function isAdultForYear(birthDateIso: string, referenceYear: number): boolean {
   const birthYear = new Date(birthDateIso).getFullYear();
   return referenceYear - birthYear >= 18;
 }
 
-/** Commodité : majorité appréciée sur l'année civile de la compétition. */
 export function isAdultAtCompetition(birthDateIso: string, competitionDateIso: string): boolean {
   return isAdultForYear(birthDateIso, new Date(competitionDateIso).getFullYear());
 }
@@ -493,11 +339,9 @@ export function genderLabel(gender: GenderDb, ageGroup: AgeGroup): string {
 function adultWeightKey(ageGroup: AgeGroup, gender: GenderDb): keyof AdultWeightRow {
   const isJuvenile = ageGroup === "Juvénile";
   if (isJuvenile) return gender === "male" ? "juvenile_homme" : "juvenile_femme";
-  // Adulte and all masters use the adult limits.
   return gender === "male" ? "adulte_homme" : "adulte_femme";
 }
 
-/** Max weight in kg for a class, null = no limit (Pesadissimo) or class absent. */
 export function getMaxWeightKg(
   discipline: Discipline,
   ageGroup: AgeGroup,
@@ -512,10 +356,6 @@ export function getMaxWeightKg(
   return table[weightClass][adultWeightKey(ageGroup, gender)] ?? null;
 }
 
-/**
- * Weight classes offered for a (discipline, age group, gender):
- * classes with a defined limit, plus Pesadissimo (always open, no limit).
- */
 export function listWeightClasses(
   discipline: Discipline,
   ageGroup: AgeGroup,
@@ -533,7 +373,6 @@ export function listWeightClasses(
   return out;
 }
 
-/** Fight duration in seconds; null = belt × age combination does not exist. */
 export function getFightDurationSeconds(
   belt: BeltDb,
   ageGroup: AgeGroup,
@@ -563,13 +402,11 @@ export type CategoryTuple = {
   weightClass: WeightClassName;
 };
 
-/** Jour J category fullname: "Bleue - Adulte - Homme - Pena". */
 export function buildCategoryFullname(tuple: Omit<CategoryTuple, "discipline">): string {
   const beltLabel = BELT_LABELS[tuple.belt];
   return `${beltLabel} - ${tuple.ageGroup} - ${genderLabel(tuple.gender, tuple.ageGroup)} - ${tuple.weightClass}`;
 }
 
-/** Short name shown in Jour J lists: "Adulte - Pena". */
 export function buildCategoryShortname(
   tuple: Omit<CategoryTuple, "discipline" | "belt" | "gender">,
 ): string {

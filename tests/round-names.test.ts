@@ -2,14 +2,6 @@ import { describe, expect, it } from "vitest";
 import { generateBracket, type BracketEntry, type GeneratedFight } from "../src/bracket-generator";
 import { divisionMaxDuTableau, nomDuTour } from "../src/round-names";
 
-// ===================================================================
-// LA NOMENCLATURE DES TOURS (CI4, TR2) — réponses du client du 15/09/2026.
-//
-// T16.1 A : T1, T2… comptés depuis le premier tour réellement disputé, QF, DF,
-// F en abrégé ; forme longue sur les écrans d'un seul combat, les arbres et les
-// feuilles. TR2.1 A : « Repêchage » ne sort sur aucun écran.
-// ===================================================================
-
 function entrees(n: number): BracketEntry[] {
   return Array.from({ length: n }, (_, i) => ({ registrationId: `r${i + 1}`, clubId: null }));
 }
@@ -20,7 +12,6 @@ function tirage(n: number): GeneratedFight[] {
   return res.fights;
 }
 
-/** Les tours ordinaires d'un tableau, du premier à la finale, en forme courte. */
 function toursCourts(profondeur: number): string[] {
   const out: string[] = [];
   for (let d = profondeur; d >= 1; d--) {
@@ -112,8 +103,6 @@ describe("la forme longue et l'en-tête de colonne", () => {
 
 describe("le tableau de trois : deux demi-finales, aucun « Repêchage »", () => {
   function troisInscrits(repechageALIndex: 0 | 1): GeneratedFight[] {
-    // Le générateur pose le repêchage à l'index 0 ; rien ne le GARANTIT, donc
-    // les deux placements sont éprouvés.
     return tirage(3).map((f) =>
       f.division === 2
         ? {
@@ -166,9 +155,6 @@ describe("divisionMaxDuTableau", () => {
   });
 
   it("une FENÊTRE tronquée donne un numéro faux : la profondeur se lit sur tout le tableau", () => {
-    // Le contrat que les lectures SQL doivent tenir : à 32 inscrits, une file de
-    // check-in qui ne montre plus le premier tour ferait lire « T1 » là où le
-    // combat est un « T2 ». D'où la division maximale servie par la base.
     const fights = tirage(32);
     const division4 = { division: 4, type: "BraketFight" };
     expect(nomDuTour({ ...division4, divisionMax: divisionMaxDuTableau(fights) }).court).toBe("T2");

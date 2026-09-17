@@ -1,167 +1,69 @@
 import { findFeederFight, type PropagationFight, type Slot } from "./bracket-propagation";
 import { multiplicateurDeRepos } from "./fight-rest";
 
-/**
- * L'ESTIMATEUR UNIQUE DES HEURES DE PASSAGE (TB1, TB2, TB4, T9.1, T9.3, T12.1,
- * T12.5, T12.6).
- *
- * Une seule règle sert tous les écrans qui affichent une heure : tableau de
- * bord, check-in, prochains combats, ordre des combats, planning, tableaux et
- * vue publique, ainsi que le refus d'un déplacement qui placerait un combat
- * avant sa source. Deux calculs écrits chacun de leur côté finiraient par dire
- * deux heures différentes pour le même combat.
- *
- * Ce que l'estimation prend en compte :
- *
- *   · la FILE RÉELLE de chaque tatami (ordre de passage courant), les combats
- *     soldés (terminés, forfaits, annulés) en étant absents ;
- *   · la durée réglementaire de chaque combat PLUS l'espacement entre deux
- *     combats consécutifs d'un tatami ;
- *   · le REPOS des athlètes : un combat n'est pas estimé avant la fin du repos
- *     de ses athlètes, une durée de combat avant un tour ordinaire, deux avant
- *     une finale (`multiplicateurDeRepos`), à compter de la fin réelle ou
- *     estimée de leur combat précédent, sur n'importe quel tatami. Un combat
- *     dont un adversaire est inconnu hérite de la fin estimée de son combat
- *     source (`findFeederFight`), supposé disputé ;
- *   · l'ANCRAGE : tant qu'aucun combat du tatami n'est lancé ce jour-là, la
- *     file part de max(maintenant, début prévu du tatami). Un démarrage tardif
- *     se lit donc comme du retard, et une salle regardée à 08:00 n'annonce pas
- *     une heure d'avance sur un planning de 09:00 ;
- *   · le PLANCHER : l'heure estimée d'un combat ne descend jamais sous l'heure
- *     prévue de sa catégorie moins 90 minutes. Il est appliqué dans la
- *     simulation (les combats suivants du tatami en découlent) et ne sert qu'à
- *     l'affichage : il n'empêche aucun lancement ;
- *   · « À PRÉSENT » : le prochain combat à lancer d'un tatami, quand la journée
- *     est commencée et que son heure estimée est déjà atteinte ;
- *   · l'ENCHAÎNEMENT de compétitions qui se suivent sur les mêmes tatamis
- *     physiques : les combats non soldés de la compétition précédente passent
- *     devant, et leurs athlètes communs portent leur repos.
- *
- * Ce que l'estimation ne fait jamais : réordonner une file. Si le prochain
- * combat attend la fin d'un repos, le tatami attend.
- *
- * MODULE PUR : l'instant courant est un PARAMÈTRE. Mêmes entrées, même sortie.
- */
-
-/** Le plancher d'affichage : heure prévue de la catégorie moins 90 minutes. */
 export const PLANCHER_AFFICHAGE_MS = 90 * 60_000;
 
-/** Les statuts d'un combat NON SOLDÉ. Un combat soldé n'entre pas dans le calcul. */
 export type StatutAEstimer = "pending" | "called" | "ready" | "in_progress" | "paused";
 
-/** Le type structurel d'un combat, celui de `PropagationFight`. */
 export type TypeDeCombatAEstimer = PropagationFight["type"];
 
 export type CombatAEstimer = {
   id: string;
-  /** Le tatami du combat (identifiant de `TatamiAEstimer`). */
   tatamiId: string;
-  /** Le rang de passage dans la file de son tatami : un entier, ordre total avec `id`. */
   rang: number;
-  /** La journée du combat : 0 pour le jour 1, 1 pour le jour 2. */
   jour: 0 | 1;
   statut: StatutAEstimer;
-  /** L'instant réel de lancement, pour un combat en cours ou en pause. */
   startedAtMs: number | null;
-  /** L'instant de la mise en pause en cours, `null` sinon. */
   pausedAtMs: number | null;
-  /** Le temps de pause déjà cumulé, en millisecondes. */
   pausedMs: number;
-  /** La durée réglementaire du combat, en secondes. */
   dureeSecondes: number;
   categoryId: string;
   division: number;
   index: number;
   type: TypeDeCombatAEstimer;
-  /**
-   * Les deux athlètes (clés opaques, identiques d'une compétition à l'autre),
-   * `null` pour un emplacement encore inconnu.
-   */
   athletes: readonly [string | null, string | null];
-  /** L'heure prévue de la catégorie moins 90 minutes, ou `null`. */
   plancherMs: number | null;
 };
 
 export type TatamiAEstimer = {
   id: string;
-  /**
-   * La clé du tatami PHYSIQUE. Deux tatamis de même clé partagent une seule
-   * file (compétitions qui se suivent). Par défaut, l'identifiant.
-   */
   physique?: string;
-  /** Tatami d'une compétition précédente sur le même tatami physique. */
   soeur?: boolean;
-  /**
-   * L'ordre d'enchaînement sur le tatami physique : une valeur plus petite
-   * passe devant. Par défaut 0.
-   */
   enchainement?: number;
-  /** Le début prévu du tatami pour chaque journée, `null` s'il est inconnu. */
   debutPrevuMs: readonly [number | null, number | null];
-  /** Un combat de ce tatami a-t-il été lancé pendant la journée courante ? */
   lanceAujourdhui?: boolean;
-  /** La fin réelle du dernier combat du tatami pendant la journée courante. */
   derniereFinMs?: number | null;
 };
 
 export type EntreeEstimation = {
   maintenantMs: number;
-  /** L'espacement effectif entre deux combats d'un tatami, en secondes. */
   espacementSecondes: number;
-  /** La journée courante, et « un combat de cette journée a été lancé ». */
   journee: { index: 0 | 1; commencee: boolean };
   tatamis: readonly TatamiAEstimer[];
   combats: readonly CombatAEstimer[];
-  /**
-   * La fin réelle du dernier combat DISPUTÉ et terminé de chaque athlète, sur
-   * toutes les compétitions liées. Le prédicat « disputé » n'est pas refait
-   * ici : il appartient à `aDisputeLeCombat` et à sa jumelle en base.
-   */
   reposParAthlete: Readonly<Record<string, number>>;
 };
 
 export type OptionsEstimation = {
-  /**
-   * `decalage` : les combats non soldés des tatamis `soeur` passent devant sur
-   * le même tatami physique. `aucun` : ils sont ignorés.
-   */
   enchainement: "decalage" | "aucun";
 };
 
 export type EstimationCombat = {
   fightId: string;
   etat: "a_venir" | "en_cours";
-  /** Début estimé (ou réel pour un combat en cours). */
   debutMs: number;
-  /**
-   * Le début que la seule PLACE dans la file donnerait : espacement, ancrage et
-   * plancher, sans attendre le repos des athlètes ni les combats sources. C'est
-   * l'heure du créneau ; `debutMs` la repousse quand un athlète n'est pas prêt.
-   * Sert à refuser un déplacement qui placerait un combat avant sa source.
-   */
   debutDeFileMs: number;
-  /** Fin estimée, jamais avant maintenant pour un combat en cours. */
   finMs: number;
-  /** Prochain combat à lancer de son tatami, journée commencée, heure atteinte. */
   aPresent: boolean;
-  /** Le plancher de 90 minutes a repoussé ce combat. */
   plancherApplique: boolean;
-  /** La fin du repos d'un athlète a repoussé ce combat. */
   attendRepos: boolean;
-  /** La fin de repos la plus tardive de ses athlètes, `null` s'il n'y en a pas. */
   finDeReposMs: number | null;
-  /**
-   * Une source rangée après son dépendant ne pouvait pas être estimée avant
-   * lui : la contrainte a été ignorée plutôt que de bloquer le calcul.
-   */
   dependanceIgnoree: boolean;
 };
 
 export type EstimationTatami = {
   tatamiId: string;
-  /** La fin estimée de la journée courante, `null` s'il n'y reste rien. */
   finEstimeeMs: number | null;
-  /** Le nombre de combats non soldés de la journée courante. */
   restants: number;
 };
 
@@ -178,7 +80,6 @@ type File = {
   position: number;
   finPrecedenteMs: number | null;
   premierNonLanceVu: boolean;
-  /** L'évaluation de la tête courante, jusqu'à ce qu'un placement la périme. */
   tete: Evaluation | null;
 };
 
@@ -198,14 +99,6 @@ function comparerChaines(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-/**
- * LES HEURES ESTIMÉES DE TOUS LES COMBATS NON SOLDÉS, ET LA FIN DE CHAQUE TATAMI.
- *
- * Simulation chronologique sur tous les tatamis à la fois : à chaque pas, la
- * tête de file la plus précoce dont les sources sont estimées est placée. Une
- * source qui ne peut pas l'être avant son dépendant (rangée après lui) est
- * ignorée et signalée, jamais attendue indéfiniment.
- */
 export function estimerLesHoraires(
   entree: EntreeEstimation,
   options: OptionsEstimation = { enchainement: "decalage" },
@@ -220,13 +113,11 @@ export function estimerLesHoraires(
     return !(t.soeur && options.enchainement === "aucun");
   });
 
-  // Les tatamis (et journées) où un combat est déjà lancé : l'ancrage change.
   const lances = new Set<string>();
   for (const c of retenus) {
     if (LANCES.has(c.statut)) lances.add(`${c.tatamiId}|${c.jour}`);
   }
 
-  // LES SOURCES STRUCTURELLES, par catégorie, calculées une fois.
   const parCategorie = new Map<string, CombatAEstimer[]>();
   for (const c of retenus) {
     const liste = parCategorie.get(c.categoryId);
@@ -246,7 +137,6 @@ export function estimerLesHoraires(
     }
   }
 
-  // LES FILES : une par tatami physique et par journée.
   const files = new Map<string, File>();
   for (const c of retenus) {
     const t = tatamis.get(c.tatamiId)!;
@@ -282,9 +172,6 @@ export function estimerLesHoraires(
   }
   const ordreDesFiles = [...files.values()].sort((a, b) => comparerChaines(a.cle, b.cle));
 
-  // LES INDEX INVERSES qui disent quelles têtes de file un placement périme : les
-  // combats d'un même athlète, et ceux qui attendent le combat placé. Une tête
-  // n'est réévaluée que si sa file a avancé ou si l'un d'eux vient d'être placé.
   const fileDuCombat = new Map<string, File>();
   for (const f of ordreDesFiles) for (const c of f.combats) fileDuCombat.set(c.id, f);
   const combatsParAthlete = new Map<string, string[]>();
@@ -307,7 +194,6 @@ export function estimerLesHoraires(
     }
   };
 
-  // L'ANCRAGE ne dépend que des entrées : calculé une fois par tatami et journée.
   const ancres = new Map<string, number>();
 
   const finParAthlete = new Map<string, number>();
@@ -444,8 +330,6 @@ export function estimerLesHoraires(
       if (!e.bloque) pret = meilleur(pret, { f, c, e });
     }
     if (pret === null) {
-      // Toutes les têtes attendent une source : la plus précoce passe, sa
-      // contrainte ignorée (évaluée à part, la tête gardée reste « bloquée »).
       for (const f of ordreDesFiles) {
         const c = f.combats[f.position];
         if (c === undefined) continue;
@@ -496,14 +380,6 @@ function versPropagation(c: CombatAEstimer): PropagationFight {
   };
 }
 
-/**
- * L'ÉCART DE RYTHME D'UN TATAMI, en minutes entières (TB1.1, TB1.3) :
- * fin estimée − (fin prévue d'origine + effet des ajouts et retraits).
- *
- * Positif : retard. Négatif : avance. L'arrondi est symétrique autour de zéro,
- * pour qu'une avance et un retard de même durée s'affichent avec le même
- * nombre.
- */
 export function ecartDeRythmeMinutes(
   finEstimeeMs: number,
   finPrevueMs: number,
@@ -519,11 +395,6 @@ function arrondiALaMinute(minutes: number): number {
 
 export type CouleurDEcart = "bleu" | "vert" | "orange" | "rouge";
 
-/**
- * LA COULEUR D'UN ÉCART (TB1.2), à la minute arrondie, identique pour toutes
- * les compétitions : avance de 10 minutes ou plus → bleu ; de −9 à +9 → vert ;
- * retard de +10 à +30 → orange ; au-delà de +30 → rouge.
- */
 export function couleurDEcart(minutes: number): CouleurDEcart {
   const m = arrondiALaMinute(minutes);
   if (m <= -10) return "bleu";

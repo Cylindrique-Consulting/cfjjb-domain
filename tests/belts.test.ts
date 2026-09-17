@@ -10,19 +10,6 @@ import {
 } from "../src/belts";
 import type { BeltDb } from "../src/enums";
 
-/**
- * CYL-483 — la confédération ne gère aucun grade au-dessus de la noire.
- *
- * Deux listes cohabitent volontairement, et c'est tout l'enjeu : `ALL_BELTS`
- * peuple les choix (elle s'arrête à la noire), `BELT_RANK_ORDER` donne le rang
- * (elle garde les 11 grades de l'enum). Les confondre casse dans un sens ou
- * dans l'autre — corail réapparaît à l'écran, ou un `indexOf` rend -1 sur une
- * donnée héritée.
- *
- * Ce verrou tient la relation entre les deux. `ALL_BELTS` est écrite en toutes
- * lettres dans la source, et non dérivée par filtrage : sans quoi ce fichier
- * ne vérifierait qu'une tautologie.
- */
 describe("les grades masqués (CYL-483)", () => {
   it("ALL_BELTS n'expose aucun grade masqué et s'arrête à la noire", () => {
     for (const hidden of HIDDEN_BELTS) {
@@ -48,11 +35,6 @@ describe("les grades masqués (CYL-483)", () => {
     }
   });
 
-  /**
-   * Les tables d'affichage restent EXHAUSTIVES sur `BeltDb`. Une fiche héritée
-   * portant un grade masqué doit encore s'afficher : masquer un grade, ce
-   * n'est pas rendre `undefined` là où la donnée existe.
-   */
   it("libellé, couleur et bornes d'âge couvrent encore les grades masqués", () => {
     for (const belt of BELT_RANK_ORDER as ReadonlyArray<BeltDb>) {
       expect(BELT_LABELS[belt]).toBeTruthy();
