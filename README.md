@@ -503,6 +503,132 @@ Chaque règle a un miroir SQL : la plateforme rejoue `scenariosInscriptionsAbsol
 commencé et l'annulation définitive d'un absolut ne sont pas des verbes de la matrice : elles
 sont réservées aux responsables désignés, connectés avec leur compte personnel.
 
+## Release C (v0.21.0) : le planning au combat
+
+Ordonnanceur au niveau du combat, répartition d'une catégorie sur plusieurs tatamis,
+enchaînement des compétitions d'un événement et contrôles de publication (lot L12,
+tickets PL1, PL2, PL3 ; réponses du client des 11 et 15/09/2026 ; relance BR3.4 du 18/09).
+
+| Module                             | Ce qu'il apporte                                                                  |
+| ---------------------------------- | --------------------------------------------------------------------------------- |
+| `src/ordonnanceur-planning.ts`     | `planifierCombats` : tatami, journée, heure prévue et rang par combat             |
+| `src/repartition-tatamis.ts`       | proposition 1 / 2 / 4 / 8, découpage par parties, convergence, libellés           |
+| `src/enchainement-competitions.ts` | `planifierLEvenement` : Gi puis No-Gi, athlètes communs, conflits                 |
+| `src/controles-de-planning.ts`     | refus, bloquants, avertissements à confirmer, statut et publication automatique   |
+| `src/ordre-sportif.ts`             | ordre âge › genre › ceinture › poids, absoluts en fin de tranche, sans discipline |
+
+### L'ordonnanceur
+
+`planifierCombats` remplace `computeTatamiSchedule`, qui enchaînait les combats bout à bout :
+à trois inscrits et 5 minutes de combat, il plaçait la finale **6 minutes** après la seconde
+demi-finale, contre **15 minutes** aujourd'hui (5 de combat + 10 de repos).
+
+- **Une file par tatami et par journée.** Les catégories y passent dans l'ordre du planning
+  (`rangDePlanning`), les combats d'une catégorie dans l'ordre de `categoryRunningOrder` :
+  tours les plus profonds d'abord, 2e demi-finale d'un tableau de trois après la 1re, combat
+  pour la 3e place puis finale en dernier.
+- **Repos** : la règle est celle de `fight-rest.ts` (`multiplicateurDeRepos`), comptée depuis la
+  fin nominale du combat source — une durée de combat de la catégorie à venir jusqu'aux
+  demi-finales, deux avant toute finale. Un combat bye ne prend pas de place dans la file et
+  n'ouvre aucun repos.
+- **Intercalation** : si le tour en cours de la catégorie en cours n'est pas encore autorisé,
+  l'ordonnanceur prend un autre combat **du même tour**, puis un combat autorisé des catégories
+  suivantes du même tatami, dans l'ordre du planning. Il ne franchit jamais une frontière de
+  tour : une demi-finale ne remonte pas devant un quart. Un tatami n'attend que si aucun combat
+  n'est autorisé, et le combat placé porte alors `intercale`.
+- **Espacement** : 60 secondes par défaut, réglable ; il sépare deux combats d'un tatami et ne
+  s'ajoute pas au repos.
+- **Athlètes** : les identifiants portés par `combats[].athletes` sont ceux du **licencié**, les
+  mêmes dans toutes les compétitions de l'événement. C'est ce qui fait mordre le repos d'une
+  compétition sur l'autre ; avec des identifiants d'inscription, la contrainte ne joue pas.
+- **Rang** : la file du jour J suit exactement l'ordre croissant des heures prévues, le rang 1
+  étant le combat prévu le plus tôt.
+
+Le calcul est pur et déterministe : mêmes entrées, même plan. Une source impossible à placer
+ne bloque pas le plan, elle est ignorée et signalée (`dependanceIgnoree`), comme dans
+l'estimateur.
+
+### La répartition d'une catégorie
+
+`proposerLaRepartition` propose un nombre de tatamis selon l'effectif — 1 jusqu'à 16, 2 de 17 à
+32, 4 de 33 à 64, 8 au-delà — plafonné au plus grand de 1, 2, 4, 8 qui tient dans la compétition.
+**Jamais 3** : avec trois tatamis, une catégorie de 40 va sur 2 et le troisième reste libre pour
+d'autres catégories. Poules, tableaux de trois et catégories à deux inscrits ne sont jamais
+réparties. Le responsable accepte, modifie (`valeursAdmises`) ou refuse (`tatamisApresArbitrage`,
+un refus ramène à 1). L'alternative d'un cran (2 jusqu'à 16, 4 de 17 à 32) est rendue par
+`alternativeSuggeree`, à proposer quand l'alerte de déséquilibre vise le tatami de la catégorie.
+
+`partiesDuCombat` découpe le tableau selon ses branches. Un combat du tour de division `d`
+(2^(d-1) combats) appartient à la partie `floor(index × p / 2^(d-1))` tant que son tour compte au
+moins `p` combats : aucun athlète ne change de tatami avant la convergence. Quand un tour compte
+moins de combats que de parties, chacun réunit les parties deux à deux — à 8 parties, quarts sur
+4 tatamis, demi-finales sur 2, finale sur 1. `repartirLesCombats` choisit alors, parmi les
+tatamis réunis, celui qui **finit le plus tard** (`chargeParTatami`, égalité tranchée par le plus
+petit numéro) ; `tatamiParCombat` impose un autre tatami des parties réunies, et refuse tout
+autre. Sans charge connue, le choix retombe sur le premier des tatamis réunis, c'est-à-dire
+exactement `tapisDuCombatAbsolut` : la console absolut du jour J et le planning disent la même
+chose, et un test de parité le vérifie sur 1, 2, 4 et 8 tapis.
+
+Libellés : `libelleDesTatamis` rend « Tatami 3 », « Tatamis 1 et 2 » (jamais « 1 à 2 »),
+« Tatamis 1 à 4 » et « Tatamis 1, 3, 5 et 7 » ; `libelleDePartie` rend « Partie 1/4 » et rien
+pour une catégorie sur un seul tatami. Un combat de convergence n'a pas de partie : il porte le
+nom de son tour (`nomDuTour`).
+
+### L'enchaînement des compétitions d'un événement
+
+Gi, No-Gi, Kids Gi et Kids No-Gi sont quatre compétitions distinctes d'un même événement. Seule
+la première compétition d'une journée porte une heure saisie ; `planifierLEvenement` fait partir
+chaque suivante de la **fin prévue de la précédente**, tous tatamis libérés, et le repos des
+athlètes communs est tenu combat par combat : la compétition suivante n'est pas décalée en bloc,
+c'est le combat de l'athlète commun qui recule. Une heure saisie qui ferait empiéter une
+compétition sur la précédente est acceptée mais signalée
+(`chevauchement_de_competitions`).
+
+Au planning, le vainqueur n'est pas connu : un athlète est réputé occupé de la première à la
+dernière heure prévue de sa catégorie, finale comprise. Deux occupations qui se chevauchent sont
+une **double convocation**. Le repos, lui, se juge sur le premier combat réel de l'athlète
+(`premierCombatMs`) : un plan qui fait passer l'athlète commun plus tard dans sa catégorie est
+correct, même si sa catégorie ouvre plus tôt.
+
+### Les contrôles avant publication
+
+`controlerLePlanning` rend des constats de trois gravités, `verdictDePublication` en tire le droit
+de publier, et chaque constat porte une **clé stable** : une retouche annule la validation mais
+`confirmationsConservees` garde les confirmations des avertissements qu'elle ne touche pas.
+
+| Constat                         | Gravité       | Ce qui le déclenche                                               |
+| ------------------------------- | ------------- | ----------------------------------------------------------------- |
+| `source_apres_dependant`        | refus         | source rangée après son dépendant, par rang ou par heure          |
+| `double_convocation`            | bloquant      | deux catégories du même jour se disputent le même licencié        |
+| `repos_insuffisant`             | avertissement | moins d'une durée de combat (deux avant une finale) de repos      |
+| `depassement_de_journee`        | avertissement | un tatami finit après l'heure de fin de sa journée                |
+| `desequilibre_de_tatami`        | avertissement | un tatami finit plus de 60 min après la moyenne des autres        |
+| `chevauchement_de_competitions` | avertissement | une compétition commence avant la fin prévue de la précédente     |
+| `repartition_non_examinee`      | avertissement | une proposition de répartition à plus d'un tatami jamais tranchée |
+
+Un refus et un bloquant ne se lèvent par aucune confirmation ; un avertissement exige une
+confirmation explicite. Le déséquilibre de Charléty Adultes (Tatami 1 vers 21:41, les autres
+avant 19:20, journée jusqu'à 22:30) donne un avertissement de déséquilibre sur le Tatami 1 et
+aucun dépassement.
+
+`statutDePlanning` nomme brouillon, validé, publié et modifié après publication ;
+`publicationAutomatique` dit à la tâche planifiée de publier un planning validé à l'échéance,
+d'alerter si le planning est encore en brouillon, et de ne rien faire après une retouche — la
+republication est manuelle.
+
+Qui fait quoi : l'identifiant de poste partagé du jour J **n'ouvre pas** l'outil de préparation
+(`peutConsulterAvantPublication` est faux). Un responsable désigné sur la fiche, avec son compte
+personnel, consulte et valide ; un compte fédéral autorisé à modifier les compétitions consulte,
+génère, retouche, valide et publie.
+
+### Ce que la release C ne fait pas encore
+
+`planCategories`, `assignCategoriesToDays` et `computeTatamiSchedule` restent exportés : la
+plateforme et le module s'appuient encore dessus, et leur reprise se fait dans leur propre PR. La
+journée d'une catégorie est une **entrée** de `planifierCombats` ; `dureeIncompressibleSecondes`
+donne la durée minimale d'une catégorie, attentes de repos comprises, pour que la répartition par
+journée cesse de la sous-estimer.
+
 ## Release v0.21.0 : la disqualification disciplinaire
 
 Vocabulaire et droits de la sanction disciplinaire (réponses du client du 11/09/2026 :
