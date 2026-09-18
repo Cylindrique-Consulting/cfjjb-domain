@@ -33,7 +33,7 @@ export const LIBELLES_COURTS_SANCTION: Record<CodeSanction, string> = {
   "6.1.2": "Comportement hostile",
   "6.1.3": "Morsure, cheveux tirés, coup volontaire",
   "6.1.4": "Comportement offensant ou irrespectueux",
-  "6.1.5": "Manque de sérieux ou simulation",
+  "6.1.5": "Manque de sérieux ou faux combat",
   "6.1.6": "Conduite incompatible avec la compétition",
 };
 

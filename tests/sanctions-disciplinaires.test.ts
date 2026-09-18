@@ -38,7 +38,7 @@ describe("le vocabulaire de la sanction disciplinaire", () => {
       "Article 6.1.2 : Comportement hostile",
       "Article 6.1.3 : Morsure, cheveux tirés, coup volontaire",
       "Article 6.1.4 : Comportement offensant ou irrespectueux",
-      "Article 6.1.5 : Manque de sérieux ou simulation",
+      "Article 6.1.5 : Manque de sérieux ou faux combat",
       "Article 6.1.6 : Conduite incompatible avec la compétition",
     ]);
   });
