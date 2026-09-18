@@ -15,7 +15,11 @@ export type AbsolutRegistration = {
   readonly sourcePlace?: number | null;
   readonly sourceWeightClass?: string | null;
   readonly status?: "active" | "cancelled";
+  readonly rank?: number | null;
 };
+
+export const PLACEMENTS_DE_L_ABSOLUT = ["place-source", "rang-sportif"] as const;
+export type PlacementDeLAbsolut = (typeof PLACEMENTS_DE_L_ABSOLUT)[number];
 
 export function sourceWeightRank(stored: string | null | undefined): number | null {
   const resolved = resolveWeightClass(stored);
@@ -33,6 +37,7 @@ export function absolutEntries(registrations: readonly AbsolutRegistration[]): B
       sourceCategoryId: r.sourceCategoryId ?? null,
       sourcePlace: r.sourcePlace ?? null,
       sourceWeightRank: sourceWeightRank(r.sourceWeightClass),
+      ...(r.rank === undefined ? {} : { rank: r.rank }),
     }));
 }
 
@@ -70,6 +75,34 @@ export const ABSOLUT_SEEDING_PLAN: SeedingPlan = {
   pins: [{ kind: "empty-leaves" }],
 };
 
+export const ABSOLUT_RANG_SPORTIF_SEEDING_PLAN: SeedingPlan = {
+  order: [{ kind: "rang-sportif", enabled: true }],
+  constraints: [
+    {
+      name: "meme-categorie-source-premier-tour",
+      enabled: true,
+      key: "source-category",
+      scope: { kind: "round", round: 1 },
+      tier: 0,
+      weight: 1,
+    },
+    {
+      name: "meme-club-premier-tour",
+      enabled: true,
+      key: "club",
+      scope: { kind: "round", round: 1 },
+      tier: 1,
+      weight: 1,
+    },
+  ],
+  pins: [{ kind: "empty-leaves" }],
+  reparation: "rang-voisin",
+};
+
+export function planDeLAbsolut(placement: PlacementDeLAbsolut): SeedingPlan {
+  return placement === "rang-sportif" ? ABSOLUT_RANG_SPORTIF_SEEDING_PLAN : ABSOLUT_SEEDING_PLAN;
+}
+
 const TIRAGE_INTERDIT = (): number => {
   throw new SeedingPlanError(
     "Absolut : une règle du plan a consommé le tirage. L'ordre d'un absolut est un " +
@@ -79,11 +112,12 @@ const TIRAGE_INTERDIT = (): number => {
 
 export function absolutSeedOrder(
   registrations: readonly AbsolutRegistration[],
+  placement: PlacementDeLAbsolut = "place-source",
 ): AbsolutRegistration[] {
   const entries = absolutEntries(registrations);
   if (entries.length === 0) return [];
   const size = 2 ** Math.ceil(Math.log2(Math.max(2, entries.length)));
-  const outcome = applySeedingPlan(entries, size, TIRAGE_INTERDIT, ABSOLUT_SEEDING_PLAN);
+  const outcome = applySeedingPlan(entries, size, TIRAGE_INTERDIT, planDeLAbsolut(placement));
   const byId = new Map(registrations.map((r) => [r.registrationId, r]));
   const out: AbsolutRegistration[] = [];
   for (const entry of outcome.seedOrder) {
@@ -96,10 +130,10 @@ export function absolutSeedOrder(
 export function generateAbsolutBracket(
   registrations: readonly AbsolutRegistration[],
   seed: string,
-  opts: { thirdPlaceMode: ThirdPlaceMode },
+  opts: { thirdPlaceMode: ThirdPlaceMode; placement?: PlacementDeLAbsolut },
 ): BracketResult {
   return generateBracket(absolutEntries(registrations), seed, {
     thirdPlaceMode: opts.thirdPlaceMode,
-    seedingPlan: ABSOLUT_SEEDING_PLAN,
+    seedingPlan: planDeLAbsolut(opts.placement ?? "place-source"),
   });
 }
