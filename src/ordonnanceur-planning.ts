@@ -354,24 +354,14 @@ export function planifierCombats(entree: EntreeDePlanification): ResultatDePlani
     const libre = libreDe(piste);
     let differe: Candidat | null = null;
     for (const file of piste.files) {
-      const tour = file.tours[file.position];
-      if (tour === undefined) continue;
-      let meilleurDuTour: Candidat | null = null;
-      for (const combat of tour) {
-        const evaluation = evaluer(piste, combat, ignorerSources);
-        if (evaluation.bloque) continue;
-        if (evaluation.debutMs <= libre) {
-          meilleurDuTour = { piste, file, combat, evaluation };
-          break;
-        }
-        if (meilleurDuTour === null || evaluation.debutMs < meilleurDuTour.evaluation.debutMs) {
-          meilleurDuTour = { piste, file, combat, evaluation };
-        }
-      }
-      if (meilleurDuTour === null) continue;
-      if (meilleurDuTour.evaluation.debutMs <= libre) return meilleurDuTour;
-      if (differe === null || meilleurDuTour.evaluation.debutMs < differe.evaluation.debutMs) {
-        differe = meilleurDuTour;
+      const combat = file.tours[file.position]?.[0];
+      if (combat === undefined) continue;
+      const evaluation = evaluer(piste, combat, ignorerSources);
+      if (evaluation.bloque) continue;
+      const suivant: Candidat = { piste, file, combat, evaluation };
+      if (evaluation.debutMs <= libre) return suivant;
+      if (differe === null || evaluation.debutMs < differe.evaluation.debutMs) {
+        differe = suivant;
       }
     }
     return differe;

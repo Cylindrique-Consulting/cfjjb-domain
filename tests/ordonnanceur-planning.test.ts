@@ -1,18 +1,30 @@
 import { describe, expect, it } from "vitest";
+import type { GeneratedFight } from "../src/bracket-generator";
+import { structuralKey } from "../src/bracket-propagation";
 import { controlerLePlanning } from "../src/controles-de-planning";
 import {
   clePiste,
   dureeIncompressibleSecondes,
   planifierCombats,
+  type CategorieAPlanifier,
+  type CombatAPlanifier,
+  type CreneauOccupe,
   type PlacementDeCombat,
+  type ResultatDePlanification,
 } from "../src/ordonnanceur-planning";
-import { computeTatamiSchedule, fightTimeKey } from "../src/planning-generator";
+import {
+  categoryRunningOrder,
+  computeTatamiSchedule,
+  fightTimeKey,
+} from "../src/planning-generator";
 import { generatePool } from "../src/pool-generator";
+import { fnv1a, mulberry32 } from "../src/prng";
 import {
   heure,
   hhmm,
   inscrits,
   monter,
+  sourcesDuMontage,
   tableau,
   tatamis,
   versControle,
@@ -293,7 +305,7 @@ describe("l'ordonnanceur au combat", () => {
     }
   });
 
-  it("permute deux combats d'un même tour plutôt que d'attendre, sans jamais changer de tour", () => {
+  it("ne permute jamais deux combats d'un même tour : seul sur son tatami, il attend la fin du repos", () => {
     const montage = monter([
       {
         id: "c",
@@ -313,12 +325,64 @@ describe("l'ordonnanceur au combat", () => {
       occupations: [{ athleteId: occupe, debutMs: heure("08:00"), finMs: heure("09:30") }],
     });
     const places = parRang(resultat.combats);
-    expect(hhmm(places[0]?.debutMs ?? 0)).toBe("09:00");
-    const retarde = resultat.combats.get(premierTour[0]?.id ?? "");
-    expect(retarde?.debutMs).toBeGreaterThanOrEqual(heure("09:35"));
-    expect(retarde?.rang).toBeGreaterThan(1);
-    const divisions = places.map((p) => Number(p.fightId.split(":")[1]));
-    expect(divisions).toEqual([...divisions].sort((a, b) => b - a));
+    expect(places.map((p) => `${p.fightId} ${hhmm(p.debutMs)}`)).toEqual([
+      "c:3:0:BraketFight 09:35",
+      "c:3:1:BraketFight 09:41",
+      "c:3:2:BraketFight 09:47",
+      "c:3:3:BraketFight 09:53",
+      "c:2:0:BraketFight 09:59",
+      "c:2:1:BraketFight 10:05",
+      "c:1:0:BraketFight 10:20",
+    ]);
+    expect(places[0]?.fightId).toBe(premierTour[0]?.id);
+    expect(places[0]?.attenteDeRepos).toBe(true);
+    expect(places.some((p) => p.intercale)).toBe(false);
+  });
+
+  it("pendant ce repos, fait passer une autre catégorie du tatami sans toucher à l'ordre du tableau", () => {
+    const montage = monter([
+      {
+        id: "A",
+        fights: tableau(8, "L"),
+        tatamis: tatamis(1),
+        dureeSecondes: 300,
+        rangDePlanning: 0,
+      },
+      {
+        id: "B",
+        fights: tableau(8, "B"),
+        tatamis: tatamis(1),
+        dureeSecondes: 300,
+        rangDePlanning: 1,
+      },
+    ]);
+    const occupe = montage.combats.find((c) => c.id === "A:3:0:BraketFight")?.athletes?.[0];
+    if (occupe === undefined || occupe === null) throw new Error("premier tour incomplet");
+    const resultat = planifierCombats({
+      tatamis: unTatami(),
+      categories: montage.categories,
+      combats: montage.combats,
+      occupations: [{ athleteId: occupe, debutMs: heure("08:00"), finMs: heure("09:30") }],
+    });
+    const places = parRang(resultat.combats);
+    expect(
+      places.map((p) => `${p.fightId} ${hhmm(p.debutMs)}${p.intercale ? " intercalé" : ""}`),
+    ).toEqual([
+      "B:3:0:BraketFight 09:00 intercalé",
+      "B:3:1:BraketFight 09:06 intercalé",
+      "B:3:2:BraketFight 09:12 intercalé",
+      "B:3:3:BraketFight 09:18 intercalé",
+      "B:2:0:BraketFight 09:24 intercalé",
+      "B:2:1:BraketFight 09:30 intercalé",
+      "A:3:0:BraketFight 09:36",
+      "A:3:1:BraketFight 09:42",
+      "A:3:2:BraketFight 09:48",
+      "A:3:3:BraketFight 09:54",
+      "A:2:0:BraketFight 10:00",
+      "A:2:1:BraketFight 10:06",
+      "B:1:0:BraketFight 10:12 intercalé",
+      "A:1:0:BraketFight 10:21",
+    ]);
   });
 
   it("répartit une catégorie de 128 sur 8 tatamis et la ramène de 21:50 à 11:08", () => {
@@ -591,6 +655,277 @@ describe("l'ordonnanceur au combat", () => {
     expect(resultat.combats.size).toBe(0);
     expect(resultat.categories.size).toBe(0);
     expect(resultat.finParJour.size).toBe(0);
+  });
+});
+
+describe("l'ordre strict du tableau dans un tour (PL3.9 option B)", () => {
+  const seulSurUnTatami = (nombre: number) => {
+    const montage = monter([
+      {
+        id: "c",
+        fights: tableau(nombre),
+        tatamis: tatamis(1),
+        dureeSecondes: 300,
+        rangDePlanning: 0,
+      },
+    ]);
+    const resultat = planifierCombats({
+      tatamis: unTatami(),
+      categories: montage.categories,
+      combats: montage.combats,
+    });
+    return { montage, places: parRang(resultat.combats) };
+  };
+
+  it("à 5 inscrits, la 1re demi-finale attend son repos et passe avant la 2e", () => {
+    const { places } = seulSurUnTatami(5);
+    expect(places.map((p) => `${p.fightId} ${hhmm(p.debutMs)}`)).toEqual([
+      "c:3:1:BraketFight 09:00",
+      "c:2:0:BraketFight 09:10",
+      "c:2:1:BraketFight 09:16",
+      "c:1:0:BraketFight 09:31",
+    ]);
+    expect(places[1]?.attenteDeRepos).toBe(true);
+  });
+
+  it("à 9, 17 et 33 inscrits, chaque tour passe du haut vers le bas du tableau", () => {
+    const attendus = [
+      { nombre: 9, enAttente: "c:3:0:BraketFight 09:10", finale: "09:55" },
+      { nombre: 17, enAttente: "c:4:0:BraketFight 09:10", finale: "10:43" },
+      { nombre: 33, enAttente: "c:5:0:BraketFight 09:10", finale: "12:19" },
+    ];
+    for (const { nombre, enAttente, finale } of attendus) {
+      const { montage, places } = seulSurUnTatami(nombre);
+      const ordreDuTableau = categoryRunningOrder(
+        montage.combats.filter((c) => c.isBye !== true),
+      ).map((c) => c.id);
+      expect(
+        places.map((p) => p.fightId),
+        `${nombre} inscrits`,
+      ).toEqual(ordreDuTableau);
+      expect(`${places[1]?.fightId} ${hhmm(places[1]?.debutMs ?? 0)}`, `${nombre} inscrits`).toBe(
+        enAttente,
+      );
+      expect(places[1]?.attenteDeRepos, `${nombre} inscrits`).toBe(true);
+      expect(hhmm(places[places.length - 1]?.debutMs ?? 0), `${nombre} inscrits`).toBe(finale);
+    }
+  });
+
+  it("à 5 inscrits, une autre catégorie du tatami passe pendant le repos de la 1re demi-finale", () => {
+    const montage = monter([
+      {
+        id: "A",
+        fights: tableau(5, "A"),
+        tatamis: tatamis(1),
+        dureeSecondes: 300,
+        rangDePlanning: 0,
+      },
+      {
+        id: "B",
+        fights: tableau(4, "B"),
+        tatamis: tatamis(1),
+        dureeSecondes: 300,
+        rangDePlanning: 1,
+      },
+    ]);
+    const resultat = planifierCombats({
+      tatamis: unTatami(),
+      categories: montage.categories,
+      combats: montage.combats,
+    });
+    const places = parRang(resultat.combats);
+    expect(
+      places.map((p) => `${p.fightId} ${hhmm(p.debutMs)}${p.intercale ? " intercalé" : ""}`),
+    ).toEqual([
+      "A:3:1:BraketFight 09:00",
+      "B:2:0:BraketFight 09:06 intercalé",
+      "A:2:0:BraketFight 09:12",
+      "A:2:1:BraketFight 09:18",
+      "B:2:1:BraketFight 09:24 intercalé",
+      "A:1:0:BraketFight 09:33",
+      "B:1:0:BraketFight 09:39",
+    ]);
+  });
+});
+
+describe("l'ordre strict entre tatamis : aucun interblocage", () => {
+  const surTatamis = (
+    categorieId: string,
+    fights: readonly GeneratedFight[],
+    tatamiDuCombat: (fight: GeneratedFight) => string,
+  ): CombatAPlanifier[] =>
+    fights.map((fight) => ({
+      id: `${categorieId}:${structuralKey(fight)}`,
+      categorieId,
+      tatamiId: tatamiDuCombat(fight),
+      division: fight.division,
+      indexInDivision: fight.indexInDivision,
+      type: fight.type,
+      isBye: fight.isBye,
+      athletes: [fight.slotA, fight.slotB],
+    }));
+
+  const cle = (fight: Pick<GeneratedFight, "division" | "indexInDivision">) =>
+    `${fight.division}:${fight.indexInDivision}`;
+
+  const constatsDeDependance = (
+    categories: CategorieAPlanifier[],
+    combats: CombatAPlanifier[],
+    resultat: ResultatDePlanification,
+  ) => {
+    const durees = Object.fromEntries(categories.map((c) => [c.id, c.dureeSecondes]));
+    return controlerLePlanning({
+      combats: versControle({ categories, combats, places: new Map() }, resultat, durees),
+    }).filter((c) => c.type === "source_apres_dependant" || c.type === "repos_insuffisant");
+  };
+
+  const fileDuTatami = (resultat: ResultatDePlanification, tatamiId: string) =>
+    parRang(resultat.combats)
+      .filter((p) => p.tatamiId === tatamiId)
+      .map((p) => `${p.fightId.replace("c:", "").replace(":BraketFight", "")} ${hhmm(p.debutMs)}`);
+
+  it("deux parties d'un tableau qui s'attendent mutuellement avancent l'une après l'autre", () => {
+    const placement: Record<string, string> = {
+      "3:0": "t1",
+      "3:1": "t1",
+      "2:1": "t1",
+      "1:0": "t1",
+      "3:2": "t2",
+      "3:3": "t2",
+      "2:0": "t2",
+    };
+    const categories = [{ id: "c", dureeSecondes: 300, jour: 0, rangDePlanning: 0 }];
+    const combats = surTatamis("c", tableau(8, "X"), (f) => placement[cle(f)] ?? "t1");
+    const resultat = planifierCombats({
+      tatamis: [
+        { id: "t1", numero: 1, debutParJour: { 0: heure("09:00") } },
+        { id: "t2", numero: 2, debutParJour: { 0: heure("09:30") } },
+      ],
+      categories,
+      combats,
+    });
+    expect(resultat.combatsSansHoraire).toEqual([]);
+    expect([...resultat.combats.values()].some((p) => p.dependanceIgnoree)).toBe(false);
+    expect(fileDuTatami(resultat, "t1")).toEqual([
+      "3:0 09:00",
+      "3:1 09:06",
+      "2:1 09:46",
+      "1:0 10:01",
+    ]);
+    expect(fileDuTatami(resultat, "t2")).toEqual(["3:2 09:30", "3:3 09:36", "2:0 09:42"]);
+    expect(constatsDeDependance(categories, combats, resultat)).toEqual([]);
+  });
+
+  it("un combat qui attend sa source sur un autre tatami n'est pas doublé par le suivant du tour", () => {
+    const placement: Record<string, string> = {
+      "3:2": "t1",
+      "3:3": "t1",
+      "2:0": "t1",
+      "2:1": "t1",
+      "1:0": "t1",
+      "3:0": "t2",
+      "3:1": "t2",
+    };
+    const categories = [{ id: "c", dureeSecondes: 300, jour: 0, rangDePlanning: 0 }];
+    const combats = surTatamis("c", tableau(8, "X"), (f) => placement[cle(f)] ?? "t1");
+    const resultat = planifierCombats({
+      tatamis: [
+        { id: "t1", numero: 1, debutParJour: { 0: heure("09:00") } },
+        { id: "t2", numero: 2, debutParJour: { 0: heure("09:30") } },
+      ],
+      categories,
+      combats,
+    });
+    expect([...resultat.combats.values()].some((p) => p.dependanceIgnoree)).toBe(false);
+    expect(fileDuTatami(resultat, "t1")).toEqual([
+      "3:2 09:00",
+      "3:3 09:06",
+      "2:0 09:46",
+      "2:1 09:52",
+      "1:0 10:07",
+    ]);
+    expect(fileDuTatami(resultat, "t2")).toEqual(["3:0 09:30", "3:1 09:36"]);
+    expect(constatsDeDependance(categories, combats, resultat)).toEqual([]);
+  });
+
+  it("ne s'interbloque jamais, quelle que soit l'affectation des combats aux tatamis", () => {
+    const tailles = [3, 4, 5, 8, 9, 16, 17, 23, 32];
+    let dependancesCroisees = 0;
+    let attentes = 0;
+    for (let essai = 0; essai < 200; essai += 1) {
+      const aleatoire = mulberry32(fnv1a(`interblocage-${essai}`));
+      const tirer = <T>(liste: readonly T[]): T =>
+        liste[Math.floor(aleatoire() * liste.length)] as T;
+      const ids = Array.from({ length: 2 + Math.floor(aleatoire() * 3) }, (_, i) => `t${i + 1}`);
+      const categories: CategorieAPlanifier[] = [];
+      const combats: CombatAPlanifier[] = [];
+      const nombreDeCategories = 1 + Math.floor(aleatoire() * 3);
+      for (let rang = 0; rang < nombreDeCategories; rang += 1) {
+        const id = `k${rang}`;
+        const fights = tableau(
+          tirer(tailles),
+          `${id}e${essai}a`,
+          aleatoire() < 0.5 ? "pool3" : "shared_bronze",
+        );
+        categories.push({
+          id,
+          dureeSecondes: tirer([180, 300, 360]),
+          jour: 0,
+          rangDePlanning: rang,
+        });
+        combats.push(...surTatamis(id, fights, () => tirer(ids)));
+      }
+      const athletes = combats.flatMap((c) => c.athletes ?? []).filter((a) => a !== null);
+      const occupations: CreneauOccupe[] = Array.from({ length: 3 }, () => ({
+        athleteId: tirer(athletes),
+        debutMs: heure("08:00"),
+        finMs: heure("09:00") + tirer([10, 30, 60]) * MINUTE,
+      }));
+      const resultat = planifierCombats({
+        tatamis: ids.map((id, i) => ({
+          id,
+          numero: i + 1,
+          debutParJour: { 0: heure("09:00") + tirer([0, 15, 45]) * MINUTE },
+        })),
+        categories,
+        combats,
+        occupations,
+      });
+
+      const byes = combats.filter((c) => c.isBye === true).map((c) => c.id);
+      expect([...resultat.combatsSansHoraire].sort(), `essai ${essai}`).toEqual(byes.sort());
+      const ignorees = [...resultat.combats.values()].filter((p) => p.dependanceIgnoree);
+      expect(ignorees, `essai ${essai}`).toEqual([]);
+      expect(constatsDeDependance(categories, combats, resultat), `essai ${essai}`).toEqual([]);
+
+      for (const categorie of categories) {
+        for (const tatamiId of ids) {
+          const siens = combats.filter(
+            (c) => c.categorieId === categorie.id && c.tatamiId === tatamiId && c.isBye !== true,
+          );
+          const ordreDuTableau = categoryRunningOrder(siens).map((c) => c.id);
+          const ordrePlanifie = parRang(resultat.combats)
+            .filter((p) => p.categorieId === categorie.id && p.tatamiId === tatamiId)
+            .map((p) => p.fightId);
+          expect(ordrePlanifie, `essai ${essai}, ${categorie.id} sur ${tatamiId}`).toEqual(
+            ordreDuTableau,
+          );
+        }
+      }
+
+      const tatamiDe = new Map(combats.map((c) => [c.id, c.tatamiId]));
+      const sources = sourcesDuMontage({ categories, combats, places: new Map() });
+      for (const [combatId, sesSources] of sources) {
+        for (const source of sesSources) {
+          if (source !== null && tatamiDe.get(source) !== tatamiDe.get(combatId)) {
+            dependancesCroisees += 1;
+          }
+        }
+      }
+      attentes += [...resultat.combats.values()].filter((p) => p.attenteDeRepos).length;
+    }
+    expect(dependancesCroisees).toBeGreaterThan(1000);
+    expect(attentes).toBeGreaterThan(500);
   });
 });
 
