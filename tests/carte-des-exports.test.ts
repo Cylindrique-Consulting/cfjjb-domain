@@ -34,6 +34,8 @@ import { compareSourcePlaceThenWeight } from "../src/seeding-plan";
 import {
   critereQuiDepartage,
   figerLePlacement,
+  placementPourLaBase,
+  placerLesInscrits,
   RANG_SPORTIF_SEEDING_PLAN,
   resultatPourPlacementDepuisLaBase,
 } from "../src/placement-par-rang";
@@ -177,6 +179,8 @@ describe("la carte des exports", () => {
     expect(domaine.figerLePlacement).toBe(figerLePlacement);
     expect(domaine.critereQuiDepartage).toBe(critereQuiDepartage);
     expect(domaine.resultatPourPlacementDepuisLaBase).toBe(resultatPourPlacementDepuisLaBase);
+    expect(domaine.placerLesInscrits).toBe(placerLesInscrits);
+    expect(domaine.placementPourLaBase).toBe(placementPourLaBase);
     expect(manifeste.exports?.["./placement-par-rang"]).toBe("./src/placement-par-rang.ts");
   });
 

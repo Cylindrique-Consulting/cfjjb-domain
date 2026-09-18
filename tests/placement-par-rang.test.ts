@@ -13,6 +13,8 @@ import {
   critereQuiDepartage,
   figerLePlacement,
   LIBELLES_CRITERE_DE_DEPARTAGE,
+  placementPourLaBase,
+  placerLesInscrits,
   RANG_SPORTIF_SEEDING_PLAN,
   resultatPourPlacementDepuisLaBase,
   type LigneResultatDeLaBase,
@@ -543,5 +545,113 @@ describe("un résultat lu en base devient un résultat de placement", () => {
         null,
       );
     }
+  });
+});
+
+describe("placer les inscrits d'un tableau, et l'envoyer à la base", () => {
+  it("chaque inscription reçoit un rang distinct, le licencié sans résultat passe au tirage", () => {
+    const rangs = placerLesInscrits(
+      [
+        { registrationId: "reg-c", licenseeId: "c" },
+        { registrationId: "reg-a", licenseeId: "a" },
+        { registrationId: "reg-x", licenseeId: null },
+        { registrationId: "reg-b", licenseeId: "b" },
+      ],
+      [resultat("1", "a", 900), resultat("2", "b", 300), resultat("3", "autre", 5000)],
+      CIBLE,
+      { absolut: false, graine: "tableau" },
+    );
+    expect(rangs.map((r) => r.registrationId).slice(0, 2)).toEqual(["reg-a", "reg-b"]);
+    expect(rangs.map((r) => r.rang)).toEqual([1, 2, 3, 4]);
+    expect(rangs.find((r) => r.registrationId === "reg-x")?.licenseeId).toBeNull();
+    expect(rangs.find((r) => r.registrationId === "reg-a")?.licenseeId).toBe("a");
+    expect(rangs.slice(2).map((r) => r.critere)).toContain("tirage");
+  });
+
+  it("le même tableau, relu dans un autre ordre, rend les mêmes rangs", () => {
+    const inscrits = ["a", "b", "c", "d", "e"].map((l) => ({
+      registrationId: `reg-${l}`,
+      licenseeId: l,
+    }));
+    const un = placerLesInscrits(inscrits, [], CIBLE, { absolut: false, graine: "g" });
+    const deux = placerLesInscrits([...inscrits].reverse(), [], CIBLE, {
+      absolut: false,
+      graine: "g",
+    });
+    expect(deux).toEqual(un);
+  });
+
+  it("sans profil lisible, personne n'a de point et le tirage départage tout le monde", () => {
+    const rangs = placerLesInscrits(
+      [
+        { registrationId: "r1", licenseeId: "a" },
+        { registrationId: "r2", licenseeId: "b" },
+      ],
+      [resultat("1", "a", 900)],
+      null,
+      { absolut: false, graine: "g" },
+    );
+    expect(rangs.every((r) => r.generalCentiemes === 0)).toBe(true);
+    expect(rangs[1]?.critere).toBe("tirage");
+  });
+
+  it("l'absolut passe la place du jour de chaque inscrit", () => {
+    const rangs = placerLesInscrits(
+      [
+        {
+          registrationId: "leger",
+          licenseeId: "a",
+          jour: { sourcePlace: 1, sourceWeightClass: "Galo" },
+        },
+        {
+          registrationId: "lourd",
+          licenseeId: "b",
+          jour: { sourcePlace: 1, sourceWeightClass: "Pesado" },
+        },
+      ],
+      [],
+      CIBLE,
+      { absolut: true, graine: "g" },
+    );
+    expect(rangs.map((r) => [r.registrationId, r.critere])).toEqual([
+      ["lourd", null],
+      ["leger", "jour"],
+    ]);
+  });
+
+  it("la charge envoyée à la base porte les scores en points, à deux décimales", () => {
+    const rangs = placerLesInscrits(
+      [{ registrationId: "r1", licenseeId: "a" }],
+      [resultat("1", "a", 1350, { isAbsolut: true, saisonSportive: "2025-26" })],
+      CIBLE,
+      { absolut: true, graine: "g" },
+    );
+    const charge = placementPourLaBase(rangs, "g");
+    expect(charge).toEqual({
+      graine: "g",
+      entrees: [
+        {
+          registrationId: "r1",
+          rang: 1,
+          general: 6.75,
+          direct: 6.75,
+          absolut: 6.75,
+          critere: null,
+          contributions: [
+            {
+              resultId: "1",
+              saison: "2025-26",
+              isAbsolut: true,
+              pointsCentiemes: 1350,
+              partSaison: 5000,
+              partAge: 10000,
+              partCeinture: 10000,
+              contributionCentiemes: 675,
+            },
+          ],
+        },
+      ],
+    });
+    expect(JSON.stringify(charge)).toContain('"general":6.75');
   });
 });

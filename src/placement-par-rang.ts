@@ -1,7 +1,16 @@
 import { ALL_BELTS } from "./belts";
 import type { BeltDb, DisciplineDb, GenderDb } from "./enums";
 import { estNiveauDeCompetition, nombreVersCentiemes, trancheDeProfil } from "./points";
-import type { RangSportif, ResultatPourPlacement, ScoreDePlacement } from "./score-de-placement";
+import {
+  ordonnerPourTableau,
+  scoreDePlacement,
+  type CibleDePlacement,
+  type OptionsDOrdre,
+  type ParcoursDuJour,
+  type RangSportif,
+  type ResultatPourPlacement,
+  type ScoreDePlacement,
+} from "./score-de-placement";
 import type { SeedingPlan } from "./seeding-plan";
 
 export const RANG_SPORTIF_SEEDING_PLAN: SeedingPlan = {
@@ -208,5 +217,85 @@ export function resultatPourPlacementDepuisLaBase(
     place,
     niveau: ligne.ranking_level,
     pointsCentiemes: centiemes,
+  };
+}
+
+export type InscritAPlacer = {
+  readonly registrationId: string;
+  readonly licenseeId: string | null;
+  readonly jour?: ParcoursDuJour;
+};
+
+export type RangDInscrit = Omit<EntreeDePlacementFige, "licenseeId"> & {
+  readonly registrationId: string;
+  readonly licenseeId: string | null;
+};
+
+const CIBLE_SANS_RESULTAT: CibleDePlacement = Object.freeze({
+  saisonCourante: "",
+  discipline: "gi",
+  gender: "male",
+  tranche: "Adulte",
+  belt: "white",
+});
+
+export function placerLesInscrits(
+  inscrits: readonly InscritAPlacer[],
+  resultats: readonly ResultatPourPlacement[],
+  cible: CibleDePlacement | null,
+  options: OptionsDOrdre,
+): RangDInscrit[] {
+  const parLicencie = new Map<string, ResultatPourPlacement[]>();
+  for (const r of resultats) {
+    const liste = parLicencie.get(r.licenseeId);
+    if (liste === undefined) parLicencie.set(r.licenseeId, [r]);
+    else liste.push(r);
+  }
+  const licenceDe = new Map(inscrits.map((i) => [i.registrationId, i.licenseeId] as const));
+  const scores = inscrits.map((i) =>
+    scoreDePlacement(
+      i.registrationId,
+      cible !== null && i.licenseeId !== null ? (parLicencie.get(i.licenseeId) ?? []) : [],
+      cible ?? CIBLE_SANS_RESULTAT,
+      i.jour,
+    ),
+  );
+  return figerLePlacement(ordonnerPourTableau(scores, options), options.absolut).map((f) => ({
+    ...f,
+    registrationId: f.licenseeId,
+    licenseeId: licenceDe.get(f.licenseeId) ?? null,
+  }));
+}
+
+export type EntreeDePlacementEnvoyee = {
+  readonly registrationId: string;
+  readonly rang: number;
+  readonly general: number;
+  readonly direct: number;
+  readonly absolut: number;
+  readonly critere: CritereDeDepartage | null;
+  readonly contributions: readonly ContributionFigee[];
+};
+
+export type PlacementEnvoye = {
+  readonly graine: string;
+  readonly entrees: readonly EntreeDePlacementEnvoyee[];
+};
+
+export function placementPourLaBase(
+  rangs: readonly RangDInscrit[],
+  graine: string,
+): PlacementEnvoye {
+  return {
+    graine,
+    entrees: rangs.map((r) => ({
+      registrationId: r.registrationId,
+      rang: r.rang,
+      general: r.generalCentiemes / 100,
+      direct: r.directCentiemes / 100,
+      absolut: r.absolutCentiemes / 100,
+      critere: r.critere,
+      contributions: r.contributions,
+    })),
   };
 }

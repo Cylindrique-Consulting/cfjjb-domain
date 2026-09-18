@@ -843,6 +843,7 @@ défaut, BR3.9 option A pour toutes les autres compétitions).
 | `BracketResult.echanges`                                   | qui a été échangé avec qui, et pour quelle contrainte : le rapport de génération les nomme                      |
 | `figerLePlacement`, `critereQuiDepartage`                  | l'instantané d'un tableau (rang, trois scores, critère qui a départagé, contributions) et la légende (BR3.5 B)  |
 | `resultatPourPlacementDepuisLaBase`                        | une ligne de `competition_results` lue en base devient un `ResultatPourPlacement`, ou `null`                    |
+| `placerLesInscrits`, `placementPourLaBase`                 | le rang de chaque inscription d'un tableau (clé : l'inscription), et la charge qu'écrit la base                 |
 
 - **La disposition est celle de `seedPositions`** : #1 contre le dernier, #1 et #2 dans deux
   moitiés opposées, les byes aux mieux classés. Aucun tirage n'est consommé : le hasard ne
