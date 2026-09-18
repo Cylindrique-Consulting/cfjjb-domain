@@ -503,6 +503,39 @@ Chaque règle a un miroir SQL : la plateforme rejoue `scenariosInscriptionsAbsol
 commencé et l'annulation définitive d'un absolut ne sont pas des verbes de la matrice : elles
 sont réservées aux responsables désignés, connectés avec leur compte personnel.
 
+## Release v0.21.0 : la disqualification disciplinaire
+
+Vocabulaire et droits de la sanction disciplinaire (réponses du client du 11/09/2026 :
+DQ2.1 à DQ2.13, T3.1, T5.2, T13.2, T21.2 ; IBJJF Rules Book 6.1 et 7.1, GCG 2.4.2 et
+2.4.3).
+
+| Module                            | Ce qu'il apporte                                                                     |
+| --------------------------------- | ------------------------------------------------------------------------------------ |
+| `src/sanctions-disciplinaires.ts` | articles 6.1.x, moments, origines, statuts, issues de refus, libellés public / staff |
+| `src/capabilities.ts`             | `sanction.validate`, `refuse`, `pronounce`, `cancel` (Responsable, hors tapis)       |
+
+- **Un cycle de vie porté par l'ATHLÈTE, pas par le combat** : `en_attente`, `validee`,
+  `refusee`, `annulee`. `competition_fight_states` sait dire « ce combat s'est terminé par
+  une disqualification disciplinaire » ; elle ne sait pas dire « cette sanction attend la
+  validation du Responsable » (DQ2.6).
+- **Trois valeurs, et l'attente en est une** : `statutDisciplinaireDeLaSanction` traduit le
+  statut dans le vocabulaire de `classementOfficiel`, qui rend déjà l'état
+  `disciplinaire_en_attente`. Un refus et une annulation valent « aucune » : ils RENDENT à
+  l'athlète sa place (DQ2.8, DQ2.13).
+- **Deux libellés, selon qui regarde** : `libellePublicDeSanction()` rend
+  « Disqualification » seule, sans paramètre — le motif n'a aucun chemin vers l'écran
+  externe ni les vues publiques (DQ2.11, T13.2) ; `libelleStaffDeSanction` dit l'état de la
+  décision.
+- **Le texte des articles n'est PAS ici.** Le client a nommé « la liste des articles 6.1.1 à
+  6.1.6 » sans en donner les intitulés, et aucune de nos sources ne les porte.
+  `libelleCodeSanction` rend donc « Article 6.1.4 », et `LIBELLES_ARTICLES_A_FOURNIR` dit
+  explicitement qu'ils manquent : six phrases inventées seraient lues par un arbitre comme le
+  règlement lui-même.
+- **Les quatre verbes ne sont pas bornés à un tapis** : une faute commise sur le tatami 3
+  exclut aussi de la compétition No-Gi du même événement (IBJJF Rules Book 7.1). Ce que la
+  matrice ne sait pas dire — prononcer hors combat et annuler exigent un compte PERSONNEL,
+  pas un identifiant de poste partagé (T21.1) — reste une garde serveur.
+
 ## Pureté, vérifiée et non recommandée
 
 `eslint.config.mjs` interdit `node:*`, `fs`, `path`, `crypto`, `react`, `react-dom`,
