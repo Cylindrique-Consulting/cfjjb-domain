@@ -629,6 +629,55 @@ journée d'une catégorie est une **entrée** de `planifierCombats` ; `dureeInco
 donne la durée minimale d'une catégorie, attentes de repos comprises, pour que la répartition par
 journée cesse de la sous-estimer.
 
+## Release D (v0.22.0) : le score de placement
+
+`src/score-de-placement.ts` calcule ce que le guide des points v1.2 appelle le score de
+placement : la priorité d'un athlète avant qu'un tableau ne soit tiré. Le module est pur,
+donc le même calcul vaut en salle (absolut) et sur la plateforme (catégories de poids) —
+c'est la seule façon de tenir le §6.2, qui demande aux résultats du jour d'actualiser le
+score qui départage l'absolut, alors que le module tourne sur une pile de gymnase.
+
+| Ce qui entre                                      | Ce qui sort                                                          |
+| ------------------------------------------------- | -------------------------------------------------------------------- |
+| résultats officiels du licencié (trois saisons)   | contribution de chaque résultat, avec ses trois pourcentages         |
+| profil visé (discipline, sexe, tranche, ceinture) | score général, score Absolut, score direct                           |
+| graine du tableau                                 | rang sportif #1…#N, tous distincts, et la raison de chaque départage |
+
+- **Parts de saison** : saison visée 100 %, N-1 50 %, N-2 25 %, au-delà 0 %. Une saison
+  va du 1er août au 31 juillet (`bornesSaisonSportive`).
+- **Contribution** = points × part de saison × part d'âge × part de ceinture. Les facteurs
+  se multiplient, jamais ne s'additionnent.
+- **Arrondi** : les contributions sont calculées exactement, le score est arrondi une seule
+  fois à deux décimales, et l'ordre se fait sur cette valeur (§3.2, « aucune décimale
+  cachée »). Trois contributions de 0,125 donnent 0,38, non 0,39.
+- **Masters regroupés** (BR3.7, proposition A) : un groupe compte comme **un seul niveau**,
+  valable pour **chacune** de ses tranches. « Master 3/4 » vaut donc 100 % vers Master 3 et
+  vers Master 4, et 50 % vers Master 1 comme vers Master 2. Le nombre de remontées se compte
+  dans l'échelle de la saison du résultat (`groupesMasterDeLaSaison`) : regroupée jusqu'en
+  2025-26, séparée ensuite. Un entier unique par tranche ne peut pas exprimer cette
+  couverture, d'où l'intervalle de `NIVEAUX_MASTER_COUVERTS`.
+- **Ceintures** (BR3.8, proposition A) : le « juste en dessous » du §5 se lit sur l'échelle
+  de la tranche visée — enfants blanche, grise, jaune, orange, verte ; Juvénile et au-delà
+  blanche, bleue, violette, marron, noire. Toute ceinture d'enfant compte comme une blanche
+  vers un tableau Juvénile ou Adulte, et corail et rouge comptent comme une noire. L'échelle
+  continue des onze grades produisait une quatrième règle, qui n'était aucune des options
+  posées au client : elle refusait 50 % de la blanche vers la bleue (cinq crans d'écart) et
+  accordait 100 % à une verte d'enfant vers une bleue de juvénile.
+- **Ceinture plus haute que le tableau** : cas en principe impossible. Le résultat n'est pas
+  compté et ressort dans `ScoreDePlacement.ecartes`, pour le rapport de génération.
+- **Départage** (BR3.4 C, réponse du client) : score général puis score direct ;
+  pour un absolut, score Absolut puis général puis direct (§6, jamais additionnés) ; puis les
+  critères du classement national du §2.2 appliqués aux résultats qui composent le score
+  (points de Championnat national, de Majeures, puis or, argent, bronze) ; puis un tirage
+  reproductible à partir de la graine du tableau. **Chaque athlète reçoit un rang distinct** :
+  deux athlètes ne peuvent pas occuper la même graine. `RangSportif.departage` dit lequel des
+  trois étages a tranché, ce qu'attend la légende du §9.1.
+
+Le calcul n'est encore branché sur aucune génération de tableau : `BracketEntry.rank` n'est
+alimenté par personne et l'étape `protected-ranking` de `seeding-plan.ts` reste éteinte. C'est
+conforme à BR3.9, dont la proposition A laisse le tirage actuel en service jusqu'à la mise en
+service du placement par rang.
+
 ## Pureté, vérifiée et non recommandée
 
 `eslint.config.mjs` interdit `node:*`, `fs`, `path`, `crypto`, `react`, `react-dom`,
