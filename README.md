@@ -531,11 +531,15 @@ demi-finale, contre **15 minutes** aujourd'hui (5 de combat + 10 de repos).
   fin nominale du combat source — une durée de combat de la catégorie à venir jusqu'aux
   demi-finales, deux avant toute finale. Un combat bye ne prend pas de place dans la file et
   n'ouvre aucun repos.
-- **Intercalation** : si le tour en cours de la catégorie en cours n'est pas encore autorisé,
-  l'ordonnanceur prend un autre combat **du même tour**, puis un combat autorisé des catégories
-  suivantes du même tatami, dans l'ordre du planning. Il ne franchit jamais une frontière de
-  tour : une demi-finale ne remonte pas devant un quart. Un tatami n'attend que si aucun combat
-  n'est autorisé, et le combat placé porte alors `intercale`.
+- **Ordre strict dans un tour** (depuis v0.24.0) : les combats d'un même tour passent toujours
+  dans l'ordre du tableau, du haut vers le bas. Seul le premier combat restant du tour en cours
+  est candidat : s'il attend la fin d'un repos, ou un combat source placé sur un autre tatami,
+  aucun autre combat du même tour ne passe devant lui. Deux tours ne sont jamais mélangés : une
+  demi-finale ne remonte pas devant un quart.
+- **Intercalation** : pendant cette attente, l'ordonnanceur fait passer le premier combat
+  autorisé des catégories suivantes du même tatami, dans l'ordre du planning ; ce combat porte
+  `intercale`. Si aucune n'a de combat autorisé, le tatami attend, puis lance le premier combat
+  de tête qui le devient.
 - **Espacement** : 60 secondes par défaut, réglable ; il sépare deux combats d'un tatami et ne
   s'ajoute pas au repos.
 - **Athlètes** : les identifiants portés par `combats[].athletes` sont ceux du **licencié**, les
@@ -580,7 +584,11 @@ Gi, No-Gi, Kids Gi et Kids No-Gi sont quatre compétitions distinctes d'un même
 la première compétition d'une journée porte une heure saisie ; `planifierLEvenement` fait partir
 chaque suivante de la **fin prévue de la précédente**, tous tatamis libérés, et le repos des
 athlètes communs est tenu combat par combat : la compétition suivante n'est pas décalée en bloc,
-c'est le combat de l'athlète commun qui recule. Une heure saisie qui ferait empiéter une
+seul recule ce qui attend l'athlète commun. L'ordre du tableau étant strict à l'intérieur d'un
+tour, un combat de cet athlète placé en tête de son tour retient les combats qui le suivent dans
+ce tour : le tatami fait alors passer une autre catégorie s'il en a une, sinon il attend. Quand
+l'athlète ouvre un tableau seul sur son tatami, c'est donc tout ce tableau qui recule, de son
+repos moins l'espacement au plus. Une heure saisie qui ferait empiéter une
 compétition sur la précédente est acceptée mais signalée
 (`chevauchement_de_competitions`).
 
@@ -712,6 +720,48 @@ DQ2.1 à DQ2.13, T3.1, T5.2, T13.2, T21.2 ; IBJJF Rules Book 6.1 et 7.1, GCG 2.4
   exclut aussi de la compétition No-Gi du même événement (IBJJF Rules Book 7.1). Ce que la
   matrice ne sait pas dire — prononcer hors combat et annuler exigent un compte PERSONNEL,
   pas un identifiant de poste partagé (T21.1) — reste une garde serveur.
+
+## Release v0.24.0 : l'ordre strict du tableau dans un tour
+
+`planifierCombats` ne fait plus passer un combat d'un tour devant un autre combat du même tour.
+Aucun export n'est ajouté ni retiré : seul l'ordre des combats change.
+
+- **Avant** (v0.21.0 à v0.23.0) : quand le combat suivant d'un tour ne pouvait pas encore
+  commencer, parce qu'un de ses athlètes était en repos ou que son combat source, sur un autre
+  tatami, n'était pas encore placé, l'ordonnanceur faisait passer un autre combat prêt du
+  **même tour** avant de regarder les autres catégories du tatami.
+- **Maintenant** : seul le premier combat restant du tour est candidat. S'il ne peut pas
+  commencer, une **autre catégorie** du tatami passe pendant l'attente ; s'il n'y en a pas, le
+  tatami attend. Les combats d'un tour passent toujours du haut vers le bas du tableau.
+
+Pourquoi : le client n'a jamais demandé de permuter deux combats d'un même tour, c'était un
+choix fait pendant le développement de la release C. Décision du 18/09/2026 : proposer au client
+l'ordre strict (question PL3.9, option B). C'est la lettre de ses réponses T7.1 et TR1.1, qui
+font passer pendant un repos « des combats d'autres catégories du même tatami ». Pour le jour J,
+le client a écarté en DQ4.2 le recul automatique d'un combat en repos derrière le prochain
+combat prêt : le planning préparé suit désormais la même règle.
+
+Ce que cela change, en combats de 5 minutes séparés de 60 secondes :
+
+| Cas                                                                              | Avant                                                                  | Maintenant                                                                                                     |
+| -------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Tableau de 5 inscrits seul sur son tatami, 1er tour à 09:00                      | 2e demi-finale 09:06, 1re 09:12, finale 09:27                          | 1re demi-finale 09:10 (fin du repos), 2e 09:16, finale 09:31                                                   |
+| Le même, suivi sur le tatami d'une catégorie de 4 inscrits                       | demi-finales du 5 à 09:06 et 09:12, l'autre catégorie à 09:18 et 09:24 | l'autre catégorie passe à 09:06 et 09:24, les demi-finales du 5 à 09:12 et 09:18 ; fin 09:44 dans les deux cas |
+| Gi finie à 13:59, No-Gi à 14:00, athlète commun au 1er combat d'un tableau de 16 | combat 2 à 14:00, combat 1 à 14:06, finale 15:33                       | combat 1 à 14:04, finale 15:37 ; avec une autre catégorie sur le tatami, elle passe à 14:00                    |
+
+- **Tableau complet, sans athlète engagé ailleurs dans la journée** : les deux ordres sont
+  identiques.
+- **Tableaux à exempts** : sur un tatami seul, de 2 à 64 inscrits, seuls 5, 9, 17 et 33
+  inscrits diffèrent. Ils n'ont qu'un combat réel au premier tour, et son vainqueur est attendu
+  au premier combat du tour suivant. La finale est prévue un repos moins l'espacement plus tard :
+  4 minutes en combats de 5 minutes.
+- **Athlète commun à deux compétitions qui se suivent** : quand il ouvre le tableau, le
+  décalage vaut au plus son repos moins l'espacement.
+- **Pas d'interblocage entre tatamis** : une source précède toujours son dépendant dans
+  `categoryRunningOrder`. Parmi les combats restants d'une catégorie, celui qui vient le premier
+  dans cet ordre a donc toutes ses sources placées, et il est en tête de la file de son tatami :
+  un tatami au moins peut toujours avancer. Un test le vérifie sur 200 affectations quelconques
+  des combats à 2, 3 ou 4 tatamis, sans aucune `dependanceIgnoree`.
 
 ## Pureté, vérifiée et non recommandée
 
