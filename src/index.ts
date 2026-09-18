@@ -35,3 +35,4 @@ export * from "./ordonnanceur-planning";
 export * from "./controles-de-planning";
 export * from "./enchainement-competitions";
 export * from "./score-de-placement";
+export * from "./sanctions-disciplinaires";

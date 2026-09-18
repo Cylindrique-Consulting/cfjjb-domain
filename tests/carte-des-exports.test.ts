@@ -29,6 +29,11 @@ import {
   partDeCeinture,
   scoreDePlacement,
 } from "../src/score-de-placement";
+import {
+  libelleCodeSanction,
+  statutDisciplinaireDeLaSanction,
+  texteArticleSanction,
+} from "../src/sanctions-disciplinaires";
 
 const SOURCES = import.meta.glob("../src/*.ts", {
   query: "?raw",
@@ -147,5 +152,15 @@ describe("la carte des exports", () => {
     expect(domaine.partDAge).toBe(partDAge);
     expect(domaine.partDeCeinture).toBe(partDeCeinture);
     expect(manifeste.exports?.["./score-de-placement"]).toBe("./src/score-de-placement.ts");
+  });
+
+  it("la sanction disciplinaire est joignable depuis la racine et par son entrée (v0.23.0)", () => {
+    expect(modules).toContain("sanctions-disciplinaires");
+    expect(domaine.libelleCodeSanction).toBe(libelleCodeSanction);
+    expect(domaine.texteArticleSanction).toBe(texteArticleSanction);
+    expect(domaine.statutDisciplinaireDeLaSanction).toBe(statutDisciplinaireDeLaSanction);
+    expect(manifeste.exports?.["./sanctions-disciplinaires"]).toBe(
+      "./src/sanctions-disciplinaires.ts",
+    );
   });
 });
