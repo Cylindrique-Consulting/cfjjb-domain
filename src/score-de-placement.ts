@@ -1,7 +1,9 @@
+import { sourceWeightRank, type AbsolutRegistration } from "./absolut-seeding";
 import { KIDS_BELTS } from "./belts";
 import type { BeltDb, DisciplineDb, GenderDb } from "./enums";
 import { bornesSaisonSportive, type NiveauDeCompetition, type TrancheDeProfil } from "./points";
 import { fnv1a, mulberry32, shuffle } from "./prng";
+import { compareSourcePlaceThenWeight } from "./seeding-plan";
 
 const PART_PLEINE = 10000;
 
@@ -90,6 +92,13 @@ export type CibleDePlacement = {
   readonly belt: BeltDb;
 };
 
+export type ParcoursDuJour = Pick<AbsolutRegistration, "sourcePlace" | "sourceWeightClass">;
+
+export type PlaceDuJour = {
+  readonly sourcePlace: number | null;
+  readonly sourceWeightRank: number | null;
+};
+
 export type Contribution = {
   readonly resultat: ResultatPourPlacement;
   readonly partSaison: number;
@@ -123,9 +132,10 @@ export type ScoreDePlacement = {
   readonly bronzes: number;
   readonly contributions: readonly Contribution[];
   readonly ecartes: readonly ResultatEcarte[];
+  readonly jour?: PlaceDuJour;
 };
 
-export const DEPARTAGES = ["score", "criteres", "tirage"] as const;
+export const DEPARTAGES = ["score", "criteres", "jour", "tirage"] as const;
 export type Departage = (typeof DEPARTAGES)[number];
 
 export type RangSportif = {
@@ -299,10 +309,18 @@ export function contributionDUnResultat(
   return evaluation.retenu ? evaluation.contribution : null;
 }
 
+export function placeDuJourDe(parcours: ParcoursDuJour): PlaceDuJour {
+  return {
+    sourcePlace: parcours.sourcePlace ?? null,
+    sourceWeightRank: sourceWeightRank(parcours.sourceWeightClass),
+  };
+}
+
 export function scoreDePlacement(
   licenseeId: string,
   resultats: readonly ResultatPourPlacement[],
   cible: CibleDePlacement,
+  jour?: ParcoursDuJour,
 ): ScoreDePlacement {
   const contributions: Contribution[] = [];
   const ecartes: ResultatEcarte[] = [];
@@ -350,6 +368,7 @@ export function scoreDePlacement(
     bronzes,
     contributions,
     ecartes,
+    ...(jour === undefined ? {} : { jour: placeDuJourDe(jour) }),
   };
 }
 
@@ -375,6 +394,20 @@ export function graineDuDepartage(graine: string, licenseeIds: readonly string[]
   return fnv1a(`${graine}|${[...licenseeIds].sort().join(",")}`);
 }
 
+const JOUR_INCONNU: PlaceDuJour = Object.freeze({ sourcePlace: null, sourceWeightRank: null });
+
+type Ecart = { readonly etage: Exclude<Departage, "tirage">; readonly ecart: number };
+
+function premierEcart(a: ScoreDePlacement, b: ScoreDePlacement, absolut: boolean): Ecart | null {
+  const parScore = comparerDecroissant(clesDeScore(a, absolut), clesDeScore(b, absolut));
+  if (parScore !== 0) return { etage: "score", ecart: parScore };
+  const parCriteres = comparerDecroissant(clesDeCriteresNationaux(a), clesDeCriteresNationaux(b));
+  if (parCriteres !== 0) return { etage: "criteres", ecart: parCriteres };
+  if (!absolut) return null;
+  const parJour = compareSourcePlaceThenWeight(a.jour ?? JOUR_INCONNU, b.jour ?? JOUR_INCONNU);
+  return parJour !== 0 ? { etage: "jour", ecart: parJour } : null;
+}
+
 export function ordonnerPourTableau(
   scores: readonly ScoreDePlacement[],
   options: OptionsDOrdre,
@@ -386,11 +419,7 @@ export function ordonnerPourTableau(
     a.licenseeId < b.licenseeId ? -1 : a.licenseeId > b.licenseeId ? 1 : 0,
   );
 
-  const tries = canoniques.sort((a, b) => {
-    const parScore = comparerDecroissant(clesDeScore(a, absolut), clesDeScore(b, absolut));
-    if (parScore !== 0) return parScore;
-    return comparerDecroissant(clesDeCriteresNationaux(a), clesDeCriteresNationaux(b));
-  });
+  const tries = canoniques.sort((a, b) => premierEcart(a, b, absolut)?.ecart ?? 0);
 
   const rangs: RangSportif[] = [];
   let debut = 0;
@@ -400,14 +429,7 @@ export function ordonnerPourTableau(
     let fin = debut + 1;
     while (
       fin < tries.length &&
-      comparerDecroissant(
-        clesDeScore(tete, absolut),
-        clesDeScore(tries[fin] as ScoreDePlacement, absolut),
-      ) === 0 &&
-      comparerDecroissant(
-        clesDeCriteresNationaux(tete),
-        clesDeCriteresNationaux(tries[fin] as ScoreDePlacement),
-      ) === 0
+      premierEcart(tete, tries[fin] as ScoreDePlacement, absolut) === null
     ) {
       fin += 1;
     }
@@ -432,10 +454,7 @@ export function ordonnerPourTableau(
       if (rangDansLeGroupe > 0) departage = "tirage";
       else if (index > 0) {
         const precedent = (rangs[index - 1] as RangSportif).score;
-        departage =
-          comparerDecroissant(clesDeScore(precedent, absolut), clesDeScore(score, absolut)) !== 0
-            ? "score"
-            : "criteres";
+        departage = premierEcart(precedent, score, absolut)?.etage ?? "tirage";
       }
       rangs.push({ score, rang: index + 1, departage });
     });

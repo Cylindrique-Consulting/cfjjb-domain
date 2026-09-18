@@ -27,8 +27,10 @@ import {
   ordonnerPourTableau,
   partDAge,
   partDeCeinture,
+  placeDuJourDe,
   scoreDePlacement,
 } from "../src/score-de-placement";
+import { compareSourcePlaceThenWeight } from "../src/seeding-plan";
 import {
   libelleCodeSanction,
   statutDisciplinaireDeLaSanction,
@@ -152,6 +154,12 @@ describe("la carte des exports", () => {
     expect(domaine.partDAge).toBe(partDAge);
     expect(domaine.partDeCeinture).toBe(partDeCeinture);
     expect(manifeste.exports?.["./score-de-placement"]).toBe("./src/score-de-placement.ts");
+  });
+
+  it("le départage propre à l'absolut est joignable depuis la racine (v0.25.0)", () => {
+    expect(domaine.placeDuJourDe).toBe(placeDuJourDe);
+    expect(domaine.compareSourcePlaceThenWeight).toBe(compareSourcePlaceThenWeight);
+    expect(domaine.DEPARTAGES).toContain("jour");
   });
 
   it("la sanction disciplinaire est joignable depuis la racine et par son entrée (v0.23.0)", () => {

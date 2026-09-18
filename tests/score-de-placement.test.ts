@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { absolutSeedOrder, type AbsolutRegistration } from "../src/absolut-seeding";
 import { ALL_BELTS, BELT_RANK_ORDER, KIDS_BELTS } from "../src/belts";
+import { pointsDeResultat, type NiveauDeCompetition } from "../src/points";
+import { fnv1a, mulberry32 } from "../src/prng";
 import { AGE_GROUPS, isChildAgeGroup } from "../src/referential";
 import {
   ceintureSuperieureALaCible,
   contributionDUnResultat,
+  DEPARTAGES,
   DERNIERE_SAISON_MASTERS_REGROUPES,
   ECHELLE_CEINTURES_ADULTE,
   ECHELLE_CEINTURES_ENFANT,
@@ -15,6 +19,7 @@ import {
   partDAge,
   partDeCeinture,
   partDeSaison,
+  placeDuJourDe,
   scoreDePlacement,
   TRANCHES_ENFANTS_DE_PROFIL,
   type CibleDePlacement,
@@ -469,6 +474,293 @@ describe("départage des ex aequo, BR3.4 option C", () => {
       (r) => r.score.licenseeId,
     );
     expect(a).not.toEqual(b);
+  });
+});
+
+const GRAINES = Array.from({ length: 40 }, (_, i) => `absolut-${i}`);
+
+function pointsDUnPodium(place: 1 | 2 | 3, niveau: NiveauDeCompetition): number {
+  return pointsDeResultat({ place, absolut: false, niveau, exclusion: null })?.points ?? 0;
+}
+
+function podiumDuJour(
+  licenseeId: string,
+  place: 1 | 2 | 3,
+  niveau: NiveauDeCompetition = "open",
+): ResultatPourPlacement {
+  return resultat({
+    resultId: `${licenseeId}-jour`,
+    licenseeId,
+    competitionId: "competition-du-jour",
+    place,
+    niveau,
+    pointsCentiemes: pointsDUnPodium(place, niveau),
+  });
+}
+
+function podiumDeLaSaison(
+  licenseeId: string,
+  place: 1 | 2 | 3,
+  niveau: NiveauDeCompetition = "open",
+): ResultatPourPlacement {
+  return resultat({
+    resultId: `${licenseeId}-saison`,
+    licenseeId,
+    competitionId: "open-de-la-saison",
+    place,
+    niveau,
+    pointsCentiemes: pointsDUnPodium(place, niveau),
+  });
+}
+
+function clesDeDepartage(s: ScoreDePlacement): number[] {
+  return [
+    s.absolutCentiemes,
+    s.generalCentiemes,
+    s.directCentiemes,
+    s.nationalCentiemes,
+    s.majeureCentiemes,
+    s.ors,
+    s.argents,
+    s.bronzes,
+  ];
+}
+
+function ordresObtenus(scores: readonly ScoreDePlacement[], absolut = true): Set<string> {
+  const ordres = new Set<string>();
+  for (const graine of GRAINES) {
+    for (const lecture of [scores, [...scores].reverse()]) {
+      const rangs = ordonnerPourTableau(lecture, { absolut, graine });
+      ordres.add(rangs.map((r) => `${r.score.licenseeId}:${r.departage}`).join(" > "));
+    }
+  }
+  return ordres;
+}
+
+describe("absolut : place du jour puis catégorie la plus lourde, AB7.6 option C", () => {
+  it("l'exemple du questionnaire : deux champions du jour sans autre résultat, le plus lourd passe devant, sans tirage", () => {
+    const leve = scoreDePlacement("champion-leve", [podiumDuJour("champion-leve", 1)], CIBLE, {
+      sourcePlace: 1,
+      sourceWeightClass: "Leve",
+    });
+    const pesado = scoreDePlacement(
+      "champion-pesado",
+      [podiumDuJour("champion-pesado", 1)],
+      CIBLE,
+      { sourcePlace: 1, sourceWeightClass: "Pesado" },
+    );
+    expect(clesDeDepartage(leve), "égalité parfaite de score et de critères nationaux").toEqual(
+      clesDeDepartage(pesado),
+    );
+    expect([...ordresObtenus([leve, pesado])]).toEqual([
+      "champion-pesado:score > champion-leve:jour",
+    ]);
+  });
+
+  it("sans les données du jour, la même égalité tombe au tirage, comme en v0.24.0", () => {
+    const leve = scoreDePlacement("champion-leve", [podiumDuJour("champion-leve", 1)], CIBLE);
+    const pesado = scoreDePlacement("champion-pesado", [podiumDuJour("champion-pesado", 1)], CIBLE);
+    expect("jour" in leve, "le score n'invente pas de données du jour").toBe(false);
+    expect(ordresObtenus([leve, pesado])).toEqual(
+      new Set([
+        "champion-pesado:score > champion-leve:tirage",
+        "champion-leve:score > champion-pesado:tirage",
+      ]),
+    );
+  });
+
+  it("un or du jour passe devant un argent du jour à égalité de critères, même plus léger", () => {
+    const orGalo = scoreDePlacement(
+      "or-galo",
+      [podiumDuJour("or-galo", 1), podiumDeLaSaison("or-galo", 2)],
+      CIBLE,
+      { sourcePlace: 1, sourceWeightClass: "Galo" },
+    );
+    const argentPesadissimo = scoreDePlacement(
+      "argent-pesadissimo",
+      [podiumDuJour("argent-pesadissimo", 2), podiumDeLaSaison("argent-pesadissimo", 1)],
+      CIBLE,
+      { sourcePlace: 2, sourceWeightClass: "Pesadissimo" },
+    );
+    expect(clesDeDepartage(orGalo)).toEqual(clesDeDepartage(argentPesadissimo));
+    expect(orGalo.ors).toBe(1);
+    expect(orGalo.argents).toBe(1);
+    expect([...ordresObtenus([argentPesadissimo, orGalo])]).toEqual([
+      "or-galo:score > argent-pesadissimo:jour",
+    ]);
+  });
+
+  it("une ceinture noire Adulte inscrite sans médaille passe après les médaillés, puis la plus lourde d'abord", () => {
+    const bronzeGalo = scoreDePlacement("bronze-galo", [podiumDuJour("bronze-galo", 3)], CIBLE, {
+      sourcePlace: 3,
+      sourceWeightClass: "Galo",
+    });
+    const sansPodiumLourd = scoreDePlacement(
+      "sans-podium-pesadissimo",
+      [podiumDeLaSaison("sans-podium-pesadissimo", 3)],
+      CIBLE,
+      { sourcePlace: null, sourceWeightClass: "Pesadissimo" },
+    );
+    const sansPodiumInconnu = scoreDePlacement(
+      "sans-podium-inconnu",
+      [podiumDeLaSaison("sans-podium-inconnu", 3)],
+      CIBLE,
+      { sourcePlace: null, sourceWeightClass: null },
+    );
+    expect(clesDeDepartage(bronzeGalo)).toEqual(clesDeDepartage(sansPodiumLourd));
+    expect(clesDeDepartage(bronzeGalo)).toEqual(clesDeDepartage(sansPodiumInconnu));
+    expect([...ordresObtenus([sansPodiumInconnu, sansPodiumLourd, bronzeGalo])]).toEqual([
+      "bronze-galo:score > sans-podium-pesadissimo:jour > sans-podium-inconnu:jour",
+    ]);
+  });
+
+  it("des données du jour absentes valent une place absente et une catégorie inconnue", () => {
+    const medaille = score("argent-du-jour", {
+      jour: placeDuJourDe({ sourcePlace: 2, sourceWeightClass: "Galo" }),
+    });
+    const sansPodiumInconnu = score("sans-podium-inconnu", {
+      jour: placeDuJourDe({ sourcePlace: null, sourceWeightClass: null }),
+    });
+    const sansDonnees = score("sans-donnees");
+    expect(ordresObtenus([sansDonnees, sansPodiumInconnu, medaille])).toEqual(
+      new Set([
+        "argent-du-jour:score > sans-donnees:jour > sans-podium-inconnu:tirage",
+        "argent-du-jour:score > sans-podium-inconnu:jour > sans-donnees:tirage",
+      ]),
+    );
+  });
+
+  it("une égalité complète, même place dans la même catégorie, finit au tirage reproductible", () => {
+    const a = scoreDePlacement("bronze-medio-a", [podiumDuJour("bronze-medio-a", 3)], CIBLE, {
+      sourcePlace: 3,
+      sourceWeightClass: "Medio",
+    });
+    const b = scoreDePlacement("bronze-medio-b", [podiumDuJour("bronze-medio-b", 3)], CIBLE, {
+      sourcePlace: 3,
+      sourceWeightClass: "4",
+    });
+    expect(a.jour).toEqual(b.jour);
+
+    const attendu = ordonnerPourTableau([a, b], { absolut: true, graine: "absolut-medio" });
+    expect(attendu.map((r) => r.departage)).toEqual(["score", "tirage"]);
+    expect(
+      ordonnerPourTableau([b, a], { absolut: true, graine: "absolut-medio" }).map(
+        (r) => r.score.licenseeId,
+      ),
+      "même graine, autre ordre de lecture : même tirage",
+    ).toEqual(attendu.map((r) => r.score.licenseeId));
+    expect(ordresObtenus([a, b]).size, "d'une graine à l'autre, les deux ordres sortent").toBe(2);
+  });
+
+  it("les critères du classement national passent avant la place du jour, le score avant tout", () => {
+    const rangs = ordonnerPourTableau(
+      [
+        score("or-pesadissimo", {
+          generalCentiemes: 3600,
+          majeureCentiemes: 3600,
+          jour: placeDuJourDe({ sourcePlace: 1, sourceWeightClass: "Pesadissimo" }),
+        }),
+        score("argent-galo-national", {
+          generalCentiemes: 3600,
+          nationalCentiemes: 3600,
+          jour: placeDuJourDe({ sourcePlace: 2, sourceWeightClass: "Galo" }),
+        }),
+        score("bronze-absolut", {
+          absolutCentiemes: 150,
+          generalCentiemes: 150,
+          jour: placeDuJourDe({ sourcePlace: 3, sourceWeightClass: "Galo" }),
+        }),
+      ],
+      { absolut: true, graine: "absolut-1" },
+    );
+    expect(rangs.map((r) => [r.score.licenseeId, r.departage])).toEqual([
+      ["bronze-absolut", "score"],
+      ["argent-galo-national", "score"],
+      ["or-pesadissimo", "criteres"],
+    ]);
+  });
+
+  it("reprend l'ordre du plan de tirage de l'absolut, place source puis catégorie la plus lourde", () => {
+    const inscriptions: AbsolutRegistration[] = [
+      { registrationId: "leve-2", sourcePlace: 2, sourceWeightClass: "Leve" },
+      { registrationId: "pesadissimo-1", sourcePlace: 1, sourceWeightClass: "Pesadissimo" },
+      { registrationId: "sans-podium-medio", sourcePlace: null, sourceWeightClass: "Medio" },
+      { registrationId: "medio-3", sourcePlace: 3, sourceWeightClass: "4" },
+      { registrationId: "pesado-2", sourcePlace: 2, sourceWeightClass: "Pesado" },
+      { registrationId: "galo-1", sourcePlace: 1, sourceWeightClass: "Galo" },
+      { registrationId: "sans-podium-pena", sourcePlace: null, sourceWeightClass: "Pena" },
+      { registrationId: "illisible-1", sourcePlace: 1, sourceWeightClass: "500" },
+    ];
+    const scores = inscriptions.map((i) => scoreDePlacement(i.registrationId, [], CIBLE, i));
+    for (const graine of GRAINES) {
+      expect(
+        ordonnerPourTableau(scores, { absolut: true, graine }).map((r) => r.score.licenseeId),
+      ).toEqual(absolutSeedOrder(inscriptions).map((i) => i.registrationId));
+    }
+  });
+
+  it("juvéniles : la catégorie la plus lourde se lit sur l'échelle des poids, pas sur le nom de l'absolut", () => {
+    const cible: CibleDePlacement = { ...CIBLE, tranche: "Juvénile", belt: "blue" };
+    const champion = (id: string, sourceWeightClass: string) =>
+      scoreDePlacement(id, [{ ...podiumDuJour(id, 1), tranche: "Juvénile", belt: "blue" }], cible, {
+        sourcePlace: 1,
+        sourceWeightClass,
+      });
+    expect([...ordresObtenus([champion("pluma", "Pluma"), champion("leve", "3")])]).toEqual([
+      "leve:score > pluma:jour",
+    ]);
+    expect(
+      placeDuJourDe({ sourcePlace: 1, sourceWeightClass: "Absolut Leve" }).sourceWeightRank,
+      "le nom de l'absolut n'est pas une catégorie de poids : il vaut une catégorie inconnue",
+    ).toBeNull();
+  });
+
+  it("catégories de poids : les données du jour ne changent rien, sur 500 populations tirées", () => {
+    const aleatoire = mulberry32(fnv1a("non-regression-categories-de-poids"));
+    const petit = () => Math.floor(aleatoire() * 3);
+    const places = [1, 2, 3, null] as const;
+    const poids = ["Galo", "Medio", "Pesadissimo", null] as const;
+    for (let population = 0; population < 500; population++) {
+      const effectif = 2 + Math.floor(aleatoire() * 7);
+      const sans: ScoreDePlacement[] = [];
+      const avec: ScoreDePlacement[] = [];
+      for (let i = 0; i < effectif; i++) {
+        const s = score(`l${i}`, {
+          generalCentiemes: petit() * 900,
+          directCentiemes: petit() * 900,
+          nationalCentiemes: petit() * 3600,
+          majeureCentiemes: petit() * 1800,
+          ors: petit(),
+          argents: petit(),
+          bronzes: petit(),
+        });
+        sans.push(s);
+        avec.push({
+          ...s,
+          jour: placeDuJourDe({
+            sourcePlace: places[Math.floor(aleatoire() * places.length)] ?? null,
+            sourceWeightClass: poids[Math.floor(aleatoire() * poids.length)] ?? null,
+          }),
+        });
+      }
+      const graine = `categorie-${population}`;
+      const attendu = ordonnerPourTableau(sans, { absolut: false, graine }).map((r) => [
+        r.score.licenseeId,
+        r.rang,
+        r.departage,
+      ]);
+      const obtenu = ordonnerPourTableau(avec, { absolut: false, graine }).map((r) => [
+        r.score.licenseeId,
+        r.rang,
+        r.departage,
+      ]);
+      expect(obtenu).toEqual(attendu);
+      expect(obtenu.some(([, , departage]) => departage === "jour")).toBe(false);
+    }
+  });
+
+  it("l'étage du jour est rangé entre les critères et le tirage", () => {
+    expect([...DEPARTAGES]).toEqual(["score", "criteres", "jour", "tirage"]);
   });
 });
 
