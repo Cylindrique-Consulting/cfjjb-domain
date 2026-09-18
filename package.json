@@ -48,6 +48,7 @@
     "./ordonnanceur-planning": "./src/ordonnanceur-planning.ts",
     "./controles-de-planning": "./src/controles-de-planning.ts",
     "./enchainement-competitions": "./src/enchainement-competitions.ts",
+    "./score-de-placement": "./src/score-de-placement.ts",
     "./sanctions-disciplinaires": "./src/sanctions-disciplinaires.ts"
   },
   "files": [
