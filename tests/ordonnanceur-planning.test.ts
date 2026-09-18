@@ -7,7 +7,17 @@ import {
   type PlacementDeCombat,
 } from "../src/ordonnanceur-planning";
 import { computeTatamiSchedule, fightTimeKey } from "../src/planning-generator";
-import { heure, hhmm, monter, tableau, tatamis, versControle, MINUTE } from "./aides-planning";
+import { generatePool } from "../src/pool-generator";
+import {
+  heure,
+  hhmm,
+  inscrits,
+  monter,
+  tableau,
+  tatamis,
+  versControle,
+  MINUTE,
+} from "./aides-planning";
 
 const JOUR_MS = 24 * 60 * 60_000;
 
@@ -504,6 +514,44 @@ describe("l'ordonnanceur au combat", () => {
       }
     }
     expect(controles).toBeGreaterThan(4);
+  });
+
+  it("planifie une poule sans jamais faire combattre un athlète deux fois de suite", () => {
+    const resultat = generatePool(inscrits(5, "P"), "graine-poule", {});
+    if (resultat.kind !== "pool") throw new Error("poule non générée");
+    const combats = resultat.fights.map((fight, index) => ({
+      id: `poule:${index}`,
+      categorieId: "poule",
+      tatamiId: "t1",
+      division: fight.division,
+      indexInDivision: fight.indexInDivision,
+      type: fight.type,
+      isBye: fight.isBye,
+      athletes: [fight.slotA, fight.slotB] as const,
+    }));
+    const plan = planifierCombats({
+      tatamis: unTatami(),
+      categories: [
+        { id: "poule", dureeSecondes: 300, jour: 0, rangDePlanning: 0, format: "pools" },
+      ],
+      combats,
+    });
+    expect(plan.combats.size).toBe(combats.length);
+    const dernierParAthlete = new Map<string, number>();
+    for (const place of parRang(plan.combats)) {
+      const combat = combats.find((c) => c.id === place.fightId);
+      for (const athlete of combat?.athletes ?? []) {
+        if (athlete === null) continue;
+        const fin = dernierParAthlete.get(athlete);
+        if (fin !== undefined) {
+          expect(place.debutMs, `${athlete} ${place.fightId}`).toBeGreaterThanOrEqual(
+            fin + 5 * MINUTE,
+          );
+        }
+        dernierParAthlete.set(athlete, place.finMs);
+      }
+    }
+    expect(dernierParAthlete.size).toBe(5);
   });
 
   it("rend le même plan pour la même entrée", () => {
