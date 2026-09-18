@@ -584,7 +584,11 @@ Gi, No-Gi, Kids Gi et Kids No-Gi sont quatre compétitions distinctes d'un même
 la première compétition d'une journée porte une heure saisie ; `planifierLEvenement` fait partir
 chaque suivante de la **fin prévue de la précédente**, tous tatamis libérés, et le repos des
 athlètes communs est tenu combat par combat : la compétition suivante n'est pas décalée en bloc,
-c'est le combat de l'athlète commun qui recule. Une heure saisie qui ferait empiéter une
+seul recule ce qui attend l'athlète commun. L'ordre du tableau étant strict à l'intérieur d'un
+tour, un combat de cet athlète placé en tête de son tour retient les combats qui le suivent dans
+ce tour : le tatami fait alors passer une autre catégorie s'il en a une, sinon il attend. Quand
+l'athlète ouvre un tableau seul sur son tatami, c'est donc tout ce tableau qui recule, de son
+repos moins l'espacement au plus. Une heure saisie qui ferait empiéter une
 compétition sur la précédente est acceptée mais signalée
 (`chevauchement_de_competitions`).
 
