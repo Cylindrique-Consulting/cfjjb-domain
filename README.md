@@ -686,6 +686,41 @@ alimenté par personne et l'étape `protected-ranking` de `seeding-plan.ts` rest
 conforme à BR3.9, dont la proposition A laisse le tirage actuel en service jusqu'à la mise en
 service du placement par rang.
 
+## Release v0.23.0 : la disqualification disciplinaire
+
+Vocabulaire et droits de la sanction disciplinaire (réponses du client du 11/09/2026 :
+DQ2.1 à DQ2.13, T3.1, T5.2, T13.2, T21.2 ; IBJJF Rules Book 6.1 et 7.1, GCG 2.4.2 et
+2.4.3).
+
+| Module                            | Ce qu'il apporte                                                                              |
+| --------------------------------- | --------------------------------------------------------------------------------------------- |
+| `src/sanctions-disciplinaires.ts` | articles 6.1.x (libellé et texte), moments, origines, statuts, refus, libellés public / staff |
+| `src/capabilities.ts`             | `sanction.validate`, `refuse`, `pronounce`, `cancel` (Responsable, hors tapis)                |
+
+- **Un cycle de vie porté par l'ATHLÈTE, pas par le combat** : `en_attente`, `validee`,
+  `refusee`, `annulee`. `competition_fight_states` sait dire « ce combat s'est terminé par
+  une disqualification disciplinaire » ; elle ne sait pas dire « cette sanction attend la
+  validation du Responsable » (DQ2.6).
+- **Trois valeurs, et l'attente en est une** : `statutDisciplinaireDeLaSanction` traduit le
+  statut dans le vocabulaire de `classementOfficiel`, qui rend déjà l'état
+  `disciplinaire_en_attente`. Un refus et une annulation valent « aucune » : ils RENDENT à
+  l'athlète sa place (DQ2.8, DQ2.13).
+- **Deux libellés, selon qui regarde** : `libellePublicDeSanction()` rend
+  « Disqualification » seule, sans paramètre — le motif n'a aucun chemin vers l'écran
+  externe ni les vues publiques (DQ2.11, T13.2) ; `libelleStaffDeSanction` dit l'état de la
+  décision.
+- **Les articles, avec leur texte** : le client a répondu A à DQ2.10, « Liste reprenant
+  l'article 6.1 + commentaire libre facultatif ». Les six articles sont ceux du règlement
+  officiel CFJJB 2024, page 23 (« 6.1 Fautes disciplinaires »), numérotés comme dans le
+  règlement IBJJF 2024. `libelleCodeSanction` rend le numéro et un libellé court, un par
+  bouton (« Article 6.1.4 : Comportement offensant ou irrespectueux ») ;
+  `texteArticleSanction` rend la phrase complète du règlement, recopiée mot pour mot. Le
+  libellé court résume, le texte complet fait foi.
+- **Les quatre verbes ne sont pas bornés à un tapis** : une faute commise sur le tatami 3
+  exclut aussi de la compétition No-Gi du même événement (IBJJF Rules Book 7.1). Ce que la
+  matrice ne sait pas dire — prononcer hors combat et annuler exigent un compte PERSONNEL,
+  pas un identifiant de poste partagé (T21.1) — reste une garde serveur.
+
 ## Release v0.24.0 : l'ordre strict du tableau dans un tour
 
 `planifierCombats` ne fait plus passer un combat d'un tour devant un autre combat du même tour.
