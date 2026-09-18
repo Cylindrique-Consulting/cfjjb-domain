@@ -23,6 +23,11 @@ import { partiesDuCombat, proposerLaRepartition } from "../src/repartition-tatam
 import { planifierCombats } from "../src/ordonnanceur-planning";
 import { controlerLePlanning, verdictDePublication } from "../src/controles-de-planning";
 import { planifierLEvenement } from "../src/enchainement-competitions";
+import {
+  libelleCodeSanction,
+  statutDisciplinaireDeLaSanction,
+  texteArticleSanction,
+} from "../src/sanctions-disciplinaires";
 
 const SOURCES = import.meta.glob("../src/*.ts", {
   query: "?raw",
@@ -132,5 +137,15 @@ describe("la carte des exports", () => {
     expect(domaine.etatInscriptionsAbsolut).toBe(etatInscriptionsAbsolut);
     expect(domaine.tapisDuCombatAbsolut).toBe(tapisDuCombatAbsolut);
     expect(manifeste.exports?.["./absolut-regles"]).toBe("./src/absolut-regles.ts");
+  });
+
+  it("la sanction disciplinaire est joignable depuis la racine et par son entrée (v0.23.0)", () => {
+    expect(modules).toContain("sanctions-disciplinaires");
+    expect(domaine.libelleCodeSanction).toBe(libelleCodeSanction);
+    expect(domaine.texteArticleSanction).toBe(texteArticleSanction);
+    expect(domaine.statutDisciplinaireDeLaSanction).toBe(statutDisciplinaireDeLaSanction);
+    expect(manifeste.exports?.["./sanctions-disciplinaires"]).toBe(
+      "./src/sanctions-disciplinaires.ts",
+    );
   });
 });

@@ -2,15 +2,18 @@ import { describe, expect, it } from "vitest";
 import {
   CODES_SANCTION,
   ISSUES_DE_REFUS,
+  LIBELLES_COURTS_SANCTION,
   LIBELLES_MOMENT,
   MOMENTS_DE_FAUTE,
   ORIGINES_SANCTION,
   STATUTS_SANCTION,
+  TEXTES_ARTICLES_SANCTION,
   estCodeSanction,
   libelleCodeSanction,
   libellePublicDeSanction,
   libelleStaffDeSanction,
   statutDisciplinaireDeLaSanction,
+  texteArticleSanction,
 } from "../src/sanctions-disciplinaires";
 import { CAPABILITIES, canPerform, type Assignment, type StaffRole } from "../src/capabilities";
 import { classementOfficiel } from "../src/podium-officiel";
@@ -29,11 +32,36 @@ describe("le vocabulaire de la sanction disciplinaire", () => {
     expect(estCodeSanction(undefined)).toBe(false);
   });
 
-  it("NE PRÉTEND PAS connaître le texte des articles", () => {
-    // La fédération ne nous a transmis que les numéros (DQ2.6, DQ2.10). Six
-    // phrases inventées seraient lues par un arbitre comme le règlement lui-même.
+  it("nomme chaque article par son numéro et son libellé court", () => {
+    expect(CODES_SANCTION.map(libelleCodeSanction)).toEqual([
+      "Article 6.1.1 : Insultes ou gestes obscènes",
+      "Article 6.1.2 : Comportement hostile",
+      "Article 6.1.3 : Morsure, cheveux tirés, coup volontaire",
+      "Article 6.1.4 : Comportement offensant ou irrespectueux",
+      "Article 6.1.5 : Manque de sérieux ou simulation",
+      "Article 6.1.6 : Conduite incompatible avec la compétition",
+    ]);
+  });
+
+  it("recopie le texte complet des six articles du règlement CFJJB 2024, page 23", () => {
+    expect(CODES_SANCTION.map(texteArticleSanction)).toEqual([
+      "Quand un athlète insulte ou fait des gestes obscènes à l’adversaire, l’arbitre, la table centrale, le staff ou le public, avant, pendant ou après un combat.",
+      "Quand un athlète a un comportement hostile envers l’adversaire, l’arbitre, un membre de l’organisation ou le public, avant, pendant ou après un combat.",
+      "Quand un athlète mord, tire les cheveux, frappe ou écrase les organes génitaux ou les yeux, ou utilise intentionnellement un coup traumatisant de n’importe quelle sorte (coup de poing, de genou, de pied, etc.).",
+      "Quand un athlète a un comportement offensant ou irrespectueux envers un adversaire ou le public, par des mots ou des gestes, pendant un combat ou dans la célébration de la victoire.",
+      "Quand un ou les deux athlètes ne respectent pas le sérieux de la compétition ou réalisent un faux combat.",
+      "Quand un athlète se comporte d’une manière incompatible avec l’environnement de la compétition, ou commet tout autre délit, même si cela se produit avant ou après le combat.",
+    ]);
+    expect(Object.keys(TEXTES_ARTICLES_SANCTION)).toEqual([...CODES_SANCTION]);
+    expect(Object.keys(LIBELLES_COURTS_SANCTION)).toEqual([...CODES_SANCTION]);
+  });
+
+  it("n'affiche ni apostrophe droite ni tiret cadratin", () => {
     for (const code of CODES_SANCTION) {
-      expect(libelleCodeSanction(code)).toBe(`Article ${code}`);
+      for (const texte of [libelleCodeSanction(code), texteArticleSanction(code)]) {
+        expect(texte).not.toContain("'");
+        expect(texte).not.toContain("\u2014");
+      }
     }
   });
 

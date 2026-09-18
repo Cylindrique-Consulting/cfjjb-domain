@@ -11,28 +11,46 @@ import type { StatutDisciplinaire } from "./podium-officiel";
  * │ divergence se voit alors en CF422 au bord d'un tapis, un samedi matin.      │
  * └───────────────────────────────────────────────────────────────────────────┘
  *
- * ┌─ CE QUE CE MODULE NE PORTE PAS, ET IL FAUT LE SAVOIR ─────────────────────┐
- * │ Le LIBELLÉ de chaque article du règlement IBJJF. Le client a nommé la       │
- * │ « liste des articles 6.1.1 à 6.1.6 » (DQ2.6, DQ2.10) sans en donner le      │
- * │ texte, et aucune de nos sources ne le porte. Inventer six phrases et les    │
- * │ présenter comme le règlement serait pire qu'un code nu : l'arbitre les      │
- * │ lirait comme officielles. `libelleCodeSanction` rend donc « Article 6.1.4 » │
- * │ tant que la fédération ne nous a pas transmis les six intitulés, et         │
- * │ `LIBELLES_ARTICLES_A_FOURNIR` dit explicitement qu'ils manquent.            │
+ * ┌─ LE TEXTE DES ARTICLES, ET D'OÙ IL VIENT ─────────────────────────────────┐
+ * │ Le client a répondu A à DQ2.10 : « Liste reprenant l'article 6.1 +        │
+ * │ commentaire libre facultatif ». Les six articles sont ceux du règlement   │
+ * │ officiel CFJJB 2024, page 23, « 6.1 Fautes disciplinaires », numérotés    │
+ * │ comme dans le règlement IBJJF 2024. `TEXTES_ARTICLES_SANCTION` les        │
+ * │ recopie mot pour mot, apostrophes typographiques mises à part ;           │
+ * │ `LIBELLES_COURTS_SANCTION` en donne un libellé par bouton, arrêté le      │
+ * │ 18/09/2026. Le libellé court résume : c'est le texte complet qui fait     │
+ * │ foi.                                                                      │
  * └───────────────────────────────────────────────────────────────────────────┘
  */
 
-/** Les six motifs de disqualification disciplinaire (IBJJF Rules Book 6.1). */
+/** Les six motifs de disqualification disciplinaire (article 6.1, règlement CFJJB 2024). */
 export const CODES_SANCTION = ["6.1.1", "6.1.2", "6.1.3", "6.1.4", "6.1.5", "6.1.6"] as const;
 
 export type CodeSanction = (typeof CODES_SANCTION)[number];
 
-/**
- * VRAI : la fédération ne nous a pas transmis le texte des six articles. Lu par
- * l'écran pour afficher un rappel au staff plutôt que six libellés inventés.
- * Passe à faux le jour où `LIBELLES_ARTICLES` est renseigné.
- */
-export const LIBELLES_ARTICLES_A_FOURNIR = true;
+export const LIBELLES_COURTS_SANCTION: Record<CodeSanction, string> = {
+  "6.1.1": "Insultes ou gestes obscènes",
+  "6.1.2": "Comportement hostile",
+  "6.1.3": "Morsure, cheveux tirés, coup volontaire",
+  "6.1.4": "Comportement offensant ou irrespectueux",
+  "6.1.5": "Manque de sérieux ou simulation",
+  "6.1.6": "Conduite incompatible avec la compétition",
+};
+
+export const TEXTES_ARTICLES_SANCTION: Record<CodeSanction, string> = {
+  "6.1.1":
+    "Quand un athlète insulte ou fait des gestes obscènes à l’adversaire, l’arbitre, la table centrale, le staff ou le public, avant, pendant ou après un combat.",
+  "6.1.2":
+    "Quand un athlète a un comportement hostile envers l’adversaire, l’arbitre, un membre de l’organisation ou le public, avant, pendant ou après un combat.",
+  "6.1.3":
+    "Quand un athlète mord, tire les cheveux, frappe ou écrase les organes génitaux ou les yeux, ou utilise intentionnellement un coup traumatisant de n’importe quelle sorte (coup de poing, de genou, de pied, etc.).",
+  "6.1.4":
+    "Quand un athlète a un comportement offensant ou irrespectueux envers un adversaire ou le public, par des mots ou des gestes, pendant un combat ou dans la célébration de la victoire.",
+  "6.1.5":
+    "Quand un ou les deux athlètes ne respectent pas le sérieux de la compétition ou réalisent un faux combat.",
+  "6.1.6":
+    "Quand un athlète se comporte d’une manière incompatible avec l’environnement de la compétition, ou commet tout autre délit, même si cela se produit avant ou après le combat.",
+};
 
 export function estCodeSanction(valeur: string | null | undefined): valeur is CodeSanction {
   return (
@@ -43,7 +61,11 @@ export function estCodeSanction(valeur: string | null | undefined): valeur is Co
 }
 
 export function libelleCodeSanction(code: CodeSanction): string {
-  return `Article ${code}`;
+  return `Article ${code} : ${LIBELLES_COURTS_SANCTION[code]}`;
+}
+
+export function texteArticleSanction(code: CodeSanction): string {
+  return TEXTES_ARTICLES_SANCTION[code];
 }
 
 /**
