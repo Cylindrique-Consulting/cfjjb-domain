@@ -23,6 +23,8 @@ import {
   scoreDePlacement,
   TRANCHES_ENFANTS_DE_PROFIL,
   type CibleDePlacement,
+  type Departage,
+  type ParcoursDuJour,
   type ResultatPourPlacement,
   type ScoreDePlacement,
 } from "../src/score-de-placement";
@@ -761,6 +763,212 @@ describe("absolut : place du jour puis catégorie la plus lourde, AB7.6 option C
 
   it("l'étage du jour est rangé entre les critères et le tirage", () => {
     expect([...DEPARTAGES]).toEqual(["score", "criteres", "jour", "tirage"]);
+  });
+});
+
+type EtapeDOrdre =
+  | "absolutCentiemes"
+  | "generalCentiemes"
+  | "directCentiemes"
+  | "nationalCentiemes"
+  | "majeureCentiemes"
+  | "ors"
+  | "argents"
+  | "bronzes"
+  | "placeDuJour"
+  | "categorieLaPlusLourde";
+
+type Transition = {
+  readonly etape: EtapeDOrdre;
+  readonly departage: Departage;
+  readonly titre: string;
+};
+
+const ORDRE_ABSOLUT: readonly Transition[] = [
+  {
+    etape: "absolutCentiemes",
+    departage: "score",
+    titre: "le score Absolut départage avant tout le reste",
+  },
+  {
+    etape: "generalCentiemes",
+    departage: "score",
+    titre: "à score Absolut égal, le score général départage",
+  },
+  {
+    etape: "directCentiemes",
+    departage: "score",
+    titre: "à score général égal, le score direct départage",
+  },
+  {
+    etape: "nationalCentiemes",
+    departage: "criteres",
+    titre: "à scores égaux, les points de Championnat national départagent avant la place du jour",
+  },
+  {
+    etape: "majeureCentiemes",
+    departage: "criteres",
+    titre: "à points nationaux égaux, les points de Majeures départagent avant la place du jour",
+  },
+  {
+    etape: "ors",
+    departage: "criteres",
+    titre: "à points égaux, le nombre d'ors départage avant la place du jour",
+  },
+  {
+    etape: "argents",
+    departage: "criteres",
+    titre: "à ors égaux, le nombre d'argents départage avant la place du jour",
+  },
+  {
+    etape: "bronzes",
+    departage: "criteres",
+    titre: "à argents égaux, le nombre de bronzes départage avant la place du jour",
+  },
+  {
+    etape: "placeDuJour",
+    departage: "jour",
+    titre: "à critères nationaux égaux, la place du jour départage avant la catégorie",
+  },
+  {
+    etape: "categorieLaPlusLourde",
+    departage: "jour",
+    titre: "à place du jour égale, la catégorie la plus lourde départage avant le tirage",
+  },
+];
+
+const ORDRE_CATEGORIE: readonly Transition[] = [
+  {
+    etape: "generalCentiemes",
+    departage: "score",
+    titre: "le score général départage avant tout le reste",
+  },
+  {
+    etape: "directCentiemes",
+    departage: "score",
+    titre: "à score général égal, le score direct départage",
+  },
+  {
+    etape: "nationalCentiemes",
+    departage: "criteres",
+    titre: "à scores égaux, les points de Championnat national départagent",
+  },
+  {
+    etape: "majeureCentiemes",
+    departage: "criteres",
+    titre: "à points nationaux égaux, les points de Majeures départagent",
+  },
+  {
+    etape: "ors",
+    departage: "criteres",
+    titre: "à points égaux, le nombre d'ors départage",
+  },
+  {
+    etape: "argents",
+    departage: "criteres",
+    titre: "à ors égaux, le nombre d'argents départage",
+  },
+  {
+    etape: "bronzes",
+    departage: "criteres",
+    titre: "à argents égaux, le nombre de bronzes départage avant le tirage",
+  },
+];
+
+const ETAPES_ETRANGERES_A_UNE_CATEGORIE: readonly EtapeDOrdre[] = [
+  "absolutCentiemes",
+  "placeDuJour",
+  "categorieLaPlusLourde",
+];
+
+const CLES_DU_DUEL = {
+  absolutCentiemes: 1800,
+  generalCentiemes: 20000,
+  directCentiemes: 9000,
+  nationalCentiemes: 3600,
+  majeureCentiemes: 1800,
+  ors: 1,
+  argents: 1,
+  bronzes: 1,
+};
+
+function scoreAvantage(licenseeId: string, etapes: readonly EtapeDOrdre[]): ScoreDePlacement {
+  const cles = { ...CLES_DU_DUEL };
+  let sourcePlace = 2;
+  let sourceWeightClass = "Medio";
+  for (const etape of etapes) {
+    if (etape === "placeDuJour") sourcePlace = 1;
+    else if (etape === "categorieLaPlusLourde") sourceWeightClass = "Pesadissimo";
+    else cles[etape] += etape.endsWith("Centiemes") ? 150 : 1;
+  }
+  const parcours: ParcoursDuJour = { sourcePlace, sourceWeightClass };
+  return score(licenseeId, { ...cles, jour: placeDuJourDe(parcours) });
+}
+
+function valeurDEtape(s: ScoreDePlacement, etape: EtapeDOrdre): number {
+  if (etape === "placeDuJour") return -(s.jour?.sourcePlace ?? Number.POSITIVE_INFINITY);
+  if (etape === "categorieLaPlusLourde")
+    return s.jour?.sourceWeightRank ?? Number.NEGATIVE_INFINITY;
+  return s[etape];
+}
+
+function avantages(
+  devant: ScoreDePlacement,
+  derriere: ScoreDePlacement,
+  etapes: readonly EtapeDOrdre[],
+): number[] {
+  return etapes.map((etape) =>
+    Math.sign(valeurDEtape(devant, etape) - valeurDEtape(derriere, etape)),
+  );
+}
+
+function duel(
+  ordre: readonly Transition[],
+  visee: number,
+  etrangeres: readonly EtapeDOrdre[] = [],
+): { devant: ScoreDePlacement; derriere: ScoreDePlacement } {
+  const etapes = ordre.map((t) => t.etape);
+  return {
+    devant: scoreAvantage("devant", [etapes[visee] as EtapeDOrdre]),
+    derriere: scoreAvantage("derriere", [...etapes.slice(visee + 1), ...etrangeres]),
+  };
+}
+
+describe("ordre de l'absolut : chaque étape départage seule, contre toutes celles qui la suivent", () => {
+  const etapes = ORDRE_ABSOLUT.map((t) => t.etape);
+
+  ORDRE_ABSOLUT.forEach((transition, visee) => {
+    it(transition.titre, () => {
+      const { devant, derriere } = duel(ORDRE_ABSOLUT, visee);
+      expect(
+        avantages(devant, derriere, etapes),
+        "égalité avant l'étape visée, « devant » gagne l'étape, « derriere » gagne toutes les suivantes",
+      ).toEqual(etapes.map((_, i) => (i < visee ? 0 : i === visee ? 1 : -1)));
+      expect([...ordresObtenus([derriere, devant], true)]).toEqual([
+        `devant:score > derriere:${transition.departage}`,
+      ]);
+    });
+  });
+});
+
+describe("ordre d'une catégorie de poids : chaque étape départage seule, contre toutes celles qui la suivent", () => {
+  const etapes = ORDRE_CATEGORIE.map((t) => t.etape);
+
+  ORDRE_CATEGORIE.forEach((transition, visee) => {
+    it(`${transition.titre}, sans égard au score Absolut ni aux données du jour`, () => {
+      const { devant, derriere } = duel(ORDRE_CATEGORIE, visee, ETAPES_ETRANGERES_A_UNE_CATEGORIE);
+      expect(
+        avantages(devant, derriere, etapes),
+        "égalité avant l'étape visée, « devant » gagne l'étape, « derriere » gagne toutes les suivantes",
+      ).toEqual(etapes.map((_, i) => (i < visee ? 0 : i === visee ? 1 : -1)));
+      expect(
+        avantages(devant, derriere, ETAPES_ETRANGERES_A_UNE_CATEGORIE),
+        "« derriere » a le meilleur score Absolut, la meilleure place du jour et la catégorie la plus lourde",
+      ).toEqual([-1, -1, -1]);
+      expect([...ordresObtenus([derriere, devant], false)]).toEqual([
+        `devant:score > derriere:${transition.departage}`,
+      ]);
+    });
   });
 });
 
