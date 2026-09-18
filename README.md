@@ -679,7 +679,8 @@ score qui départage l'absolut, alors que le module tourne sur une pile de gymna
   (points de Championnat national, de Majeures, puis or, argent, bronze) ; puis un tirage
   reproductible à partir de la graine du tableau. **Chaque athlète reçoit un rang distinct** :
   deux athlètes ne peuvent pas occuper la même graine. `RangSportif.departage` dit lequel des
-  trois étages a tranché, ce qu'attend la légende du §9.1.
+  trois étages a tranché, ce qu'attend la légende du §9.1. Depuis la v0.25.0, un absolut en
+  compte un quatrième, avant le tirage : voir plus bas.
 
 Le calcul n'est encore branché sur aucune génération de tableau : `BracketEntry.rank` n'est
 alimenté par personne et l'étape `protected-ranking` de `seeding-plan.ts` reste éteinte. C'est
@@ -762,6 +763,67 @@ Ce que cela change, en combats de 5 minutes séparés de 60 secondes :
   dans cet ordre a donc toutes ses sources placées, et il est en tête de la file de son tatami :
   un tatami au moins peut toujours avancer. Un test le vérifie sur 200 affectations quelconques
   des combats à 2, 3 ou 4 tatamis, sans aucune `dependanceIgnoree`.
+
+## Release v0.25.0 : le départage propre à l'absolut
+
+Décision du 18/09/2026 : question AB7.6, option C. Pour un absolut, `ordonnerPourTableau`
+ne passe plus directement des critères du classement national au tirage au sort : l'absolut
+garde entre les deux l'ordre qui lui est propre, celui que le client a demandé en BR3.3 et
+que `ABSOLUT_SEEDING_PLAN` applique déjà.
+
+L'ordre complet d'un absolut (`ordonnerPourTableau(scores, { absolut: true, graine })`) :
+
+1. score Absolut, puis score général (résultats du jour compris), puis score direct (§6) ;
+2. les critères retenus pour les catégories de poids (BR3.4 C), calculés sur les résultats
+   qui composent le score : points de Championnat national, puis de Majeures, puis nombre
+   d'or, d'argent, de bronze ;
+3. **la place obtenue le jour même dans la catégorie de poids** : or, puis argent, puis
+   bronze ; les ceintures noires Adulte inscrites sans médaille viennent après tous les
+   médaillés ;
+4. **la catégorie de poids la plus lourde** ;
+5. le tirage au sort, reproductible à partir de la graine du tableau.
+
+Une catégorie de poids garde son ordre : score général, score direct, critères, tirage. Les
+étapes 3 et 4 n'existent que pour un absolut.
+
+| Ce qui change                                           | Détail                                                                                                                |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `scoreDePlacement(licenseeId, resultats, cible, jour?)` | 4e paramètre **optionnel**, `ParcoursDuJour` : `sourcePlace` et `sourceWeightClass`, comme dans `AbsolutRegistration` |
+| `ScoreDePlacement.jour?`                                | champ **optionnel**, `PlaceDuJour` : la place et le rang de poids lus (`placeDuJourDe`)                               |
+| `RangSportif.departage`                                 | nouvelle valeur `"jour"` : la place du jour ou la catégorie la plus lourde a tranché                                  |
+| `compareSourcePlaceThenWeight` (`seeding-plan.ts`)      | la comparaison de l'étape `source-place`, désormais exportée et partagée                                              |
+
+- **Une seule définition, celle du plan de tirage de l'absolut.** L'étape `source-place` de
+  `seeding-plan.ts` et l'ordre du score de placement appellent la même fonction,
+  `compareSourcePlaceThenWeight` ; le rang de poids est celui de `sourceWeightRank`
+  (`absolut-seeding.ts`). Un test vérifie qu'à scores égaux l'ordre de l'absolut est
+  exactement celui de `absolutSeedOrder`.
+- **Catégorie la plus lourde** : rang dans `WEIGHT_CLASSES`, de Galo à Pesadissimo, lu dans
+  les deux vocabulaires de la colonne (nom écrit par la plateforme ou indice hérité de l'ETL).
+  Les absoluts juvéniles « Leve » et « Pesado » regroupent des catégories de cette même
+  échelle ; le nom de l'absolut lui-même (« Absolut Leve ») n'est pas une catégorie de poids.
+- **Quand les données du jour manquent** :
+  - place absente (`sourcePlace` nul ou non fourni) : l'athlète passe après tous ceux qui
+    ont une place, comme une ceinture noire Adulte inscrite sans médaille ;
+  - catégorie absente ou illisible : elle compte comme la plus légère, jamais comme la plus
+    lourde ;
+  - pas de paramètre `jour` pour un athlète : les deux à la fois, place absente et catégorie
+    inconnue. L'appelant fournit donc `jour` à **tous** les inscrits de l'absolut : un
+    athlète oublié serait classé comme un inscrit sans médaille ;
+  - pas de paramètre `jour` pour personne : les étapes 3 et 4 ne départagent personne, et
+    l'ordre est exactement celui de la v0.24.0, tirage compris (mêmes groupes d'ex aequo,
+    même graine, donc même tirage).
+- **Catégories de poids** : `jour` est ignoré quand `absolut` vaut `false`. L'aperçu du
+  score de placement de la plateforme ordonne avec `absolut: false` : son résultat ne change
+  pas. Un consommateur qui traduit `departage` en libellé doit prévoir `"jour"` avant
+  d'ordonner un absolut.
+- **Rien d'autre ne bouge** : le score (général, Absolut, direct), les agrégats du §2.2 et
+  `ABSOLUT_SEEDING_PLAN` sont inchangés.
+
+Le calcul n'est toujours branché sur aucun tirage (BR3.9) : c'est l'ordre que prendra un
+absolut le jour où le placement par rang sera mis en service. En attendant,
+`generateAbsolutBracket` tire l'absolut par place source puis catégorie la plus lourde, sans
+score.
 
 ## Pureté, vérifiée et non recommandée
 

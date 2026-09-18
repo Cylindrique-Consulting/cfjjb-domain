@@ -214,16 +214,26 @@ function interleaveByKey(
   return out;
 }
 
-function applySourcePlaceOrder(order: readonly BracketEntry[]): BracketEntry[] {
+export type SourcePlaceAndWeight = Pick<BracketEntry, "sourcePlace" | "sourceWeightRank">;
+
+export function compareSourcePlaceThenWeight(
+  a: SourcePlaceAndWeight,
+  b: SourcePlaceAndWeight,
+): number {
   const cmp = (x: number, y: number) => (x < y ? -1 : x > y ? 1 : 0);
+  return (
+    cmp(a.sourcePlace ?? Number.POSITIVE_INFINITY, b.sourcePlace ?? Number.POSITIVE_INFINITY) ||
+    cmp(
+      b.sourceWeightRank ?? Number.NEGATIVE_INFINITY,
+      a.sourceWeightRank ?? Number.NEGATIVE_INFINITY,
+    )
+  );
+}
+
+function applySourcePlaceOrder(order: readonly BracketEntry[]): BracketEntry[] {
   return order
-    .map((entry, index) => ({
-      entry,
-      index,
-      place: entry.sourcePlace ?? Number.POSITIVE_INFINITY,
-      weight: entry.sourceWeightRank ?? Number.NEGATIVE_INFINITY,
-    }))
-    .sort((a, b) => cmp(a.place, b.place) || cmp(b.weight, a.weight) || a.index - b.index)
+    .map((entry, index) => ({ entry, index }))
+    .sort((a, b) => compareSourcePlaceThenWeight(a.entry, b.entry) || a.index - b.index)
     .map((x) => x.entry);
 }
 
