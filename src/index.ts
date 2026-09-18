@@ -29,3 +29,8 @@ export * from "./arbitrage";
 export * from "./repos-jour-j";
 export * from "./estimateur-horaires";
 export * from "./absolut-regles";
+export * from "./ordre-sportif";
+export * from "./repartition-tatamis";
+export * from "./ordonnanceur-planning";
+export * from "./controles-de-planning";
+export * from "./enchainement-competitions";
