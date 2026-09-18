@@ -18,6 +18,12 @@ import {
   etatInscriptionsAbsolut,
   tapisDuCombatAbsolut,
 } from "../src/absolut-regles";
+import {
+  ordonnerPourTableau,
+  partDAge,
+  partDeCeinture,
+  scoreDePlacement,
+} from "../src/score-de-placement";
 
 const SOURCES = import.meta.glob("../src/*.ts", {
   query: "?raw",
@@ -101,5 +107,14 @@ describe("la carte des exports", () => {
     expect(domaine.etatInscriptionsAbsolut).toBe(etatInscriptionsAbsolut);
     expect(domaine.tapisDuCombatAbsolut).toBe(tapisDuCombatAbsolut);
     expect(manifeste.exports?.["./absolut-regles"]).toBe("./src/absolut-regles.ts");
+  });
+
+  it("le score de placement est joignable depuis la racine et par son entrée (v0.22.0)", () => {
+    expect(modules).toContain("score-de-placement");
+    expect(domaine.scoreDePlacement).toBe(scoreDePlacement);
+    expect(domaine.ordonnerPourTableau).toBe(ordonnerPourTableau);
+    expect(domaine.partDAge).toBe(partDAge);
+    expect(domaine.partDeCeinture).toBe(partDeCeinture);
+    expect(manifeste.exports?.["./score-de-placement"]).toBe("./src/score-de-placement.ts");
   });
 });

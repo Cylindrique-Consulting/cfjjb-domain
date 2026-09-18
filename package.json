@@ -1,6 +1,6 @@
 {
   "name": "@cfjjb/domain",
-  "version": "0.20.0",
+  "version": "0.22.0",
   "description": "Noyau métier CFJJB : référentiel poids/durées/ceintures, générateur de brackets, planning, médailles. TypeScript pur, sans IO.",
   "license": "UNLICENSED",
   "private": false,
@@ -42,7 +42,8 @@
     "./arbitrage": "./src/arbitrage.ts",
     "./repos-jour-j": "./src/repos-jour-j.ts",
     "./estimateur-horaires": "./src/estimateur-horaires.ts",
-    "./absolut-regles": "./src/absolut-regles.ts"
+    "./absolut-regles": "./src/absolut-regles.ts",
+    "./score-de-placement": "./src/score-de-placement.ts"
   },
   "files": [
     "src"
