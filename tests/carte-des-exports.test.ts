@@ -18,6 +18,11 @@ import {
   etatInscriptionsAbsolut,
   tapisDuCombatAbsolut,
 } from "../src/absolut-regles";
+import { trierCategoriesSportives } from "../src/ordre-sportif";
+import { partiesDuCombat, proposerLaRepartition } from "../src/repartition-tatamis";
+import { planifierCombats } from "../src/ordonnanceur-planning";
+import { controlerLePlanning, verdictDePublication } from "../src/controles-de-planning";
+import { planifierLEvenement } from "../src/enchainement-competitions";
 
 const SOURCES = import.meta.glob("../src/*.ts", {
   query: "?raw",
@@ -93,6 +98,32 @@ describe("la carte des exports", () => {
     expect(domaine.estimerLesHoraires).toBe(estimerLesHoraires);
     expect(domaine.couleurDEcart).toBe(couleurDEcart);
     expect(manifeste.exports?.["./estimateur-horaires"]).toBe("./src/estimateur-horaires.ts");
+  });
+
+  it("les modules de la release C sont joignables depuis la racine et par leur entrée (v0.21.0)", () => {
+    for (const module of [
+      "ordre-sportif",
+      "repartition-tatamis",
+      "ordonnanceur-planning",
+      "controles-de-planning",
+      "enchainement-competitions",
+    ]) {
+      expect(modules).toContain(module);
+      expect(manifeste.exports?.[`./${module}`]).toBe(`./src/${module}.ts`);
+    }
+    expect(domaine.trierCategoriesSportives).toBe(trierCategoriesSportives);
+    expect(domaine.proposerLaRepartition).toBe(proposerLaRepartition);
+    expect(domaine.partiesDuCombat).toBe(partiesDuCombat);
+    expect(domaine.planifierCombats).toBe(planifierCombats);
+    expect(domaine.controlerLePlanning).toBe(controlerLePlanning);
+    expect(domaine.verdictDePublication).toBe(verdictDePublication);
+    expect(domaine.planifierLEvenement).toBe(planifierLEvenement);
+  });
+
+  it("garde l'ancien générateur par catégorie tant que ses consommateurs ne sont pas repris", () => {
+    expect(typeof domaine.planCategories).toBe("function");
+    expect(typeof domaine.computeTatamiSchedule).toBe("function");
+    expect(typeof domaine.categoryRunningOrder).toBe("function");
   });
 
   it("les règles de l'absolut sont joignables depuis la racine et par leur entrée (v0.20.0)", () => {
