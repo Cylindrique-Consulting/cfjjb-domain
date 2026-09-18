@@ -43,6 +43,11 @@
     "./repos-jour-j": "./src/repos-jour-j.ts",
     "./estimateur-horaires": "./src/estimateur-horaires.ts",
     "./absolut-regles": "./src/absolut-regles.ts",
+    "./ordre-sportif": "./src/ordre-sportif.ts",
+    "./repartition-tatamis": "./src/repartition-tatamis.ts",
+    "./ordonnanceur-planning": "./src/ordonnanceur-planning.ts",
+    "./controles-de-planning": "./src/controles-de-planning.ts",
+    "./enchainement-competitions": "./src/enchainement-competitions.ts",
     "./score-de-placement": "./src/score-de-placement.ts"
   },
   "files": [
