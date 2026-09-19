@@ -44,17 +44,21 @@ export type SeedOrderStep =
       readonly enabled: boolean;
       readonly count: number;
       readonly whenExceedingByes: "degrade" | "reject";
-    };
+    }
+  | { readonly kind: "rang-sportif"; readonly enabled: boolean };
 
 export type PinRule =
   | { readonly kind: "empty-leaves" }
   | { readonly kind: "bye-holders" }
   | { readonly kind: "leaves"; readonly leaves: readonly number[] };
 
+export type ReparationDuPlacement = "libre" | "rang-voisin";
+
 export type SeedingPlan = {
   readonly order: readonly SeedOrderStep[];
   readonly constraints: readonly SeparationConstraint[];
   readonly pins: readonly PinRule[];
+  readonly reparation?: ReparationDuPlacement;
 };
 
 export type SeedingWarning =
@@ -67,13 +71,21 @@ export type SeedingWarning =
       readonly code: "protected-ranking-exceeds-byes";
       readonly protectedCount: number;
       readonly byeCount: number;
-    };
+    }
+  | { readonly code: "rang-sportif-manquant"; readonly sansRang: number };
+
+export type EchangeDeSeparation = {
+  readonly deplace: string;
+  readonly avec: string;
+  readonly contrainte: string;
+};
 
 export type SeedingOutcome = {
   readonly seedOrder: readonly BracketEntry[];
   readonly placement: readonly (BracketEntry | null)[];
   readonly leaves: readonly (BracketEntry | null)[];
   readonly warnings: readonly SeedingWarning[];
+  readonly echanges: readonly EchangeDeSeparation[];
 };
 
 export const DEFAULT_SEEDING_PLAN: SeedingPlan = {
@@ -151,9 +163,16 @@ export function describeSeedingPlan(plan: SeedingPlan = DEFAULT_SEEDING_PLAN): s
           return `1. ordre des graines / bonus de rang ${step.bonus} pour ${step.key} (${state(step.enabled)})`;
         case "protected-ranking":
           return `1. ordre des graines / classement protégé sur ${step.count}, débordement : ${step.whenExceedingByes} (${state(step.enabled)})`;
+        case "rang-sportif":
+          return `1. ordre des graines / rang sportif, #1 en tête (${state(step.enabled)})`;
       }
     }),
     "2. placement standard (graines aux positions canoniques)",
+    ...(plan.reparation === "rang-voisin"
+      ? [
+          "3. réparation / au rang voisin : le moins bien classé de deux coéquipiers est échangé avec le rang le plus proche, #1 et #2 restent dans deux moitiés, aucun bye ne change de main, premier tour seulement",
+        ]
+      : []),
     ...plan.constraints.map(
       (c) =>
         `3. réparation / ${c.name} : ${c.key} par ${scope(c.scope)}, palier ${c.tier}, poids ${c.weight} (${state(c.enabled)})`,
@@ -289,6 +308,23 @@ function applyProtectedRanking(
   return [...chosen.map((x) => x.entry), ...order.filter((_, i) => !chosenIndexes.has(i))];
 }
 
+function applyRangSportif(
+  order: readonly BracketEntry[],
+  warnings: SeedingWarning[],
+): BracketEntry[] {
+  const lus = order.map((entry, index) => ({ entry, index, rank: entry.rank ?? null }));
+  const sansRang = lus.filter((x) => x.rank === null).length;
+  if (sansRang > 0) warnings.push({ code: "rang-sportif-manquant", sansRang });
+  return lus
+    .sort((a, b) => {
+      if (a.rank === null && b.rank === null) return a.index - b.index;
+      if (a.rank === null) return 1;
+      if (b.rank === null) return -1;
+      return a.rank - b.rank || a.index - b.index;
+    })
+    .map((x) => x.entry);
+}
+
 type Leaf = BracketEntry | null;
 
 function blockSizeOf(scope: SeparationScope, size: number): number {
@@ -406,6 +442,109 @@ function repair(placement: readonly Leaf[], plan: SeedingPlan): Leaf[] {
   return out;
 }
 
+function reparerAuRangVoisin(
+  placement: readonly Leaf[],
+  seedOrder: readonly BracketEntry[],
+  plan: SeedingPlan,
+): { leaves: Leaf[]; echanges: EchangeDeSeparation[] } {
+  const out = [...placement];
+  const size = out.length;
+  const echanges: EchangeDeSeparation[] = [];
+  const contraintes = plan.constraints
+    .filter((c) => c.enabled && c.scope.kind === "round" && c.scope.round === 1)
+    .map((c, ordre) => ({ c, ordre }))
+    .sort((a, b) => a.c.tier - b.c.tier || a.ordre - b.ordre)
+    .map((x) => x.c);
+  if (contraintes.length === 0 || size < 4) return { leaves: out, echanges };
+
+  const graines = new Map(seedOrder.map((e, i) => [e.registrationId, i + 1] as const));
+  const graineDe = (l: Leaf): number =>
+    l === null
+      ? Number.POSITIVE_INFINITY
+      : (graines.get(l.registrationId) ?? Number.POSITIVE_INFINITY);
+  const conflit = (a: Leaf, b: Leaf): SeparationConstraint | null => {
+    if (a === null || b === null) return null;
+    for (const c of contraintes) {
+      const cle = separationKeyOf(a, c.key);
+      if (cle !== null && cle === separationKeyOf(b, c.key)) return c;
+    }
+    return null;
+  };
+  const moitie = (feuille: number): number => (feuille < size / 2 ? 0 : 1);
+  const partenaire = (feuille: number): number => feuille ^ 1;
+  const tetesDeSerieOpposees = (): boolean => {
+    const premier = out.findIndex((l) => graineDe(l) === 1);
+    const second = out.findIndex((l) => graineDe(l) === 2);
+    if (premier < 0 || second < 0) return true;
+    return moitie(premier) !== moitie(second);
+  };
+
+  const irreparables = new Set<number>();
+  for (let garde = 0; garde <= size; garde++) {
+    let choisi: { combat: number; feuilleA: number; feuilleB: number } | null = null;
+    for (let combat = 0; combat < size / 2; combat++) {
+      if (irreparables.has(combat)) continue;
+      const haut = out[2 * combat] ?? null;
+      const bas = out[2 * combat + 1] ?? null;
+      if (conflit(haut, bas) === null) continue;
+      const feuilleB = graineDe(haut) > graineDe(bas) ? 2 * combat : 2 * combat + 1;
+      if (
+        choisi === null ||
+        graineDe(out[feuilleB] ?? null) < graineDe(out[choisi.feuilleB] ?? null)
+      ) {
+        choisi = { combat, feuilleA: partenaire(feuilleB), feuilleB };
+      }
+    }
+    if (choisi === null) break;
+
+    const a = out[choisi.feuilleA] as BracketEntry;
+    const b = out[choisi.feuilleB] as BracketEntry;
+    const contrainte = conflit(a, b) as SeparationConstraint;
+    const graineB = graineDe(b);
+
+    const candidats: number[] = [];
+    for (let feuille = 0; feuille < size; feuille++) {
+      if (feuille === choisi.feuilleA || feuille === choisi.feuilleB) continue;
+      if ((out[feuille] ?? null) === null) continue;
+      if ((out[partenaire(feuille)] ?? null) === null) continue;
+      candidats.push(feuille);
+    }
+    candidats.sort((x, y) => {
+      const gx = graineDe(out[x] ?? null);
+      const gy = graineDe(out[y] ?? null);
+      const dx = Math.abs(gx - graineB);
+      const dy = Math.abs(gy - graineB);
+      if (dx !== dy) return dx - dy;
+      const moinsBienX = gx > graineB ? 0 : 1;
+      const moinsBienY = gy > graineB ? 0 : 1;
+      return moinsBienX - moinsBienY || gx - gy;
+    });
+
+    let tenu = false;
+    for (const feuille of candidats) {
+      const c = out[feuille] as BracketEntry;
+      const d = out[partenaire(feuille)] as BracketEntry;
+      if (conflit(a, c) !== null || conflit(b, d) !== null) continue;
+      out[choisi.feuilleB] = c;
+      out[feuille] = b;
+      if (!tetesDeSerieOpposees()) {
+        out[choisi.feuilleB] = b;
+        out[feuille] = c;
+        continue;
+      }
+      echanges.push({
+        deplace: b.registrationId,
+        avec: c.registrationId,
+        contrainte: contrainte.name,
+      });
+      tenu = true;
+      break;
+    }
+    if (!tenu) irreparables.add(choisi.combat);
+  }
+  return { leaves: out, echanges };
+}
+
 export function applySeedingPlan(
   entries: readonly BracketEntry[],
   size: number,
@@ -430,12 +569,20 @@ export function applySeedingPlan(
       case "protected-ranking":
         order = applyProtectedRanking(order, step, size, warnings);
         break;
+      case "rang-sportif":
+        order = applyRangSportif(order, warnings);
+        break;
     }
   }
 
   const placement: Leaf[] = seedPositions(size).map((seedNumber) => order[seedNumber - 1] ?? null);
 
+  if (plan.reparation === "rang-voisin") {
+    const { leaves, echanges } = reparerAuRangVoisin(placement, order, plan);
+    return { seedOrder: order, placement, leaves, warnings, echanges };
+  }
+
   const leaves = repair(placement, plan);
 
-  return { seedOrder: order, placement, leaves, warnings };
+  return { seedOrder: order, placement, leaves, warnings, echanges: [] };
 }

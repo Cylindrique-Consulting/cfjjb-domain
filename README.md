@@ -825,6 +825,44 @@ absolut le jour où le placement par rang sera mis en service. En attendant,
 `generateAbsolutBracket` tire l'absolut par place source puis catégorie la plus lourde, sans
 score.
 
+## Release v0.26.0 : le placement par rang sportif
+
+Le score de placement (v0.22.0, v0.25.0) devient une manière de **placer** un tableau. Le
+générateur ne change pas de comportement par défaut : le placement par rang n'agit que si
+l'appelant le demande, c'est-à-dire, côté plateforme et module, sur une compétition dont
+l'interrupteur « placement par rang » est activé (décision du 18/09/2026 : désactivé par
+défaut, BR3.9 option A pour toutes les autres compétitions).
+
+| Ce qui s'ajoute                                            | Rôle                                                                                                            |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| étape `rang-sportif` (`seeding-plan.ts`)                   | ordonne les graines par `BracketEntry.rank` croissant ; une inscription sans rang passe en dernier, avec alerte |
+| `SeedingPlan.reparation: "rang-voisin"`                    | la séparation des coéquipiers au rang voisin (BR3.6, proposition B), à la place de la réparation libre          |
+| `RANG_SPORTIF_SEEDING_PLAN` (`placement-par-rang.ts`)      | le plan d'une catégorie de poids : rang, puis même équipe au premier tour                                       |
+| `ABSOLUT_RANG_SPORTIF_SEEDING_PLAN` (`absolut-seeding.ts`) | le plan d'un absolut : rang, puis même catégorie source, puis même entité (équipe, sinon club)                  |
+| `generateAbsolutBracket(…, { placement })`                 | `"place-source"` (défaut, inchangé) ou `"rang-sportif"` ; `AbsolutRegistration.rank` porte le rang              |
+| `BracketResult.echanges`                                   | qui a été échangé avec qui, et pour quelle contrainte : le rapport de génération les nomme                      |
+| `figerLePlacement`, `critereQuiDepartage`                  | l'instantané d'un tableau (rang, trois scores, critère qui a départagé, contributions) et la légende (BR3.5 B)  |
+| `resultatPourPlacementDepuisLaBase`                        | une ligne de `competition_results` lue en base devient un `ResultatPourPlacement`, ou `null`                    |
+| `placerLesInscrits`, `placementPourLaBase`                 | le rang de chaque inscription d'un tableau (clé : l'inscription), et la charge qu'écrit la base                 |
+
+- **La disposition est celle de `seedPositions`** : #1 contre le dernier, #1 et #2 dans deux
+  moitiés opposées, les byes aux mieux classés. Aucun tirage n'est consommé : le hasard ne
+  tranche plus que les égalités parfaites, dans `ordonnerPourTableau`, à partir de la graine
+  du tableau.
+- **La séparation au rang voisin** ne regarde que le premier tour. Pour chaque rencontre entre
+  deux athlètes d'une même entité, le moins bien classé des deux est échangé avec l'athlète de
+  rang le plus proche qui évite la rencontre ; à écart égal, le moins bien classé d'abord.
+  L'échange est refusé s'il crée une autre rencontre interdite, s'il sort #1 ou #2 de sa
+  moitié, ou s'il touche un exempté (un bye ne change jamais de main). Une rencontre que rien
+  ne peut éviter reste en place, et l'appelant la signale comme aujourd'hui.
+- **Le critère qui départage** chaque rang est lu sur l'ordre rendu par `ordonnerPourTableau` :
+  score Absolut, général ou direct selon la première valeur qui diffère du rang précédent,
+  sinon critères du classement national, place et catégorie du jour, tirage. La légende ne
+  mentionne que le score direct, les critères, le jour et le tirage ; la colonne du score
+  direct n'apparaît que s'il a servi (guide v1.2 §9.1).
+- **Rien d'autre ne bouge** : `DEFAULT_SEEDING_PLAN`, `SQUAD_SEEDING_PLAN` et
+  `ABSOLUT_SEEDING_PLAN` sont inchangés, et `SeedingOutcome.echanges` vaut `[]` pour eux.
+
 ## Pureté, vérifiée et non recommandée
 
 `eslint.config.mjs` interdit `node:*`, `fs`, `path`, `crypto`, `react`, `react-dom`,

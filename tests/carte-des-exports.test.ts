@@ -32,6 +32,15 @@ import {
 } from "../src/score-de-placement";
 import { compareSourcePlaceThenWeight } from "../src/seeding-plan";
 import {
+  critereQuiDepartage,
+  figerLePlacement,
+  placementPourLaBase,
+  placerLesInscrits,
+  RANG_SPORTIF_SEEDING_PLAN,
+  resultatPourPlacementDepuisLaBase,
+} from "../src/placement-par-rang";
+import { ABSOLUT_RANG_SPORTIF_SEEDING_PLAN, generateAbsolutBracket } from "../src/absolut-seeding";
+import {
   libelleCodeSanction,
   statutDisciplinaireDeLaSanction,
   texteArticleSanction,
@@ -160,6 +169,19 @@ describe("la carte des exports", () => {
     expect(domaine.placeDuJourDe).toBe(placeDuJourDe);
     expect(domaine.compareSourcePlaceThenWeight).toBe(compareSourcePlaceThenWeight);
     expect(domaine.DEPARTAGES).toContain("jour");
+  });
+
+  it("le placement par rang est joignable depuis la racine et par son entrée (v0.26.0)", () => {
+    expect(modules).toContain("placement-par-rang");
+    expect(domaine.RANG_SPORTIF_SEEDING_PLAN).toBe(RANG_SPORTIF_SEEDING_PLAN);
+    expect(domaine.ABSOLUT_RANG_SPORTIF_SEEDING_PLAN).toBe(ABSOLUT_RANG_SPORTIF_SEEDING_PLAN);
+    expect(domaine.generateAbsolutBracket).toBe(generateAbsolutBracket);
+    expect(domaine.figerLePlacement).toBe(figerLePlacement);
+    expect(domaine.critereQuiDepartage).toBe(critereQuiDepartage);
+    expect(domaine.resultatPourPlacementDepuisLaBase).toBe(resultatPourPlacementDepuisLaBase);
+    expect(domaine.placerLesInscrits).toBe(placerLesInscrits);
+    expect(domaine.placementPourLaBase).toBe(placementPourLaBase);
+    expect(manifeste.exports?.["./placement-par-rang"]).toBe("./src/placement-par-rang.ts");
   });
 
   it("la sanction disciplinaire est joignable depuis la racine et par son entrée (v0.23.0)", () => {

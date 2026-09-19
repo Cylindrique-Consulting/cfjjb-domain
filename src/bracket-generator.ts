@@ -4,6 +4,7 @@ import { fnv1a, mulberry32 } from "./prng";
 import {
   applySeedingPlan,
   DEFAULT_SEEDING_PLAN,
+  type EchangeDeSeparation,
   type SeedingPlan,
   type SeedingWarning,
 } from "./seeding-plan";
@@ -38,6 +39,7 @@ export type BracketResult =
       fights: GeneratedFight[];
       realFightCount: number;
       warnings?: SeedingWarning[];
+      echanges?: EchangeDeSeparation[];
     };
 
 export type { ThirdPlaceMode } from "./enums";
@@ -132,6 +134,7 @@ export function generateBracket(
     fights,
     realFightCount: realFights + (pool3 ? 1 : 0),
     ...(seeding.warnings.length > 0 ? { warnings: [...seeding.warnings] } : {}),
+    ...(seeding.echanges.length > 0 ? { echanges: [...seeding.echanges] } : {}),
   };
 }
 
