@@ -38,3 +38,34 @@ export function nomDuTour({ division, divisionMax, type }: EntreeNomDuTour): Nom
 export function divisionMaxDuTableau(fights: readonly { division: number }[]): number {
   return fights.reduce((max, f) => Math.max(max, f.division), 0);
 }
+
+/**
+ * L'ORDRE DES COMBATS DANS UNE COLONNE, ET POURQUOI IL NE SUIT PAS L'INDEX.
+ *
+ * ┌─ LE TABLEAU DE TROIS RANGE SES DEMI-FINALES PAR TYPE (TR1.3, TR2.1) ──────┐
+ * │ À trois inscrits, la 2e demi-finale (`BraketFightRepechage3`) occupe la    │
+ * │ case du bye : le générateur lui donne l'index 0, et la 1re demi-finale     │
+ * │ l'index 1. Rangée par index seul, la 2e se dessine AU-DESSUS de la 1re,    │
+ * │ l'inverse de l'ordre où elles se jouent. Rien ne garantit cet index : on   │
+ * │ range par type d'abord, la 1re en haut, l'index ne départageant que les    │
+ * │ combats de même type.                                                      │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ *
+ * CETTE RÈGLE A ÉTÉ RECOPIÉE TROIS FOIS, ET OUBLIÉE UNE QUATRIÈME. Les portails
+ * club et licencié l'appliquaient, le module aussi, l'éditeur de tableaux de
+ * l'espace fédéral ne l'a jamais eue — et le client a signalé deux fois la même
+ * inversion. Elle descend donc ici, où les trois vues la lisent.
+ *
+ * Le comparateur prend l'accès à l'index en paramètre : la plateforme le nomme
+ * `indexInDivision`, le module `index`, et aucun des deux n'a à se renommer
+ * pour appliquer la règle.
+ */
+export function rangDansLeTour(combat: { readonly type?: string | null }): number {
+  return combat.type === "BraketFightRepechage3" ? 1 : 0;
+}
+
+export function comparerDansLeTour<T extends { readonly type?: string | null }>(
+  indexDe: (combat: T) => number,
+): (a: T, b: T) => number {
+  return (a, b) => rangDansLeTour(a) - rangDansLeTour(b) || indexDe(a) - indexDe(b);
+}

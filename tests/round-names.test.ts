@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { generateBracket, type BracketEntry, type GeneratedFight } from "../src/bracket-generator";
-import { divisionMaxDuTableau, nomDuTour } from "../src/round-names";
+import { comparerDansLeTour, divisionMaxDuTableau, nomDuTour } from "../src/round-names";
 
 function entrees(n: number): BracketEntry[] {
   return Array.from({ length: n }, (_, i) => ({ registrationId: `r${i + 1}`, clubId: null }));
@@ -166,5 +166,36 @@ describe("divisionMaxDuTableau", () => {
 
   it("un tableau vide rend 0", () => {
     expect(divisionMaxDuTableau([])).toBe(0);
+  });
+});
+
+describe("l'ordre des combats dans une colonne", () => {
+  it("range la 2e demi-finale d'un tableau de trois APRÈS la 1re, malgré son index", () => {
+    // Ce que produit le générateur à trois inscrits : la 2e demi-finale occupe
+    // la case du bye et reçoit l'index 0, la 1re reçoit l'index 1.
+    const colonne = [
+      { id: "2e", type: "BraketFightRepechage3", index: 0 },
+      { id: "1re", type: "BraketFight", index: 1 },
+    ];
+    const range = [...colonne].sort(comparerDansLeTour((c) => c.index));
+    expect(range.map((c) => c.id)).toEqual(["1re", "2e"]);
+  });
+
+  it("laisse l'index départager deux combats de même type", () => {
+    const colonne = [
+      { id: "b", type: "BraketFight", index: 1 },
+      { id: "a", type: "BraketFight", index: 0 },
+      { id: "c", type: "BraketFight", index: 2 },
+    ];
+    const range = [...colonne].sort(comparerDansLeTour((c) => c.index));
+    expect(range.map((c) => c.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("ne bouscule pas un tableau ordinaire, qui n'a pas de 2e demi-finale", () => {
+    const demies = tirage(4)
+      .filter((f) => f.division === 2)
+      .map((f, i) => ({ type: f.type, index: i }));
+    const range = [...demies].sort(comparerDansLeTour((c) => c.index));
+    expect(range.map((c) => c.index)).toEqual(demies.map((c) => c.index));
   });
 });
