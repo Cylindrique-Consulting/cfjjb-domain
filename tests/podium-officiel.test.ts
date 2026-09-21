@@ -279,6 +279,42 @@ describe("IBJJF 2.4.2 : finale", () => {
   });
 });
 
+describe("tableau de trois, double blessure à égalité (IBJJF 2.4.1, SB3.2)", () => {
+  const REP = K(2, 1, "BraketFightRepechage3");
+
+  it("2e demie : le vainqueur de la 1re est champion, 2e place vacante, les deux blessés 3es", () => {
+    const c = new Tableau(3).gagne(K(2, 0), "A").double(REP, "blessure").classement();
+    expect(c.etat).toBe("complet");
+    expect(c.arbitrage).toBeNull();
+    expect(compact(c.places)).toEqual(["1:r1", "2:vacante(blessure)", "3:r3", "3:r2"]);
+    expect(medaillesDuClassement(c.places)).toEqual({ or: 1, argent: 0, bronze: 2 });
+  });
+
+  it("1re demie : le 3e combattant est champion par forfait, 2e place vacante, les deux blessés 3es", () => {
+    const c = new Tableau(3).double(K(2, 0), "blessure").classement();
+    expect(c.etat).toBe("complet");
+    expect(compact(c.places)).toEqual(["1:r2", "2:vacante(blessure)", "3:r1", "3:r3"]);
+  });
+
+  it("1re demie, 3e combattant absent : les deux blessés 3es, personne d'autre", () => {
+    const c = new Tableau(3).absents("r2").double(K(2, 0), "blessure").classement();
+    expect(c.etat).toBe("complet");
+    expect(compact(c.places)).toEqual(["3:r1", "3:r3"]);
+  });
+
+  it("finale : tirage au sort saisi, le perdant du tirage 2e, le perdant de la 2e demie 3e", () => {
+    const t = new Tableau(3).gagne(K(2, 0), "A").gagne(REP, "B").double(K(1, 0), "blessure");
+    const avant = t.classement();
+    expect(avant.etat).toBe("arbitrage_requis");
+    expect(avant.arbitrage?.resolution).toBe("tirage");
+    expect(compact(t.arbitre(K(1, 0), "tirage", "B").classement().places)).toEqual([
+      "1:r2",
+      "2:r1",
+      "3:r3",
+    ]);
+  });
+});
+
 describe("IBJJF 2.4.3 : disqualification disciplinaire validée après combat, les battus remontent", () => {
   const avecFinale = (vainqueur: "A" | "B") => {
     const t = new Tableau(8);
@@ -468,6 +504,9 @@ describe("libellés", () => {
     );
     expect(libellePlaceVacante({ rang: 1, motifVacance: "disqualification" })).toBe(
       "1re place vacante (disqualification)",
+    );
+    expect(libellePlaceVacante({ rang: 2, motifVacance: "blessure" })).toBe(
+      "2e place vacante (blessure des deux combattants)",
     );
   });
 
