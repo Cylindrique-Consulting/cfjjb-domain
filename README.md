@@ -863,6 +863,30 @@ défaut, BR3.9 option A pour toutes les autres compétitions).
 - **Rien d'autre ne bouge** : `DEFAULT_SEEDING_PLAN`, `SQUAD_SEEDING_PLAN` et
   `ABSOLUT_SEEDING_PLAN` sont inchangés, et `SeedingOutcome.echanges` vaut `[]` pour eux.
 
+## Release v0.28.0 : les personnes seules au planning
+
+Une catégorie à un seul inscrit n'a aucun combat, et les deux calculs du planning l'écartent.
+Elle doit pourtant **figurer au planning**, sans occuper de place sur un tatami ni décaler
+les heures de fin, à un horaire proche des catégories de poids du même âge et de la même
+ceinture, pour que les inscriptions de l'absolut correspondant puissent se clore à temps
+(demande du 21/09/2026). Elle s'y signale par un astérisque, comme sur le planning de l'IBJJF.
+
+| Ce qui s'ajoute                                     | Rôle                                                                        |
+| --------------------------------------------------- | --------------------------------------------------------------------------- |
+| `referencesDesPersonnesSeules` (`personnes-seules`) | la catégorie de référence de chaque personne seule, dont elle prend l'heure |
+| `ecartAvecLaReference`                              | l'écart comparé : discipline, âge, ceinture, genre, poids, puis la suivante |
+| `estPersonneSeule`                                  | une catégorie à un seul inscrit qui n'est pas un absolut (lui est annulé)   |
+| `MARQUE_PERSONNE_SEULE`                             | l'astérisque, le même sur tous les écrans                                   |
+
+- **Le planning n'est pas recalculé.** Le noyau ne donne pas d'heure : il désigne la
+  référence, et chaque écran lui prend son heure de début dans ses propres données (heure
+  prévue, heure estimée, ce que le poste a le droit de voir).
+- **Même âge et même ceinture d'abord**, le même genre de préférence, puis le poids le plus
+  proche ; à écart égal, la catégorie suivante dans l'ordre sportif. Sans aucune catégorie
+  de même âge et de même ceinture, la tranche et la ceinture les plus proches.
+- **Ni un absolut, ni une autre personne seule, ni une catégorie sans combat** ne servent de
+  référence. Sans référence possible, la personne seule n'a pas d'horaire.
+
 ## Pureté, vérifiée et non recommandée
 
 `eslint.config.mjs` interdit `node:*`, `fs`, `path`, `crypto`, `react`, `react-dom`,

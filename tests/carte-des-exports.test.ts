@@ -45,6 +45,7 @@ import {
   statutDisciplinaireDeLaSanction,
   texteArticleSanction,
 } from "../src/sanctions-disciplinaires";
+import { MARQUE_PERSONNE_SEULE, referencesDesPersonnesSeules } from "../src/personnes-seules";
 
 const SOURCES = import.meta.glob("../src/*.ts", {
   query: "?raw",
@@ -192,5 +193,12 @@ describe("la carte des exports", () => {
     expect(manifeste.exports?.["./sanctions-disciplinaires"]).toBe(
       "./src/sanctions-disciplinaires.ts",
     );
+  });
+
+  it("la référence des personnes seules au planning est joignable depuis la racine et par son entrée (v0.28.0)", () => {
+    expect(modules).toContain("personnes-seules");
+    expect(domaine.referencesDesPersonnesSeules).toBe(referencesDesPersonnesSeules);
+    expect(domaine.MARQUE_PERSONNE_SEULE).toBe(MARQUE_PERSONNE_SEULE);
+    expect(manifeste.exports?.["./personnes-seules"]).toBe("./src/personnes-seules.ts");
   });
 });
