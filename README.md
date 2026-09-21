@@ -400,7 +400,9 @@ tour et nature (technique, disciplinaire, mixte, blessure), si la suite est auto
 si le Responsable doit saisir un tirage au sort, une décision, un classement ou créer des
 combats supplémentaires (hors grille : finale rejouée en division 1 index 1, demies
 supplémentaires en division 2 index 2 et 3). Quand la règle désigne un athlète
-indisponible, elle devient « classement ». Le combat pour la 3e place (mode `pool3`, absent
+indisponible, elle devient « classement ». Un quart de finale exempté (bye) ne désigne
+personne : de ce côté, le seul perdant de quart va directement en finale (v0.32.0).
+Le combat pour la 3e place (mode `pool3`, absent
 du règlement IBJJF) demande une décision du Responsable (le 3e désigné, ou personne), sauf
 en double disqualification disciplinaire où la 3e place reste vacante. Chaque règle cite sa
 source :
@@ -969,6 +971,41 @@ d'INFINITY, venues de deux clubs, dans un absolut de six).
 - **Rien d'autre ne bouge** : les plans des catégories de poids (`DEFAULT_SEEDING_PLAN`,
   `SQUAD_SEEDING_PLAN`, `RANG_SPORTIF_SEEDING_PLAN`) n'ont pas de contrainte de moitié active,
   et leur tableau est inchangé.
+
+## Release v0.32.0 : quatre demi-finalistes disqualifiés, un quart de finale exempté
+
+Recette du 21/09/2026, absolut « Bleue - Adulte - Homme » à sept inscrits : les deux
+demi-finales finissent en double disqualification technique. L'article 2.4.1 des General
+Competition Guidelines (IBJJF 6.1) demande des demi-finales supplémentaires entre les athlètes
+battus en quart de finale par les quatre disqualifiés. L'un d'eux était exempté de quart : il n'a
+battu personne. `athletesDesignes` rend `null` pour ce quart, et un désigné manquant faisait
+basculer la règle en « classement » (« L'athlète que la règle désigne est indisponible ») : le
+Responsable devait saisir le podium à la main.
+
+| Cas                                                       | Avant            | Maintenant                                                     |
+| --------------------------------------------------------- | ---------------- | -------------------------------------------------------------- |
+| un quart exempté, l'autre quart du même côté disputé      | classement saisi | le seul perdant de quart de ce côté va directement en finale   |
+| un quart exempté de chaque côté                           | classement saisi | finale directe entre les deux perdants de quart                |
+| aucun quart disputé d'un côté (tableau de quatre, de six) | classement saisi | classement saisi, libellé `LIBELLE_COTE_SANS_PERDANT_DE_QUART` |
+| perdant de quart indisponible (absent, disciplinaire)     | classement saisi | inchangé                                                       |
+
+- **Un quart exempté ne désigne personne** (`quartDispute`) : ce n'est ni un désigné manquant ni
+  un désigné indisponible. Chaque côté du tableau doit garder au moins un quart disputé, sinon la
+  finale n'a pas de candidat de ce côté et le Responsable saisit le classement.
+- **Pas de combat à un seul athlète.** `proposerCombatsSupplementaires` ne propose une demi-finale
+  supplémentaire que pour un côté qui a deux perdants de quart ; l'athlète seul de son côté est
+  placé d'emblée dans la finale (division 1 index 1, côté A pour la 1re moitié, B pour la 2e).
+  Les libellés et les conséquences suivent : « Demi-finale supplémentaire », « Finale entre le
+  vainqueur de la demi-finale supplémentaire et le seul perdant de quart de l'autre côté du
+  tableau », « Finale entre les seuls perdants de quart de chaque côté du tableau ».
+- **Le podium ne change pas** : les quatre disqualifiés techniques sont 3es, le perdant d'une
+  demi-finale supplémentaire n'a pas de médaille (en disciplinaire, il est 3e). La finale se joue
+  comme toute finale hors grille.
+
+La table a son exemplaire SQL : la plateforme réémet `jour_j_fin_sans_vainqueur_arbitrage` et
+`day_arbitrage_combats_creer` (les combats attendus) dans la PR qui épingle cette version, sous la
+sonde de parité de `db:validate` (deux scénarios à sept inscrits, un à huit inscrits dont un quart
+exempté de chaque côté, un à six inscrits dont un côté sans quart).
 
 ## Pureté, vérifiée et non recommandée
 

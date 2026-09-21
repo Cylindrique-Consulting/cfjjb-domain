@@ -3,7 +3,10 @@ import {
   arbitrageRequisPour,
   estHorsGrille,
   formatDuTableau,
+  LIBELLE_COTE_SANS_PERDANT_DE_QUART,
   positionApresRepos,
+  proposerCombatsSupplementaires,
+  REGLE_DESIGNE_INDISPONIBLE,
   REGLES_FIN_SANS_VAINQUEUR,
   scenariosFinSansVainqueur,
   tourDuCombat,
@@ -103,7 +106,7 @@ describe("la table REGLES_FIN_SANS_VAINQUEUR", () => {
     const substitutions = scenariosFinSansVainqueur().filter(
       (s) => s.regle === "designe_indisponible",
     );
-    expect(substitutions.length).toBe(3);
+    expect(substitutions.length).toBe(4);
     for (const s of substitutions) expect(s.attendu).toBe("classement");
   });
 });
@@ -222,6 +225,101 @@ describe("la propagation attend l'arbitrage", () => {
     expect(plan.patches.find((p) => p.fightId === K(1, 0))).toBeUndefined();
     t.arbitre(K(2, 0), null, null).arbitre(K(2, 1), null, null);
     expect(t.combat(K(1, 0)).state).toBe("cancelled");
+  });
+});
+
+describe("quatre demi-finalistes disqualifiés, un quart de finale exempté (recette du 21/09/2026)", () => {
+  const septJoue = (nature: "technique" | "disciplinaire") => {
+    const t = new Tableau(7);
+    for (const i of [0, 1, 2]) t.gagne(K(3, i), "A");
+    return t.double(K(2, 0), nature).double(K(2, 1), nature);
+  };
+  const scenario = (id: string) => scenariosFinSansVainqueur().find((s) => s.id === id)!;
+
+  it("le demi-finaliste exempté ne désigne personne : des combats, pas un classement saisi", () => {
+    for (const nature of ["technique", "disciplinaire"] as const) {
+      const t = septJoue(nature);
+      expect(t.combat(K(3, 3)).isBye).toBe(true);
+      for (const demie of [K(2, 0), K(2, 1)]) {
+        const requis = arbitrageRequisPour(t.fights, t.combat(demie));
+        expect(requis?.resolution, `${nature} ${demie}`).toBe("combats");
+        expect(requis?.regle.id, `${nature} ${demie}`).toBe(`quatre.deux_demies.${nature}`);
+      }
+    }
+  });
+
+  it("le seul perdant de quart de son côté va directement en finale", () => {
+    const t = septJoue("technique");
+    const proposition = proposerCombatsSupplementaires(t.fights, t.combat(K(2, 0)));
+    expect(
+      proposition?.combats.map((x) => [x.division, x.indexInDivision, x.slotA, x.slotB, x.libelle]),
+    ).toEqual([
+      [2, 2, "r5", "r6", "Demi-finale supplémentaire"],
+      [
+        1,
+        1,
+        null,
+        "r7",
+        "Finale entre le vainqueur de la demi-finale supplémentaire et le seul perdant de quart de l'autre côté du tableau",
+      ],
+    ]);
+    expect(proposition?.consequences).toEqual([
+      "Les quatre disqualifiés des demi-finales sont 3es.",
+      "Le perdant de la demi-finale supplémentaire n'a pas de médaille.",
+      "Un demi-finaliste disqualifié n'avait pas disputé de quart de finale : de son côté du tableau, le seul perdant de quart va directement en finale.",
+    ]);
+  });
+
+  it("un quart exempté de chaque côté : la finale oppose directement les deux perdants de quart", () => {
+    const s = scenario("quatre.deux_demies.technique.un_quart_exempte_de_chaque_cote");
+    const demie = s.fights.find((f) => f.id === s.cible)!;
+    expect(s.fights.filter((f) => f.division === 3 && f.isBye).map((f) => f.id)).toEqual([
+      K(3, 1),
+      K(3, 3),
+    ]);
+    const proposition = proposerCombatsSupplementaires(s.fights, demie);
+    expect(
+      proposition?.combats.map((x) => [x.division, x.indexInDivision, x.slotA, x.slotB, x.libelle]),
+    ).toEqual([
+      [1, 1, "r5", "r7", "Finale entre les seuls perdants de quart de chaque côté du tableau"],
+    ]);
+    expect(proposition?.consequences).toEqual([
+      "Les quatre disqualifiés des demi-finales sont 3es.",
+      "Deux demi-finalistes disqualifiés n'avaient pas disputé de quart de finale : de chaque côté du tableau, le seul perdant de quart va directement en finale.",
+    ]);
+  });
+
+  it("sans quart exempté, la proposition est celle d'avant : deux demies puis leur finale", () => {
+    const t = new Tableau(8);
+    for (const i of [0, 1, 2, 3]) t.gagne(K(3, i), "A");
+    t.double(K(2, 0), "disciplinaire").double(K(2, 1), "disciplinaire");
+    const proposition = proposerCombatsSupplementaires(t.fights, t.combat(K(2, 0)));
+    expect(proposition?.combats.map((x) => x.libelle)).toEqual([
+      "1re demi-finale supplémentaire",
+      "2e demi-finale supplémentaire",
+      "Finale entre les vainqueurs des demi-finales supplémentaires",
+    ]);
+    expect(proposition?.consequences).toEqual([
+      "Les disqualifiés des demi-finales n'ont pas de médaille.",
+      "Les perdants des demi-finales supplémentaires sont 3es.",
+    ]);
+  });
+
+  it("un côté sans aucun quart disputé : classement saisi, et le libellé dit pourquoi", () => {
+    const t = new Tableau(6);
+    t.gagne(K(3, 0), "A").gagne(K(3, 1), "A");
+    t.double(K(2, 0), "technique").double(K(2, 1), "technique");
+    const requis = arbitrageRequisPour(t.fights, t.combat(K(2, 0)));
+    expect(requis?.resolution).toBe("classement");
+    expect(requis?.regle.libelle).toBe(LIBELLE_COTE_SANS_PERDANT_DE_QUART);
+    expect(proposerCombatsSupplementaires(t.fights, t.combat(K(2, 0)))).toBeNull();
+  });
+
+  it("un perdant de quart indisponible reste un classement saisi, comme avant", () => {
+    const t = septJoue("technique");
+    const requis = arbitrageRequisPour(t.fights, t.combat(K(2, 0)), (r) => r !== "r6");
+    expect(requis?.resolution).toBe("classement");
+    expect(requis?.regle.libelle).toBe(REGLE_DESIGNE_INDISPONIBLE.libelle);
   });
 });
 
