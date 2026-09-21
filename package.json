@@ -1,6 +1,6 @@
 {
   "name": "@cfjjb/domain",
-  "version": "0.27.0",
+  "version": "0.28.0",
   "description": "Noyau métier CFJJB : référentiel poids/durées/ceintures, générateur de brackets, planning, médailles. TypeScript pur, sans IO.",
   "license": "UNLICENSED",
   "private": false,
@@ -50,7 +50,8 @@
     "./enchainement-competitions": "./src/enchainement-competitions.ts",
     "./score-de-placement": "./src/score-de-placement.ts",
     "./sanctions-disciplinaires": "./src/sanctions-disciplinaires.ts",
-    "./placement-par-rang": "./src/placement-par-rang.ts"
+    "./placement-par-rang": "./src/placement-par-rang.ts",
+    "./personnes-seules": "./src/personnes-seules.ts"
   },
   "files": [
     "src"
