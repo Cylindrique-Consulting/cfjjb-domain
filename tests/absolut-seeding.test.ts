@@ -393,6 +393,82 @@ describe("absolut : deux médaillés d'une même catégorie source ne se retrouv
   });
 });
 
+describe("absolut : deux coéquipiers ne se retrouvent qu'en finale", () => {
+  const POIDS = ["Pesadissimo", "Super Pesado", "Pesado", "Meio Pesado", "Medio", "Leve"];
+  // Douze médaillés de six catégories : les graines 1 et 4 viennent de la même entité.
+  // Le placement standard les met dans la même moitié, dans deux quarts différents : la
+  // contrainte de quart de tableau ne les voit pas, et elles se retrouvaient en demi-finale.
+  const DOUZE: AbsolutRegistration[] = Array.from({ length: 12 }, (_, i) => ({
+    registrationId: `p${i + 1}`,
+    clubId: i === 0 || i === 3 ? "entite-x" : `club-${i + 1}`,
+    sourceCategoryId: `cat-${i % 6}`,
+    sourcePlace: i < 6 ? 1 : 2,
+    sourceWeightClass: POIDS[i % 6] ?? null,
+  }));
+
+  const sansMoitie: SeedingPlan = {
+    ...ABSOLUT_SEEDING_PLAN,
+    constraints: ABSOLUT_SEEDING_PLAN.constraints.filter((c) => c.scope.kind !== "half"),
+  };
+
+  function moitieDe(leaves: readonly (BracketEntry | null)[], id: string): number {
+    const i = leaves.findIndex((l) => l?.registrationId === id);
+    return i < leaves.length / 2 ? 0 : 1;
+  }
+
+  it("le placement standard les met dans la même moitié, la réparation les sépare", () => {
+    expect(ids(pipeline(DOUZE).seedOrder as BracketEntry[]).slice(0, 4)).toEqual([
+      "p1",
+      "p2",
+      "p3",
+      "p4",
+    ]);
+    const avant = pipeline(DOUZE, "absolut", sansMoitie);
+    expect(moitieDe(avant.leaves, "p1"), "sans la contrainte de moitié").toBe(
+      moitieDe(avant.leaves, "p4"),
+    );
+    const apres = pipeline(DOUZE);
+    expect(moitieDe(apres.leaves, "p1")).not.toBe(moitieDe(apres.leaves, "p4"));
+    expect(pairCount(apres.leaves, 2, "source-category")).toBe(0);
+    expect(pairCount(apres.leaves, 4, "club")).toBe(0);
+  });
+
+  it("balayage : deux coéquipiers de catégories différentes finissent toujours dans deux moitiés", () => {
+    const echecs: string[] = [];
+    for (let n = 2; n <= 40; n++) {
+      for (let graine = 0; graine < 10; graine++) {
+        const rng = mulberry32(fnv1a(`moitie|${n}|${graine}`));
+        const entites: string[] = [];
+        for (let i = 0; i < n; i++) {
+          const precedente = entites[i - 1];
+          const enPaire =
+            precedente !== undefined && entites.filter((e) => e === precedente).length < 2;
+          entites.push(enPaire && rng() < 0.4 ? precedente : `e${i}`);
+        }
+        const regs: AbsolutRegistration[] = entites.map((entite, i) => ({
+          registrationId: `r${i}`,
+          clubId: entite,
+          sourceCategoryId: null,
+          sourcePlace: 1 + Math.floor(rng() * 3),
+          sourceWeightClass: POIDS[Math.floor(rng() * POIDS.length)] ?? null,
+        }));
+        const leaves = pipeline(regs).leaves;
+        const restant = pairCount(leaves, leaves.length / 2, "club");
+        if (restant !== 0) echecs.push(`n = ${n}, graine ${graine} : ${restant}`);
+      }
+    }
+    expect(echecs).toEqual([]);
+  });
+
+  it("la règle est au dernier palier du plan, après le premier tour et le quart de tableau", () => {
+    const actives = ABSOLUT_SEEDING_PLAN.constraints.filter((c) => c.enabled);
+    const moitie = actives.find((c) => c.scope.kind === "half");
+    expect(moitie).toMatchObject({ name: "meme-club-meme-moitie", key: "club" });
+    expect(Math.max(...actives.map((c) => c.tier))).toBe(moitie?.tier);
+    expect(actives.filter((c) => c.tier === moitie?.tier)).toHaveLength(1);
+  });
+});
+
 describe("absolut : un classement, pas un tirage", () => {
   it("l'entrelacement anti-club est ÉTEINT, sans quoi il détruirait l'ordre par place", () => {
     expect(
