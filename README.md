@@ -949,10 +949,11 @@ d'INFINITY, venues de deux clubs, dans un absolut de six).
 | contrainte `meme-club-meme-moitie` | ajoutée aux deux plans de l'absolut, au dernier palier : l'entité par moitié         |
 | `reparation: "rang-voisin"`        | après le premier tour, une seconde passe sépare les moitiés quand le plan le demande |
 
-- **Au dernier palier.** Deux médaillés d'une même catégorie source ne se rencontrent toujours
-  pas au premier tour, deux coéquipiers non plus : ces règles passent avant. Un échange qui
-  sépare les moitiés n'est retenu que s'il améliore le score du plan, palier par palier, sans
-  jamais dégrader le premier tour.
+- **Au dernier palier.** Éviter au premier tour une revanche de catégorie source, puis une
+  rencontre entre coéquipiers, passe avant : un échange qui sépare les moitiés n'est retenu que
+  s'il améliore le score du plan, palier par palier, donc sans jamais ajouter une rencontre
+  interdite au premier tour. Quand une revanche y est inévitable (quatre inscrits sur six venus
+  de la même catégorie, deux exemptés), elle reste, et la séparation des moitiés se fait autour.
 - **Placement par rang : au rang voisin, et un exempté garde son exemption.** La moins bien
   classée des deux change de moitié avec l'athlète de rang le plus proche dans l'autre moitié
   (un exempté avec un exempté, un combattant avec un combattant) ; à défaut, son combat entier
