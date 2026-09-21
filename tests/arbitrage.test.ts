@@ -78,6 +78,7 @@ describe("la table REGLES_FIN_SANS_VAINQUEUR", () => {
         "deux.finale.disciplinaire",
         "deux.finale.mixte",
         "trois.finale.technique",
+        "trois.demie.blessure",
         "quatre.demie.technique",
         "quatre.demie.disciplinaire",
         "quatre.demie.mixte",
@@ -85,6 +86,17 @@ describe("la table REGLES_FIN_SANS_VAINQUEUR", () => {
         "quatre.avant_demies.technique",
       ]),
     );
+  });
+
+  it("tableau de trois, double blessure à égalité : automatique dans les DEUX demies, tirage en finale (SB3.2)", () => {
+    const attendus = scenariosFinSansVainqueur()
+      .filter((s) => s.regle === "trois.demie.blessure" || s.regle === "trois.finale.blessure")
+      .map((s) => [s.id, s.attendu]);
+    expect(attendus).toEqual([
+      ["trois.demie.blessure.1re_demie", null],
+      ["trois.demie.blessure.2e_demie", null],
+      ["trois.finale.blessure", "tirage"],
+    ]);
   });
 
   it("athlète désigné indisponible : le logiciel ne choisit pas, classement saisi", () => {
@@ -131,6 +143,40 @@ describe("la propagation attend l'arbitrage", () => {
     t.arbitre(K(2, 0), "tirage", "B");
     expect(t.combat(K(1, 0)).slotA).toBe("r3");
     expect(t.combat(K(2, 1, "BraketFightRepechage3")).slotA).toBe("r1");
+  });
+
+  it("2e demie d'un tableau de trois en double blessure : la finale passe tout de suite au vainqueur de la 1re", () => {
+    const rep = K(2, 1, "BraketFightRepechage3");
+    const t = new Tableau(3).gagne(K(2, 0), "A").double(rep, "blessure");
+    expect(t.combat(rep)).toMatchObject({
+      state: "finished",
+      winner: null,
+      slotA: "r3",
+      slotB: "r2",
+    });
+    expect(t.combat(K(1, 0))).toMatchObject({
+      state: "finished",
+      winMethod: "wo",
+      winner: "r1",
+      slotB: null,
+    });
+  });
+
+  it("1re demie d'un tableau de trois en double blessure : le 3e passe la 2e demie puis la finale sans adversaire", () => {
+    const rep = K(2, 1, "BraketFightRepechage3");
+    const t = new Tableau(3).double(K(2, 0), "blessure");
+    expect(t.combat(rep)).toMatchObject({
+      state: "finished",
+      winMethod: "wo",
+      winner: "r2",
+      slotA: null,
+    });
+    expect(t.combat(K(1, 0))).toMatchObject({
+      state: "finished",
+      winMethod: "wo",
+      winner: "r2",
+      slotA: null,
+    });
   });
 
   it("décision « aucun qualifié » : l'emplacement devient impossible, la cascade passe sans adversaire", () => {

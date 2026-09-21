@@ -116,9 +116,10 @@ export const REGLES_FIN_SANS_VAINQUEUR: readonly RegleFinSansVainqueur[] = [
     format: "trois",
     tour: "demie",
     nature: "blessure",
-    resolution: "decision",
-    source: S.cfjjbNonEcrit,
-    libelle: "Le Responsable saisit la suite retenue.",
+    resolution: null,
+    source: S.ibjjf241,
+    libelle:
+      "Aucun des deux blessés ne va en finale : ils sont 3es, l'athlète restant est champion et la 2e place reste vacante.",
   },
   {
     id: "trois.finale.technique",
@@ -152,9 +153,9 @@ export const REGLES_FIN_SANS_VAINQUEUR: readonly RegleFinSansVainqueur[] = [
     format: "trois",
     tour: "finale",
     nature: "blessure",
-    resolution: "decision",
-    source: S.cfjjbNonEcrit,
-    libelle: "Le Responsable saisit la suite retenue.",
+    resolution: "tirage",
+    source: S.ibjjfTirage,
+    libelle: "Finale à égalité parfaite : tirage au sort fait devant les athlètes.",
   },
 
   {

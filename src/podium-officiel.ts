@@ -36,7 +36,7 @@ export type EligibiliteInscription = {
   disciplinaire: StatutDisciplinaire;
 };
 
-export type MotifVacance = "disqualification" | "disqualification_disciplinaire";
+export type MotifVacance = "disqualification" | "disqualification_disciplinaire" | "blessure";
 
 export type RangDePodium = 1 | 2 | 3;
 
@@ -88,6 +88,7 @@ export function libelleElimination(e: EliminationDuJour): string {
 export const LIBELLES_MOTIF_VACANCE: Record<MotifVacance, string> = {
   disqualification: "disqualification",
   disqualification_disciplinaire: "disqualification disciplinaire",
+  blessure: "blessure des deux combattants",
 };
 
 export function estClassable(e: EligibiliteInscription): boolean {
@@ -333,7 +334,9 @@ function placesTrois(ctx: Contexte): PlaceBrute[] {
     ) ?? null;
 
   const bronze = (): PlaceBrute[] => {
+    if (fini(demie) && sansVainqueur(demie)) return placesDeLaDoubleFin(ctx, 3, demie);
     if (!fini(rep)) return [];
+    if (sansVainqueur(rep)) return placesDeLaDoubleFin(ctx, 3, rep);
     if (rep.winner !== null) {
       const perdant = loserOf(rep);
       if (perdant !== null) return pourvue(3, perdant, rep);
@@ -374,6 +377,9 @@ function placesTrois(ctx: Contexte): PlaceBrute[] {
     if (fini(nourricier) && nourricier.winMethod === "double_wo") {
       if (quiOntCombattu(ctx, 2, nourricier).length > 0)
         places.push(vacante(2, "disqualification"));
+    }
+    if (fini(nourricier) && sansVainqueur(nourricier) && natureDeLaFin(nourricier) === "blessure") {
+      places.push(vacante(2, "blessure"));
     }
     return [...places, ...bronze()];
   }

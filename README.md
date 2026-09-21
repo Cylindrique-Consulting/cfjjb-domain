@@ -909,6 +909,31 @@ fois, pour les deux applications.
 - **Même comportement que le module que la plateforme utilisait**, à une exception près :
   l'apostrophe typographique sépare désormais les membres d'un prénom, comme l'apostrophe droite.
 
+## Release v0.30.0 : la double blessure dans un tableau de trois
+
+Question du client du 21/09/2026 : dans un tableau de trois, les deux combattants de la 2e
+demi-finale se blessent à égalité parfaite. `trois.demie.blessure` demandait au Responsable une
+« suite retenue », et aucun choix ne donnait le podium du règlement : « personne » laissait les
+deux blessés sans médaille, un nom envoyait un blessé en finale.
+
+| Règle                   | Avant                   | Maintenant                                         |
+| ----------------------- | ----------------------- | -------------------------------------------------- |
+| `trois.demie.blessure`  | décision du Responsable | automatique (General Competition Guidelines 2.4.1) |
+| `trois.finale.blessure` | décision du Responsable | tirage au sort (règles d'arbitrage art. 2)         |
+
+- **L'une ou l'autre demi-finale** : aucun des deux blessés ne va en finale, ils sont 3es.
+  L'athlète restant passe la suite sans adversaire et il est champion : le vainqueur de la 1re
+  demi-finale si l'accident survient en 2e, le 3e combattant s'il survient en 1re. La 2e place
+  reste vacante, avec le motif `blessure` (« 2e place vacante (blessure des deux combattants) »).
+- **Finale** : tirage au sort fait devant les athlètes, comme pour les finales des autres
+  formats. Le perdant du tirage est 2e, le perdant de la 2e demi-finale 3e.
+- **La cascade ne change pas** : une fin sans vainqueur dont la règle n'attend aucun arbitrage
+  rend déjà impossible l'emplacement qu'elle devait remplir.
+- **`MotifVacance` gagne la valeur `blessure`.** La plateforme doit l'accepter
+  (`jour_j_places_valides`) avant qu'un consommateur confirme un podium qui la porte. Le second
+  exemplaire de la table (`jour_j_fin_sans_vainqueur_arbitrage`) change dans la même PR que
+  l'épingle : la sonde de parité de `db:validate` compare les deux.
+
 ## Pureté, vérifiée et non recommandée
 
 `eslint.config.mjs` interdit `node:*`, `fs`, `path`, `crypto`, `react`, `react-dom`,
