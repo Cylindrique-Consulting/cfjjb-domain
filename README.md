@@ -854,7 +854,8 @@ défaut, BR3.9 option A pour toutes les autres compétitions).
   rang le plus proche qui évite la rencontre ; à écart égal, le moins bien classé d'abord.
   L'échange est refusé s'il crée une autre rencontre interdite, s'il sort #1 ou #2 de sa
   moitié, ou s'il touche un exempté (un bye ne change jamais de main). Une rencontre que rien
-  ne peut éviter reste en place, et l'appelant la signale comme aujourd'hui.
+  ne peut éviter reste en place, et l'appelant la signale comme aujourd'hui. Depuis la v0.31.0,
+  l'absolut sépare aussi ses coéquipiers entre les deux moitiés du tableau (voir plus bas).
 - **Le critère qui départage** chaque rang est lu sur l'ordre rendu par `ordonnerPourTableau` :
   score Absolut, général ou direct selon la première valeur qui diffère du rang précédent,
   sinon critères du classement national, place et catégorie du jour, tirage. La légende ne
@@ -933,6 +934,41 @@ deux blessés sans médaille, un nom envoyait un blessé en finale.
   (`jour_j_places_valides`) avant qu'un consommateur confirme un podium qui la porte. Le second
   exemplaire de la table (`jour_j_fin_sans_vainqueur_arbitrage`) change dans la même PR que
   l'épingle : la sonde de parité de `db:validate` compare les deux.
+
+## Release v0.31.0 : deux coéquipiers d'un absolut ne se rencontrent qu'en finale
+
+Un absolut compte au plus deux inscrits par entité (l'équipe de la saison, le club à défaut :
+l'appelant la passe dans `clubId`). Jusqu'ici, rien ne les empêchait d'être dans la même moitié
+du tableau : placées par rang, la séparation ne regardait que le premier tour ; placées par
+médaille, elle s'arrêtait au quart de tableau, qui n'est une moitié que dans un tableau de huit.
+Deux coéquipières se retrouvaient donc en demi-finale (recette du 21/09/2026 : #1 et #5
+d'INFINITY, venues de deux clubs, dans un absolut de six).
+
+| Ce qui change                      | Rôle                                                                                 |
+| ---------------------------------- | ------------------------------------------------------------------------------------ |
+| contrainte `meme-club-meme-moitie` | ajoutée aux deux plans de l'absolut, au dernier palier : l'entité par moitié         |
+| `reparation: "rang-voisin"`        | après le premier tour, une seconde passe sépare les moitiés quand le plan le demande |
+
+- **Au dernier palier.** Éviter au premier tour une revanche de catégorie source, puis une
+  rencontre entre coéquipiers, passe avant : un échange qui sépare les moitiés n'est retenu que
+  s'il améliore le score du plan, palier par palier, donc sans jamais ajouter une rencontre
+  interdite au premier tour. Quand une revanche y est inévitable (quatre inscrits sur six venus
+  de la même catégorie, deux exemptés), elle reste, et la séparation des moitiés se fait autour.
+- **Placement par rang : au rang voisin, et un exempté garde son exemption.** La moins bien
+  classée des deux change de moitié avec l'athlète de rang le plus proche dans l'autre moitié
+  (un exempté avec un exempté, un combattant avec un combattant) ; à défaut, son combat entier
+  change de moitié avec le combat voisin ; à défaut, la mieux classée des deux tente les mêmes
+  gestes. #1 et #2 restent dans deux moitiés, et aucune exemption ne change de main.
+- **Ce qui reste impossible reste en place** : deux coéquipiers qui se rencontrent au premier tour
+  parce que tous les autres inscrits sont exemptés, le tableau de trois, ou une séparation qui
+  créerait une revanche de catégorie source au premier tour. Mesuré en placement par rang sur
+  4 200 tableaux de 4 à 24 inscrits avec une ou deux paires : 0,7 % gardent une paire dans la
+  même moitié.
+- **Placement par médaille** : la réparation libre tient la nouvelle contrainte comme les autres.
+  Deux coéquipiers de catégories différentes finissent toujours dans deux moitiés.
+- **Rien d'autre ne bouge** : les plans des catégories de poids (`DEFAULT_SEEDING_PLAN`,
+  `SQUAD_SEEDING_PLAN`, `RANG_SPORTIF_SEEDING_PLAN`) n'ont pas de contrainte de moitié active,
+  et leur tableau est inchangé.
 
 ## Pureté, vérifiée et non recommandée
 

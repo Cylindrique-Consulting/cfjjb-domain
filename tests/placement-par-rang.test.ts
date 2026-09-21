@@ -351,6 +351,245 @@ describe("placement par rang : l'absolut", () => {
   });
 });
 
+describe("placement par rang : deux coéquipiers d'un absolut ne se rencontrent qu'en finale", () => {
+  // Le cas de la recette du 21/09/2026, « Violette - Adulte - Femme - Absolut » : #1 et #5 de la
+  // même équipe (deux clubs différents, l'entité voyage dans `clubId`) et de la même catégorie
+  // source, les quatre autres dans une seconde catégorie source. Le placement standard met #5
+  // dans la moitié de #1 : elles se retrouvaient en demi-finale.
+  const RECETTE: AbsolutRegistration[] = [
+    { registrationId: "balcer", clubId: "infinity", sourceCategoryId: "pluma", rank: 1 },
+    { registrationId: "moree", clubId: "fayence", sourceCategoryId: "leve", rank: 2 },
+    { registrationId: "domergue", clubId: "gap", sourceCategoryId: "leve", rank: 3 },
+    { registrationId: "armand", clubId: "phoenix", sourceCategoryId: "leve", rank: 4 },
+    { registrationId: "cropsal", clubId: "infinity", sourceCategoryId: "pluma", rank: 5 },
+    { registrationId: "delaby", clubId: "asc59", sourceCategoryId: "leve", rank: 6 },
+  ];
+
+  function placerLAbsolut(inscrits: readonly AbsolutRegistration[]) {
+    const entries: BracketEntry[] = inscrits.map((r) => ({
+      registrationId: r.registrationId,
+      clubId: r.clubId ?? null,
+      sourceCategoryId: r.sourceCategoryId ?? null,
+      rank: r.rank ?? null,
+    }));
+    return applySeedingPlan(
+      entries,
+      tailleDe(entries.length),
+      SANS_TIRAGE,
+      ABSOLUT_RANG_SPORTIF_SEEDING_PLAN,
+    );
+  }
+
+  it("le cas de la recette : #5 passe dans l'autre moitié, échangée avec #6", () => {
+    const sorti = placerLAbsolut(RECETTE);
+    expect(ids(sorti.placement), "le placement standard, avant réparation").toEqual([
+      "balcer",
+      null,
+      "armand",
+      "cropsal",
+      "moree",
+      null,
+      "domergue",
+      "delaby",
+    ]);
+    expect(ids(sorti.leaves)).toEqual([
+      "balcer",
+      null,
+      "armand",
+      "delaby",
+      "moree",
+      null,
+      "domergue",
+      "cropsal",
+    ]);
+    expect(moitieDe(sorti.leaves, "balcer")).not.toBe(moitieDe(sorti.leaves, "cropsal"));
+    expect(sorti.echanges).toContainEqual({
+      deplace: "cropsal",
+      avec: "delaby",
+      contrainte: "meme-club-meme-moitie",
+    });
+    expect(titulairesDeBye(sorti.leaves)).toEqual(titulairesDeBye(sorti.placement));
+    expect(moitieDe(sorti.leaves, "balcer")).not.toBe(moitieDe(sorti.leaves, "moree"));
+  });
+
+  it("à défaut d'un combat voisin, l'exemptée change de moitié avec son exemption", () => {
+    // Cinq inscrites, #1, #2 et #3 exemptées, #2 et #3 coéquipières. Seule #1 est exemptée
+    // dans l'autre moitié : #3 part avec son combat, et #4 contre #5 prend sa place.
+    const cinq = [1, 2, 3, 4, 5].map((rang) => ({
+      registrationId: `r${rang}`,
+      clubId: rang === 2 || rang === 3 ? "X" : `club-${rang}`,
+      rank: rang,
+    }));
+    const sorti = placerLAbsolut(cinq);
+    expect(ids(sorti.placement)).toEqual(["r1", null, "r4", "r5", "r2", null, "r3", null]);
+    expect(ids(sorti.leaves)).toEqual(["r1", null, "r3", null, "r2", null, "r4", "r5"]);
+    expect(titulairesDeBye(sorti.leaves)).toEqual(["r1", "r2", "r3"]);
+    expect(sorti.echanges).toEqual([
+      { deplace: "r3", avec: "r4", contrainte: "meme-club-meme-moitie" },
+    ]);
+  });
+
+  it("à défaut de la moins bien classée, la mieux classée change de moitié", () => {
+    // Onze inscrits, trois paires (B : #2 et #6, F : #7 et #10, C : #3 et #11). La dernière
+    // paire ne se sépare qu'en déplaçant #3, exemptée, avec #4, exempté lui aussi.
+    const entites = ["A", "B", "C", "D", "E", "B", "F", "G", "H", "F", "C"];
+    const onze = entites.map((entite, i) => ({
+      registrationId: `r${i + 1}`,
+      clubId: entite,
+      rank: i + 1,
+    }));
+    const sorti = placerLAbsolut(onze);
+    for (const [x, y] of [
+      ["r2", "r6"],
+      ["r7", "r10"],
+      ["r3", "r11"],
+    ] as const) {
+      expect(moitieDe(sorti.leaves, x), `${x} et ${y}`).not.toBe(moitieDe(sorti.leaves, y));
+    }
+    expect(sorti.echanges).toContainEqual({
+      deplace: "r3",
+      avec: "r4",
+      contrainte: "meme-club-meme-moitie",
+    });
+    expect(titulairesDeBye(sorti.leaves)).toEqual(titulairesDeBye(sorti.placement));
+  });
+
+  it("deux coéquipières qui se rencontrent au premier tour faute d'autre combat restent en place", () => {
+    // Cinq inscrites, #4 et #5 coéquipières : les trois autres sont exemptées, et retirer une
+    // exemption n'est pas permis. Le combat reste, rien d'autre ne bouge.
+    const cinq = [1, 2, 3, 4, 5].map((rang) => ({
+      registrationId: `r${rang}`,
+      clubId: rang >= 4 ? "X" : `club-${rang}`,
+      rank: rang,
+    }));
+    const sorti = placerLAbsolut(cinq);
+    expect(sorti.leaves).toEqual(sorti.placement);
+    expect(sorti.echanges).toEqual([]);
+  });
+
+  it("balayage : exemptions intactes, #1 / #2 opposés, personne ne disparaît, et jamais pire qu'avant au premier tour", () => {
+    const sansMoitie = {
+      ...ABSOLUT_RANG_SPORTIF_SEEDING_PLAN,
+      constraints: ABSOLUT_RANG_SPORTIF_SEEDING_PLAN.constraints.filter(
+        (c) => c.scope.kind !== "half",
+      ),
+    };
+    const paires = (
+      feuilles: readonly (BracketEntry | null)[],
+      bloc: number,
+      cle: (e: BracketEntry) => string | null,
+    ): number => {
+      let n = 0;
+      for (let debut = 0; debut < feuilles.length; debut += bloc) {
+        const vus = new Map<string, number>();
+        for (let f = debut; f < Math.min(feuilles.length, debut + bloc); f++) {
+          const e = feuilles[f] ?? null;
+          const k = e === null ? null : cle(e);
+          if (k !== null) vus.set(k, (vus.get(k) ?? 0) + 1);
+        }
+        for (const v of vus.values()) n += (v * (v - 1)) / 2;
+      }
+      return n;
+    };
+    let separables = 0;
+    let separees = 0;
+    for (let n = 2; n <= 33; n++) {
+      for (let graine = 0; graine < 30; graine++) {
+        const rng = mulberry32(fnv1a(`moities|${n}|${graine}`));
+        const avecSources = graine % 3 !== 0;
+        const entites: string[] = [];
+        for (let i = 0; i < n; i++) {
+          const precedente = entites[i - 1];
+          const enPaire =
+            precedente !== undefined && entites.filter((e) => e === precedente).length < 2;
+          entites.push(enPaire && rng() < 0.4 ? precedente : `e${i}`);
+        }
+        const melangees = entites
+          .map((e) => ({ e, r: rng() }))
+          .sort((a, b) => a.r - b.r)
+          .map((x) => x.e);
+        const entries: BracketEntry[] = melangees.map((entite, i) => ({
+          registrationId: `r${i + 1}`,
+          clubId: entite,
+          sourceCategoryId: avecSources ? `s${Math.floor(rng() * 3)}` : null,
+          rank: i + 1,
+        }));
+        const taille = tailleDe(n);
+        const sorti = applySeedingPlan(
+          entries,
+          taille,
+          SANS_TIRAGE,
+          ABSOLUT_RANG_SPORTIF_SEEDING_PLAN,
+        );
+        const avant = applySeedingPlan(entries, taille, SANS_TIRAGE, sansMoitie);
+        const contexte = `n = ${n}, graine ${graine}`;
+        expect(titulairesDeBye(sorti.leaves), contexte).toEqual(titulairesDeBye(sorti.placement));
+        if (n >= 3) {
+          expect(moitieDe(sorti.leaves, "r1"), contexte).not.toBe(moitieDe(sorti.leaves, "r2"));
+        }
+        expect(ids(sorti.leaves).slice().sort(), contexte).toEqual(
+          ids(sorti.placement).slice().sort(),
+        );
+        const source = (e: BracketEntry) => e.sourceCategoryId ?? null;
+        const entite = (e: BracketEntry) => e.clubId ?? null;
+        const premierTour = (f: readonly (BracketEntry | null)[]) => [
+          paires(f, 2, source),
+          paires(f, 2, entite),
+        ];
+        const [sourceApres, entiteApres] = premierTour(sorti.leaves) as [number, number];
+        const [sourceAvant, entiteAvant] = premierTour(avant.leaves) as [number, number];
+        expect(sourceApres, contexte).toBeLessThanOrEqual(sourceAvant);
+        if (sourceApres === sourceAvant) {
+          expect(entiteApres, contexte).toBeLessThanOrEqual(entiteAvant);
+        }
+        expect(paires(sorti.leaves, taille / 2, entite), contexte).toBeLessThanOrEqual(
+          paires(avant.leaves, taille / 2, entite),
+        );
+        if (paires(avant.leaves, taille / 2, entite) > 0) {
+          separables += 1;
+          if (paires(sorti.leaves, taille / 2, entite) === 0) separees += 1;
+        }
+      }
+    }
+    expect(
+      separees / separables,
+      `${separees} tableaux séparés sur ${separables} qui avaient des coéquipiers dans une même moitié`,
+    ).toBeGreaterThan(0.95);
+  });
+
+  it("la règle est dans le plan de l'absolut, après le premier tour", () => {
+    const moitie = ABSOLUT_RANG_SPORTIF_SEEDING_PLAN.constraints.find(
+      (c) => c.scope.kind === "half",
+    );
+    expect(moitie).toMatchObject({ name: "meme-club-meme-moitie", key: "club", enabled: true });
+    const premierTour = ABSOLUT_RANG_SPORTIF_SEEDING_PLAN.constraints.filter(
+      (c) => c.scope.kind === "round",
+    );
+    expect(Math.max(...premierTour.map((c) => c.tier))).toBeLessThan(moitie?.tier ?? -1);
+    expect(RANG_SPORTIF_SEEDING_PLAN.constraints.some((c) => c.scope.kind === "half")).toBe(false);
+    const lignes = describeSeedingPlan(ABSOLUT_RANG_SPORTIF_SEEDING_PLAN);
+    expect(
+      lignes.some((l) => l.includes("meme-club-meme-moitie : club par moitié de tableau")),
+    ).toBe(true);
+  });
+
+  it("le tableau généré les place dans deux demi-finales différentes", () => {
+    const tableau = generateAbsolutBracket(RECETTE, "abs", {
+      thirdPlaceMode: "pool3",
+      placement: "rang-sportif",
+    });
+    if (tableau.kind !== "bracket") throw new Error("tableau attendu");
+    const demies = tableau.fights
+      .filter((f) => f.division === 2 && f.type === "BraketFight")
+      .sort((a, b) => a.indexInDivision - b.indexInDivision);
+    expect(demies[0]).toMatchObject({ slotA: "balcer" });
+    const quartsDuBas = tableau.fights.filter(
+      (f) => f.division === 3 && f.type === "BraketFight" && f.indexInDivision >= 2,
+    );
+    expect(quartsDuBas.flatMap((f) => [f.slotA, f.slotB])).toContain("cropsal");
+  });
+});
+
 const CIBLE: CibleDePlacement = {
   saisonCourante: "2026-27",
   discipline: "gi",

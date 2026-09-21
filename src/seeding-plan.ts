@@ -170,7 +170,7 @@ export function describeSeedingPlan(plan: SeedingPlan = DEFAULT_SEEDING_PLAN): s
     "2. placement standard (graines aux positions canoniques)",
     ...(plan.reparation === "rang-voisin"
       ? [
-          "3. réparation / au rang voisin : le moins bien classé de deux coéquipiers est échangé avec le rang le plus proche, #1 et #2 restent dans deux moitiés, aucun bye ne change de main, premier tour seulement",
+          "3. réparation / au rang voisin : le moins bien classé de deux coéquipiers est échangé avec le rang le plus proche, #1 et #2 restent dans deux moitiés, aucun bye ne change de main ; au premier tour, puis entre les deux moitiés du tableau quand le plan le demande",
         ]
       : []),
     ...plan.constraints.map(
@@ -442,6 +442,37 @@ function repair(placement: readonly Leaf[], plan: SeedingPlan): Leaf[] {
   return out;
 }
 
+function trierParPalier(contraintes: readonly SeparationConstraint[]): SeparationConstraint[] {
+  return contraintes
+    .map((c, ordre) => ({ c, ordre }))
+    .sort((a, b) => a.c.tier - b.c.tier || a.ordre - b.ordre)
+    .map((x) => x.c);
+}
+
+function conflitSelon(
+  contraintes: readonly SeparationConstraint[],
+  a: Leaf,
+  b: Leaf,
+): SeparationConstraint | null {
+  if (a === null || b === null) return null;
+  for (const c of contraintes) {
+    const cle = separationKeyOf(a, c.key);
+    if (cle !== null && cle === separationKeyOf(b, c.key)) return c;
+  }
+  return null;
+}
+
+function parVoisinage(cible: number): (gx: number, gy: number) => number {
+  return (gx, gy) => {
+    const dx = Math.abs(gx - cible);
+    const dy = Math.abs(gy - cible);
+    if (dx !== dy) return dx - dy;
+    const moinsBienX = gx > cible ? 0 : 1;
+    const moinsBienY = gy > cible ? 0 : 1;
+    return moinsBienX - moinsBienY || gx - gy;
+  };
+}
+
 function reparerAuRangVoisin(
   placement: readonly Leaf[],
   seedOrder: readonly BracketEntry[],
@@ -450,26 +481,23 @@ function reparerAuRangVoisin(
   const out = [...placement];
   const size = out.length;
   const echanges: EchangeDeSeparation[] = [];
-  const contraintes = plan.constraints
-    .filter((c) => c.enabled && c.scope.kind === "round" && c.scope.round === 1)
-    .map((c, ordre) => ({ c, ordre }))
-    .sort((a, b) => a.c.tier - b.c.tier || a.ordre - b.ordre)
-    .map((x) => x.c);
-  if (contraintes.length === 0 || size < 4) return { leaves: out, echanges };
+  const contraintes = trierParPalier(
+    plan.constraints.filter((c) => c.enabled && c.scope.kind === "round" && c.scope.round === 1),
+  );
+  const contraintesDeMoitie = trierParPalier(
+    plan.constraints.filter((c) => c.enabled && c.scope.kind === "half"),
+  );
+  if ((contraintes.length === 0 && contraintesDeMoitie.length === 0) || size < 4) {
+    return { leaves: out, echanges };
+  }
 
   const graines = new Map(seedOrder.map((e, i) => [e.registrationId, i + 1] as const));
   const graineDe = (l: Leaf): number =>
     l === null
       ? Number.POSITIVE_INFINITY
       : (graines.get(l.registrationId) ?? Number.POSITIVE_INFINITY);
-  const conflit = (a: Leaf, b: Leaf): SeparationConstraint | null => {
-    if (a === null || b === null) return null;
-    for (const c of contraintes) {
-      const cle = separationKeyOf(a, c.key);
-      if (cle !== null && cle === separationKeyOf(b, c.key)) return c;
-    }
-    return null;
-  };
+  const conflit = (a: Leaf, b: Leaf): SeparationConstraint | null =>
+    conflitSelon(contraintes, a, b);
   const moitie = (feuille: number): number => (feuille < size / 2 ? 0 : 1);
   const partenaire = (feuille: number): number => feuille ^ 1;
   const tetesDeSerieOpposees = (): boolean => {
@@ -509,16 +537,8 @@ function reparerAuRangVoisin(
       if ((out[partenaire(feuille)] ?? null) === null) continue;
       candidats.push(feuille);
     }
-    candidats.sort((x, y) => {
-      const gx = graineDe(out[x] ?? null);
-      const gy = graineDe(out[y] ?? null);
-      const dx = Math.abs(gx - graineB);
-      const dy = Math.abs(gy - graineB);
-      if (dx !== dy) return dx - dy;
-      const moinsBienX = gx > graineB ? 0 : 1;
-      const moinsBienY = gy > graineB ? 0 : 1;
-      return moinsBienX - moinsBienY || gx - gy;
-    });
+    const auVoisinage = parVoisinage(graineB);
+    candidats.sort((x, y) => auVoisinage(graineDe(out[x] ?? null), graineDe(out[y] ?? null)));
 
     let tenu = false;
     for (const feuille of candidats) {
@@ -542,7 +562,144 @@ function reparerAuRangVoisin(
     }
     if (!tenu) irreparables.add(choisi.combat);
   }
+  if (contraintesDeMoitie.length > 0) {
+    separerLesMoities(out, graineDe, [...contraintes, ...contraintesDeMoitie], echanges);
+  }
   return { leaves: out, echanges };
+}
+
+function separerLesMoities(
+  out: Leaf[],
+  graineDe: (l: Leaf) => number,
+  contraintes: readonly SeparationConstraint[],
+  echanges: EchangeDeSeparation[],
+): void {
+  const size = out.length;
+  const contraintesDeMoitie = contraintes.filter((c) => c.scope.kind === "half");
+  const moitie = (feuille: number): number => (feuille < size / 2 ? 0 : 1);
+  const partenaire = (feuille: number): number => feuille ^ 1;
+  const tetesDeSerieOpposees = (): boolean => {
+    const premier = out.findIndex((l) => graineDe(l) === 1);
+    const second = out.findIndex((l) => graineDe(l) === 2);
+    if (premier < 0 || second < 0) return true;
+    return moitie(premier) !== moitie(second);
+  };
+  let score = scoreOf(out, contraintes);
+  const retenir = (): boolean => {
+    if (!tetesDeSerieOpposees()) return false;
+    const suivant = scoreOf(out, contraintes);
+    if (!isBetter(suivant, score)) return false;
+    score = suivant;
+    return true;
+  };
+
+  const echangerLAthlete = (feuille: number, contrainte: SeparationConstraint): boolean => {
+    const b = out[feuille] as BracketEntry;
+    const exempte = (out[partenaire(feuille)] ?? null) === null;
+    const candidats: number[] = [];
+    for (let f = 0; f < size; f++) {
+      if (moitie(f) === moitie(feuille)) continue;
+      if ((out[f] ?? null) === null) continue;
+      if (((out[partenaire(f)] ?? null) === null) !== exempte) continue;
+      candidats.push(f);
+    }
+    const auVoisinage = parVoisinage(graineDe(b));
+    candidats.sort((x, y) => auVoisinage(graineDe(out[x] ?? null), graineDe(out[y] ?? null)));
+    for (const f of candidats) {
+      const c = out[f] as BracketEntry;
+      out[feuille] = c;
+      out[f] = b;
+      if (retenir()) {
+        echanges.push({
+          deplace: b.registrationId,
+          avec: c.registrationId,
+          contrainte: contrainte.name,
+        });
+        return true;
+      }
+      out[feuille] = b;
+      out[f] = c;
+    }
+    return false;
+  };
+
+  const tete = (combat: number): number =>
+    Math.min(graineDe(out[2 * combat] ?? null), graineDe(out[2 * combat + 1] ?? null));
+
+  const echangerLeCombat = (feuille: number, contrainte: SeparationConstraint): boolean => {
+    const combat = Math.floor(feuille / 2);
+    const candidats: number[] = [];
+    for (let k = 0; k < size / 2; k++) {
+      if (moitie(2 * k) === moitie(2 * combat)) continue;
+      if ((out[2 * k] ?? null) === null && (out[2 * k + 1] ?? null) === null) continue;
+      candidats.push(k);
+    }
+    const auVoisinage = parVoisinage(tete(combat));
+    candidats.sort((x, y) => auVoisinage(tete(x), tete(y)));
+    for (const k of candidats) {
+      const p = out[2 * combat] ?? null;
+      const q = out[2 * combat + 1] ?? null;
+      const r = out[2 * k] ?? null;
+      const s = out[2 * k + 1] ?? null;
+      out[2 * combat] = r;
+      out[2 * combat + 1] = s;
+      out[2 * k] = p;
+      out[2 * k + 1] = q;
+      if (retenir()) {
+        for (const [x, y] of [
+          [p, r],
+          [q, s],
+        ] as const) {
+          if (x === null || y === null) continue;
+          echanges.push({
+            deplace: x.registrationId,
+            avec: y.registrationId,
+            contrainte: contrainte.name,
+          });
+        }
+        return true;
+      }
+      out[2 * combat] = p;
+      out[2 * combat + 1] = q;
+      out[2 * k] = r;
+      out[2 * k + 1] = s;
+    }
+    return false;
+  };
+
+  const irreparables = new Set<string>();
+  for (let garde = 0; garde <= 2 * size; garde++) {
+    let choisi: { feuilleA: number; feuilleB: number; contrainte: SeparationConstraint } | null =
+      null;
+    for (let i = 0; i < size; i++) {
+      for (let j = i + 1; j < size; j++) {
+        if (moitie(i) !== moitie(j)) continue;
+        const x = out[i] ?? null;
+        const y = out[j] ?? null;
+        const contrainte = conflitSelon(contraintesDeMoitie, x, y);
+        if (contrainte === null) continue;
+        const [feuilleA, feuilleB] = graineDe(x) > graineDe(y) ? [j, i] : [i, j];
+        if (irreparables.has((out[feuilleB] as BracketEntry).registrationId)) continue;
+        if (
+          choisi === null ||
+          graineDe(out[feuilleB] ?? null) < graineDe(out[choisi.feuilleB] ?? null)
+        ) {
+          choisi = { feuilleA, feuilleB, contrainte };
+        }
+      }
+    }
+    if (choisi === null) break;
+    const { feuilleA, feuilleB, contrainte } = choisi;
+    const b = out[feuilleB] as BracketEntry;
+    if (
+      !echangerLAthlete(feuilleB, contrainte) &&
+      !echangerLeCombat(feuilleB, contrainte) &&
+      !echangerLAthlete(feuilleA, contrainte) &&
+      !echangerLeCombat(feuilleA, contrainte)
+    ) {
+      irreparables.add(b.registrationId);
+    }
+  }
 }
 
 export function applySeedingPlan(
