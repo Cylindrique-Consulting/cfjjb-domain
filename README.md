@@ -887,6 +887,28 @@ ceinture, pour que les inscriptions de l'absolut correspondant puissent se clore
 - **Ni un absolut, ni une autre personne seule, ni une catégorie sans combat** ne servent de
   référence. Sans référence possible, la personne seule n'a pas d'horaire.
 
+## Release v0.29.0 : la convention d'affichage des noms
+
+Tous les noms de famille en capitales, tous les prénoms avec une capitale initiale et le reste
+en minuscules (demande du 21/09/2026). La plateforme appliquait déjà cette règle avec son
+propre module ; le module du jour J ne l'appliquait pas. Elle vit désormais ici, une seule
+fois, pour les deux applications.
+
+| Ce qui s'ajoute (`person-name`) | Rôle                                                                       |
+| ------------------------------- | -------------------------------------------------------------------------- |
+| `formatLastName`                | le nom de famille tout en capitales, accents compris                       |
+| `formatFirstName`               | une capitale initiale sur chaque membre d'un prénom composé                |
+| `formatPersonName`              | « Prénom NOM », ou « NOM Prénom » pour une liste triée par nom             |
+| `formatStoredFullName`          | un nom complet stocké d'un seul tenant, premier mot lu comme prénom        |
+| `EXEMPLES_DE_NOMS`              | la liste sur laquelle la plateforme vérifie la parité de ses fonctions SQL |
+
+- **Affichage seulement.** La saisie d'origine reste en base ; chaque écran, export ou lecture
+  publique applique la règle au moment de nommer quelqu'un.
+- **Les membres d'un prénom composé** sont séparés par un tiret, un blanc ou une apostrophe,
+  droite ou typographique : « jean-pierre » donne « Jean-Pierre », « n’golo » donne « N’Golo ».
+- **Même comportement que le module que la plateforme utilisait**, à une exception près :
+  l'apostrophe typographique sépare désormais les membres d'un prénom, comme l'apostrophe droite.
+
 ## Pureté, vérifiée et non recommandée
 
 `eslint.config.mjs` interdit `node:*`, `fs`, `path`, `crypto`, `react`, `react-dom`,
