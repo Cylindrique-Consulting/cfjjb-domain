@@ -46,6 +46,12 @@ import {
   texteArticleSanction,
 } from "../src/sanctions-disciplinaires";
 import { MARQUE_PERSONNE_SEULE, referencesDesPersonnesSeules } from "../src/personnes-seules";
+import {
+  EXEMPLES_DE_NOMS,
+  formatFirstName,
+  formatLastName,
+  formatPersonName,
+} from "../src/person-name";
 
 const SOURCES = import.meta.glob("../src/*.ts", {
   query: "?raw",
@@ -200,5 +206,14 @@ describe("la carte des exports", () => {
     expect(domaine.referencesDesPersonnesSeules).toBe(referencesDesPersonnesSeules);
     expect(domaine.MARQUE_PERSONNE_SEULE).toBe(MARQUE_PERSONNE_SEULE);
     expect(manifeste.exports?.["./personnes-seules"]).toBe("./src/personnes-seules.ts");
+  });
+
+  it("la convention d'affichage des noms est joignable depuis la racine et par son entrée (v0.29.0)", () => {
+    expect(modules).toContain("person-name");
+    expect(domaine.formatFirstName).toBe(formatFirstName);
+    expect(domaine.formatLastName).toBe(formatLastName);
+    expect(domaine.formatPersonName).toBe(formatPersonName);
+    expect(domaine.EXEMPLES_DE_NOMS).toBe(EXEMPLES_DE_NOMS);
+    expect(manifeste.exports?.["./person-name"]).toBe("./src/person-name.ts");
   });
 });

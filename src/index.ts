@@ -38,3 +38,4 @@ export * from "./score-de-placement";
 export * from "./sanctions-disciplinaires";
 export * from "./placement-par-rang";
 export * from "./personnes-seules";
+export * from "./person-name";
