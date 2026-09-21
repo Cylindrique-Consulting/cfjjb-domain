@@ -426,6 +426,27 @@ describe("arbitrage requis puis résolu (DQ1.3)", () => {
     });
   }
 
+  for (const nature of ["technique", "disciplinaire"] as const) {
+    it(`quatre demi-finalistes disqualifiés ${nature}, un quart exempté : le seul perdant de quart de son côté va en finale`, () => {
+      const t = new Tableau(7);
+      for (const i of [0, 1, 2]) t.gagne(K(3, i), "A");
+      t.double(K(2, 0), nature).double(K(2, 1), nature);
+      expect(t.classement().arbitrage?.resolution).toBe("combats");
+      t.arbitre(K(2, 0), null, null).arbitre(K(2, 1), null, null);
+      t.ajouterCombat(2, 2, "r5", "r6").ajouterCombat(1, 1, null, "r7");
+      expect(t.classement().etat).toBe("en_cours");
+      t.gagne(K(2, 2), "A");
+      expect(t.combat(K(1, 1))).toMatchObject({ slotA: "r5", slotB: "r7", state: "scheduled" });
+      t.gagne(K(1, 1), "B");
+      const places = compact(t.classement().places);
+      if (nature === "technique") {
+        expect(places).toEqual(["1:r7", "2:r5", "3:r1", "3:r2", "3:r3", "3:r4"]);
+      } else {
+        expect(places).toEqual(["1:r7", "2:r5", "3:r6"]);
+      }
+    });
+  }
+
   it("tableau de trois, 1re demie en double technique : tirage, le perdant dispute la 2e demie", () => {
     const t = new Tableau(3).double(K(2, 0), "technique");
     expect(t.classement().arbitrage?.resolution).toBe("tirage");

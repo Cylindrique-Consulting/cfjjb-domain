@@ -5,6 +5,7 @@ import {
   planArbitrage,
   planFinish,
   planFinishSansVainqueur,
+  planByeCascade,
   planForfeit,
   repechage3Of,
   type FinSansVainqueur,
@@ -474,7 +475,40 @@ export function regleDeFinSansVainqueur(
   );
 }
 
+export const LIBELLE_COTE_SANS_PERDANT_DE_QUART =
+  "Un côté du tableau n'a aucun perdant de quart de finale pour les demi-finales supplémentaires : le Responsable saisit le classement retenu.";
+
 export type EstClassable = (registrationId: string) => boolean;
+
+export function quartDispute(
+  fights: readonly PropagationFight[],
+  indexInDivision: number,
+): boolean {
+  const quart = trouver(fights, "BraketFight", 3, indexInDivision);
+  return quart !== null && !quart.isBye;
+}
+
+type Manque = "indisponible" | "cote_sans_perdant_de_quart";
+
+function manqueDesDesignes(
+  fights: readonly PropagationFight[],
+  regle: RegleFinSansVainqueur,
+  designes: readonly (string | null)[],
+  estClassable: EstClassable,
+): Manque | null {
+  const indisponible = (r: string | null | undefined) =>
+    r === null || r === undefined || !estClassable(r);
+  if (regle.resolution !== "combats" || regle.tour !== "demie") {
+    return designes.some(indisponible) ? "indisponible" : null;
+  }
+  let manque: Manque | null = null;
+  for (const cote of [0, 1]) {
+    const quarts = [2 * cote, 2 * cote + 1].filter((i) => quartDispute(fights, i));
+    if (quarts.some((i) => indisponible(designes[i]))) return "indisponible";
+    if (quarts.length === 0) manque = "cote_sans_perdant_de_quart";
+  }
+  return manque;
+}
 
 export function athletesDesignes(
   fights: readonly PropagationFight[],
@@ -516,12 +550,17 @@ export function arbitrageRequisPour(
 
   let retenue: RegleFinSansVainqueur = regle;
   const designes = athletesDesignes(fights, fight, regle);
-  if (designes !== null && designes.some((r) => r === null || !estClassable(r))) {
+  const manque =
+    designes === null ? null : manqueDesDesignes(fights, regle, designes, estClassable);
+  if (manque !== null) {
     retenue = {
       ...REGLE_DESIGNE_INDISPONIBLE,
       format: regle.format,
       tour: regle.tour,
       nature: regle.nature,
+      ...(manque === "cote_sans_perdant_de_quart"
+        ? { libelle: LIBELLE_COTE_SANS_PERDANT_DE_QUART }
+        : {}),
     };
   }
   if (retenue.resolution === null) return null;
@@ -612,43 +651,64 @@ export function proposerCombatsSupplementaires(
     };
   }
 
-  const [q0, q1, q2, q3] = designes;
-  return {
-    regle: requis.regle,
-    combats: [
-      {
-        division: 2,
-        indexInDivision: 2,
-        slotA: q0 ?? null,
-        slotB: q1 ?? null,
-        libelle: "1re demi-finale supplémentaire",
-      },
-      {
-        division: 2,
-        indexInDivision: 3,
-        slotA: q2 ?? null,
-        slotB: q3 ?? null,
-        libelle: "2e demi-finale supplémentaire",
-      },
-      {
-        division: 1,
-        indexInDivision: 1,
-        slotA: null,
-        slotB: null,
-        libelle: "Finale entre les vainqueurs des demi-finales supplémentaires",
-      },
-    ],
-    consequences:
-      requis.regle.nature === "technique"
-        ? [
-            "Les quatre disqualifiés des demi-finales sont 3es.",
-            "Les perdants des demi-finales supplémentaires n'ont pas de médaille.",
-          ]
-        : [
-            "Les disqualifiés des demi-finales n'ont pas de médaille.",
-            "Les perdants des demi-finales supplémentaires sont 3es.",
-          ],
+  const demies: CombatSupplementaire[] = [];
+  const finale: CombatSupplementaire = {
+    division: 1,
+    indexInDivision: 1,
+    slotA: null,
+    slotB: null,
+    libelle: "",
   };
+  for (const cote of [0, 1] as const) {
+    const a = designes[2 * cote] ?? null;
+    const b = designes[2 * cote + 1] ?? null;
+    if (a !== null && b !== null) {
+      demies.push({ division: 2, indexInDivision: 2 + cote, slotA: a, slotB: b, libelle: "" });
+    } else if (cote === 0) {
+      finale.slotA = a ?? b;
+    } else {
+      finale.slotB = a ?? b;
+    }
+  }
+  const directs = 2 - demies.length;
+  if (demies.length === 2) {
+    demies[0]!.libelle = "1re demi-finale supplémentaire";
+    demies[1]!.libelle = "2e demi-finale supplémentaire";
+    finale.libelle = "Finale entre les vainqueurs des demi-finales supplémentaires";
+  } else if (demies.length === 1) {
+    demies[0]!.libelle = "Demi-finale supplémentaire";
+    finale.libelle =
+      "Finale entre le vainqueur de la demi-finale supplémentaire et le seul perdant de quart de l'autre côté du tableau";
+  } else {
+    finale.libelle = "Finale entre les seuls perdants de quart de chaque côté du tableau";
+  }
+
+  const consequences: string[] = [];
+  if (requis.regle.nature === "technique") {
+    consequences.push("Les quatre disqualifiés des demi-finales sont 3es.");
+    if (demies.length === 2) {
+      consequences.push("Les perdants des demi-finales supplémentaires n'ont pas de médaille.");
+    } else if (demies.length === 1) {
+      consequences.push("Le perdant de la demi-finale supplémentaire n'a pas de médaille.");
+    }
+  } else {
+    consequences.push("Les disqualifiés des demi-finales n'ont pas de médaille.");
+    if (demies.length === 2) {
+      consequences.push("Les perdants des demi-finales supplémentaires sont 3es.");
+    } else if (demies.length === 1) {
+      consequences.push("Le perdant de la demi-finale supplémentaire est 3e.");
+    }
+  }
+  if (directs === 1) {
+    consequences.push(
+      "Un demi-finaliste disqualifié n'avait pas disputé de quart de finale : de son côté du tableau, le seul perdant de quart va directement en finale.",
+    );
+  } else if (directs === 2) {
+    consequences.push(
+      "Deux demi-finalistes disqualifiés n'avaient pas disputé de quart de finale : de chaque côté du tableau, le seul perdant de quart va directement en finale.",
+    );
+  }
+  return { regle: requis.regle, combats: [...demies, finale], consequences };
 }
 
 export type CombatDeLaFile = { fightId: string; dureeSecondes: number };
@@ -951,6 +1011,56 @@ export function scenariosFinSansVainqueur(): ScenarioFinSansVainqueur[] {
       fights: t,
       eliminations: [absent(troisieme)],
       cible: K(1, 0),
+      attendu: "classement",
+    });
+  }
+  for (const nature of ["technique", "disciplinaire"] as const) {
+    let t = tableauDeScenario(7);
+    for (const i of [0, 1, 2]) t = jouerDansLeScenario(t, K(3, i), "A");
+    t = doublerDansLeScenario(doublerDansLeScenario(t, K(2, 0), nature), K(2, 1), nature);
+    out.push({
+      id: `quatre.deux_demies.${nature}.quart_exempte`,
+      regle: `quatre.deux_demies.${nature}`,
+      inscrits: 7,
+      thirdPlaceMode: "shared_bronze",
+      fights: t,
+      eliminations: [],
+      cible: K(2, 0),
+      attendu: "combats",
+    });
+  }
+  {
+    let t = tableauDeScenario(8).map((f): PropagationFight =>
+      f.division === 3 && (f.indexInDivision === 1 || f.indexInDivision === 3)
+        ? { ...f, slotB: null, isBye: true, state: "finished", winner: f.slotA, winMethod: "bye" }
+        : f,
+    );
+    t = appliquerLePlan(t, { patches: [], propagation: planByeCascade(t), expected: [] });
+    for (const i of [0, 2]) t = jouerDansLeScenario(t, K(3, i), "A");
+    t = doublerDansLeScenario(doublerDansLeScenario(t, K(2, 0), "technique"), K(2, 1), "technique");
+    out.push({
+      id: "quatre.deux_demies.technique.un_quart_exempte_de_chaque_cote",
+      regle: "quatre.deux_demies.technique",
+      inscrits: 8,
+      thirdPlaceMode: "shared_bronze",
+      fights: t,
+      eliminations: [],
+      cible: K(2, 0),
+      attendu: "combats",
+    });
+  }
+  {
+    let t = tableauDeScenario(6);
+    for (const i of [0, 1]) t = jouerDansLeScenario(t, K(3, i), "A");
+    t = doublerDansLeScenario(doublerDansLeScenario(t, K(2, 0), "technique"), K(2, 1), "technique");
+    out.push({
+      id: "designe_indisponible.deux_demies_cote_sans_quart",
+      regle: "designe_indisponible",
+      inscrits: 6,
+      thirdPlaceMode: "shared_bronze",
+      fights: t,
+      eliminations: [],
+      cible: K(2, 0),
       attendu: "classement",
     });
   }
