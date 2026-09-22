@@ -14,6 +14,13 @@ import {
   type WinMethod,
 } from "./bracket-propagation";
 import { finDeReposDeLAthlete, type CombatAVenir, type CombatPasse } from "./fight-rest";
+// LA COORDONNÉE D'UN COMBAT D'ARBITRAGE VIT AVEC LA NOMENCLATURE (`round-names`) :
+// c'est elle qui doit la lire pour nommer une nouvelle finale sans faire entrer
+// tout ce fichier dans les écrans qui ne nomment qu'un tour. Réexportée ici pour
+// que `@cfjjb/domain/arbitrage` reste le chemin d'import de ses appelants.
+import { estHorsGrille } from "./round-names";
+
+export { estHorsGrille };
 
 export type FormatDuTableau = "deux" | "trois" | "quatre_et_plus";
 
@@ -395,15 +402,6 @@ export function formatDuTableau(fights: readonly PropagationFight[]): FormatDuTa
       f.type === "BraketFight" && (f.division >= 3 || (f.division === 2 && f.indexInDivision <= 1)),
   );
   return auDela ? "quatre_et_plus" : "deux";
-}
-
-export function estHorsGrille(
-  f: Pick<PropagationFight, "type" | "division" | "indexInDivision">,
-): boolean {
-  return (
-    f.type === "BraketFight" &&
-    ((f.division === 1 && f.indexInDivision >= 1) || (f.division === 2 && f.indexInDivision >= 2))
-  );
 }
 
 export function tourDuCombat(

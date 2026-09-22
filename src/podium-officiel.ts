@@ -9,6 +9,7 @@ import {
   type ArbitrageRequis,
   type EliminationDeScenario,
 } from "./arbitrage";
+import { estHorsGrille } from "./round-names";
 import {
   appliquerLePlan,
   estDisqualifieDisciplinaire,
@@ -627,9 +628,14 @@ function libelleManquant(f: PropagationFight): string {
   if (f.type === "BraketFightPool3") return "Combat pour la 3e place non terminé";
   if (f.type === "BraketFightRepechage3") return "2e demi-finale non terminée";
   if (f.division === 1 && f.indexInDivision === 0) return "Finale non terminée";
-  if (f.division <= 2 && ((f.division === 1 && f.indexInDivision >= 1) || f.indexInDivision >= 2)) {
-    return "Combats d'arbitrage non terminés";
-  }
+  // L'APPARTENANCE VIENT DE `round-names`, elle ne se réécrit plus ici. Le test
+  // manuscrit qu'elle remplace avait divergé sur les deux bornes que la fonction
+  // du noyau pose : le TYPE, et la division BASSE. `f.division <= 2 && (… ||
+  // f.indexInDivision >= 2)` rangeait donc parmi les combats d'arbitrage le 3e
+  // combat d'une POULE (division 0, index 2), et le Responsable lisait « Combats
+  // d'arbitrage non terminés » sur une catégorie qui n'en a jamais eu. Défaut
+  // ANTÉRIEUR à la nomenclature du 22/09/2026 : il n'attendait qu'un lecteur.
+  if (estHorsGrille(f)) return "Combats d'arbitrage non terminés";
   if (f.division === 2) return "Demi-finale non terminée";
   return "Combats non terminés";
 }

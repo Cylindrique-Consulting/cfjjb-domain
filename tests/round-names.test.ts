@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { generateBracket, type BracketEntry, type GeneratedFight } from "../src/bracket-generator";
-import { comparerDansLeTour, divisionMaxDuTableau, nomDuTour } from "../src/round-names";
+import {
+  comparerDansLeTour,
+  comparerHorsGrille,
+  divisionMaxDuTableau,
+  estHorsGrille,
+  nomDuTour,
+} from "../src/round-names";
 
 function entrees(n: number): BracketEntry[] {
   return Array.from({ length: n }, (_, i) => ({ registrationId: `r${i + 1}`, clubId: null }));
@@ -197,5 +203,177 @@ describe("l'ordre des combats dans une colonne", () => {
       .map((f, i) => ({ type: f.type, index: i }));
     const range = [...demies].sort(comparerDansLeTour((c) => c.index));
     expect(range.map((c) => c.index)).toEqual(demies.map((c) => c.index));
+  });
+});
+
+describe("les combats d'arbitrage portent leur propre nom (ticket du 22/09/2026)", () => {
+  const NOUVELLE_FINALE = {
+    court: "NF",
+    long: "Nouvelle finale",
+    colonne: "Nouvelle finale",
+  };
+  const NOUVELLE_DEMIE = {
+    court: "NDF",
+    long: "Nouvelle demi-finale",
+    colonne: "Nouvelles demi-finales",
+  };
+
+  it("division 1 au-delà de l'index 0 : une NOUVELLE FINALE", () => {
+    for (const indexInDivision of [1, 2]) {
+      expect(
+        nomDuTour({ division: 1, divisionMax: 3, type: "BraketFight", indexInDivision }),
+      ).toEqual(NOUVELLE_FINALE);
+    }
+  });
+
+  it("division 2 au-delà de l'index 1 : une NOUVELLE DEMI-FINALE, une par côté", () => {
+    for (const indexInDivision of [2, 3]) {
+      expect(
+        nomDuTour({ division: 2, divisionMax: 3, type: "BraketFight", indexInDivision }),
+      ).toEqual(NOUVELLE_DEMIE);
+    }
+  });
+
+  it("les combats DE LA GRILLE gardent leur nom, aux mêmes divisions", () => {
+    expect(
+      nomDuTour({ division: 1, divisionMax: 3, type: "BraketFight", indexInDivision: 0 }).long,
+    ).toBe("Finale");
+    for (const indexInDivision of [0, 1]) {
+      expect(
+        nomDuTour({ division: 2, divisionMax: 3, type: "BraketFight", indexInDivision }).long,
+      ).toBe("Demi-finale");
+    }
+  });
+
+  it("SANS INDEX, le nom est celui d'avant : un appelant qui ne le passe pas ne change pas", () => {
+    expect(nomDuTour({ division: 1, divisionMax: 3, type: "BraketFight" }).long).toBe("Finale");
+    expect(nomDuTour({ division: 2, divisionMax: 3, type: "BraketFight" }).long).toBe(
+      "Demi-finale",
+    );
+    expect(
+      nomDuTour({ division: 1, divisionMax: 3, type: "BraketFight", indexInDivision: null }).long,
+    ).toBe("Finale");
+  });
+
+  it("le TYPE compte : ni la 3e place ni la 2e demi-finale d'un tableau de trois", () => {
+    expect(
+      nomDuTour({
+        division: 2,
+        divisionMax: 2,
+        type: "BraketFightPool3",
+        indexInDivision: 2,
+      }).long,
+    ).toBe("Combat pour la 3e place");
+    expect(
+      nomDuTour({
+        division: 2,
+        divisionMax: 2,
+        type: "BraketFightRepechage3",
+        indexInDivision: 2,
+      }).long,
+    ).toBe("Demi-finale");
+  });
+
+  it("sur de VRAIS tirages de 2 à 64, aucun combat de la grille ne devient « Nouvelle… »", () => {
+    for (let n = 2; n <= 64; n++) {
+      const fights = tirage(n);
+      const max = divisionMaxDuTableau(fights);
+      for (const f of fights) {
+        const nom = nomDuTour({
+          division: f.division,
+          divisionMax: max,
+          type: f.type,
+          indexInDivision: f.indexInDivision,
+        });
+        expect(estHorsGrille(f), `n=${n} ${f.division}.${f.indexInDivision}`).toBe(false);
+        expect(nom.long, `n=${n} ${f.division}.${f.indexInDivision}`).not.toMatch(/^Nouvelle/);
+      }
+    }
+  });
+
+  it("rend des copies, comme les autres tours", () => {
+    const premier = nomDuTour({
+      division: 1,
+      divisionMax: 2,
+      type: "BraketFight",
+      indexInDivision: 1,
+    });
+    premier.long = "X";
+    expect(
+      nomDuTour({ division: 1, divisionMax: 2, type: "BraketFight", indexInDivision: 1 }).long,
+    ).toBe("Nouvelle finale");
+  });
+});
+
+describe("l'ordre des combats d'arbitrage", () => {
+  it("les nouvelles demi-finales avant la nouvelle finale, quel que soit l'ordre lu", () => {
+    // Ce que le client a vu le 22/09/2026 : la lecture rend 18, 20, 19.
+    const lus = [
+      { numero: 18, division: 2, index: 2 },
+      { numero: 20, division: 1, index: 1 },
+      { numero: 19, division: 2, index: 3 },
+    ];
+    const range = [...lus].sort(comparerHorsGrille((c) => c.index));
+    expect(range.map((c) => c.numero)).toEqual([18, 19, 20]);
+  });
+
+  it("un seul combat, ou aucun, ne bouge pas", () => {
+    const vide: { division: number; index: number }[] = [];
+    expect(vide.sort(comparerHorsGrille((c) => c.index))).toEqual([]);
+    const seul = [{ division: 1, index: 1 }];
+    expect([...seul].sort(comparerHorsGrille((c) => c.index))).toEqual(seul);
+  });
+
+  it("une demi-finale SEULE peut porter l'index 3 sans qu'il existe d'index 2", () => {
+    // Mesuré par le noyau depuis v0.32.0 : la boucle ne pousse une demie que du
+    // côté qui a DEUX perdants de quart. Un rang affiché ne se déduit donc jamais
+    // de l'index brut, mais de la place dans cette liste.
+    const lus = [
+      { id: "nf", division: 1, index: 1 },
+      { id: "ndf", division: 2, index: 3 },
+    ];
+    expect([...lus].sort(comparerHorsGrille((c) => c.index)).map((c) => c.id)).toEqual([
+      "ndf",
+      "nf",
+    ]);
+  });
+
+  it("les SIX permutations de trois combats rendent la même suite", () => {
+    const combats = [
+      { id: "ndf1", division: 2, index: 2 },
+      { id: "ndf2", division: 2, index: 3 },
+      { id: "nf", division: 1, index: 1 },
+    ];
+    const permutations = [
+      [0, 1, 2],
+      [0, 2, 1],
+      [1, 0, 2],
+      [1, 2, 0],
+      [2, 0, 1],
+      [2, 1, 0],
+    ];
+    for (const ordre of permutations) {
+      const lus = ordre.map((i) => combats[i]!);
+      expect(
+        lus.sort(comparerHorsGrille((c) => c.index)).map((c) => c.id),
+        `permutation ${ordre.join("")}`,
+      ).toEqual(["ndf1", "ndf2", "nf"]);
+    }
+  });
+
+  it("le tri est TOTAL : deux lectures d'ordre différent rendent la même suite", () => {
+    const combats = [
+      { id: "ndf1", division: 2, index: 2 },
+      { id: "ndf2", division: 2, index: 3 },
+      { id: "nf", division: 1, index: 1 },
+    ];
+    const attendu = ["ndf1", "ndf2", "nf"];
+    expect([...combats].sort(comparerHorsGrille((c) => c.index)).map((c) => c.id)).toEqual(attendu);
+    expect(
+      [...combats]
+        .reverse()
+        .sort(comparerHorsGrille((c) => c.index))
+        .map((c) => c.id),
+    ).toEqual(attendu);
   });
 });
