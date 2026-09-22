@@ -324,6 +324,43 @@ describe("l'ordre des combats d'arbitrage", () => {
     expect([...seul].sort(comparerHorsGrille((c) => c.index))).toEqual(seul);
   });
 
+  it("une demi-finale SEULE peut porter l'index 3 sans qu'il existe d'index 2", () => {
+    // Mesuré par le noyau depuis v0.32.0 : la boucle ne pousse une demie que du
+    // côté qui a DEUX perdants de quart. Un rang affiché ne se déduit donc jamais
+    // de l'index brut, mais de la place dans cette liste.
+    const lus = [
+      { id: "nf", division: 1, index: 1 },
+      { id: "ndf", division: 2, index: 3 },
+    ];
+    expect([...lus].sort(comparerHorsGrille((c) => c.index)).map((c) => c.id)).toEqual([
+      "ndf",
+      "nf",
+    ]);
+  });
+
+  it("les SIX permutations de trois combats rendent la même suite", () => {
+    const combats = [
+      { id: "ndf1", division: 2, index: 2 },
+      { id: "ndf2", division: 2, index: 3 },
+      { id: "nf", division: 1, index: 1 },
+    ];
+    const permutations = [
+      [0, 1, 2],
+      [0, 2, 1],
+      [1, 0, 2],
+      [1, 2, 0],
+      [2, 0, 1],
+      [2, 1, 0],
+    ];
+    for (const ordre of permutations) {
+      const lus = ordre.map((i) => combats[i]!);
+      expect(
+        lus.sort(comparerHorsGrille((c) => c.index)).map((c) => c.id),
+        `permutation ${ordre.join("")}`,
+      ).toEqual(["ndf1", "ndf2", "nf"]);
+    }
+  });
+
   it("le tri est TOTAL : deux lectures d'ordre différent rendent la même suite", () => {
     const combats = [
       { id: "ndf1", division: 2, index: 2 },
