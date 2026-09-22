@@ -1018,6 +1018,47 @@ La table a son exemplaire SQL : la plateforme réémet `jour_j_fin_sans_vainqueu
 sonde de parité de `db:validate` (deux scénarios à sept inscrits, un à huit inscrits dont un quart
 exempté de chaque côté, un à six inscrits dont un côté sans quart).
 
+## Release v0.33.0 : les combats d'arbitrage ont leur nom et leur ordre
+
+Une finale rejouée porte la division de la finale, une demi-finale supplémentaire celle des
+demi-finales. `nomDuTour` ne lisant que la division, elle les nommait « Finale » et
+« Demi-finale », mot pour mot comme les combats qu'elles remplacent : deux « Finale » dans une
+catégorie, et plus rien ne disait laquelle avait été jouée. Le client l'a signalé le 22/09/2026,
+capture à l'appui, avec un second grief : dans la section « Combats d'arbitrage » de l'écran des
+tableaux, la nouvelle finale se dessinait ENTRE les deux nouvelles demi-finales qui la nourrissent
+(« combat n° 18, combat n° 20, combat n° 19 »).
+
+| Ce qui change                     | Rôle                                                                  |
+| --------------------------------- | --------------------------------------------------------------------- |
+| `EntreeNomDuTour.indexInDivision` | OPTIONNEL : sans lui, le tour se nomme exactement comme avant         |
+| « Nouvelle finale » / `NF`        | division 1, index 1 et au-delà                                        |
+| « Nouvelle demi-finale » / `NDF`  | division 2, index 2 et au-delà ; colonne « Nouvelles demi-finales »   |
+| `estHorsGrille`                   | descendue d'`arbitrage.ts`, qui la réexporte : aucun import à changer |
+| `comparerHorsGrille(indexDe)`     | division décroissante puis index, soit l'ordre de passage             |
+
+- **L'index est optionnel, et c'est ce qui rend le lot sûr.** Un appelant qui nomme une COLONNE
+  ne le passe pas (une colonne n'a pas d'index) et rend le nom d'avant ; un appelant qui l'oublie
+  aussi. Les deux consommateurs le passent surface par surface, sans big bang. Le balayage de
+  vrais tirages de 2 à 64 inscrits vérifie qu'aucune coordonnée produite par le générateur ne
+  bascule dans la nouvelle branche.
+- **`estHorsGrille` change de maison, pas de règle.** Elle descend dans `round-names.ts` parce que
+  c'est la nomenclature qui doit la lire : la laisser dans `arbitrage.ts` aurait fait entrer tout
+  le règlement des fins sans vainqueur dans les écrans qui ne nomment qu'un tour.
+- **Un test d'appartenance écrit à la main est supprimé, et il avait divergé.** `libelleManquant`
+  (`podium-officiel.ts`) testait `f.division <= 2 && (… || f.indexInDivision >= 2)`, sans les deux
+  bornes que pose `estHorsGrille` : le type, et la division basse. Le 3e combat d'une POULE
+  (division 0, index 2) y tombait, et le Responsable lisait « Combats d'arbitrage non terminés »
+  sur une catégorie qui n'a jamais eu d'arbitrage. Défaut antérieur à cette version : il devient
+  corrigeable parce que `estHorsGrille` est désormais importable sans faire entrer tout le
+  règlement des fins sans vainqueur.
+- **L'ordre ne dépend d'aucun numéro d'appel.** `comparerHorsGrille` reprend la règle que
+  `arbitragesEnAttente` écrivait déjà ici, et `day_arbitrage_combats_creer` côté plateforme :
+  elle vaut donc aussi pour l'arbre public et la feuille imprimée, qui ne lisent pas la file d'un
+  tapis. ⚠ Un rang affiché ne se déduit jamais de l'index brut : une demi-finale supplémentaire
+  seule peut porter l'index 3 sans qu'il existe d'index 2 (cf. v0.32.0).
+
+Aucun changement de schéma : les deux consommateurs n'ont qu'à épingler le tag.
+
 ## Pureté, vérifiée et non recommandée
 
 `eslint.config.mjs` interdit `node:*`, `fs`, `path`, `crypto`, `react`, `react-dom`,

@@ -327,6 +327,35 @@ describe("PREUVE 6 — le podium (release B : le classement officiel)", () => {
     ]);
   });
 
+  it("un combat de POULE non joué n'est pas annoncé comme un combat d'arbitrage", () => {
+    // La copie manuscrite de la règle « hors grille » testait `f.division <= 2 &&
+    // (… || f.indexInDivision >= 2)` : le 3e combat d'une poule (division 0,
+    // index 2) y tombait, et le Responsable lisait « Combats d'arbitrage non
+    // terminés » sur une catégorie qui n'a jamais eu d'arbitrage.
+    const poule: PropagationFight[] = [0, 1, 2].map((i) => ({
+      id: `p${i}`,
+      division: 0,
+      indexInDivision: i,
+      type: "BraketFight",
+      slotA: "r1",
+      slotB: "r2",
+      isBye: false,
+      state: "scheduled",
+      winner: null,
+      winMethod: null,
+      dqReason: null,
+      dqReasonA: null,
+      dqReasonB: null,
+      doubleBlessure: false,
+      arbitrage: null,
+      needsArbitration: false,
+      version: 0,
+    }));
+    const c = classementOfficiel({ fights: poule, thirdPlaceMode: "shared_bronze" });
+    expect(c.manquant).toContain("Combats non terminés");
+    expect(c.manquant).not.toContain("Combats d'arbitrage non terminés");
+  });
+
   it("aucun combat : le motif est écrit, pas laissé muet", () => {
     const c = classementOfficiel({ fights: [], thirdPlaceMode: "pool3" });
     expect(c.etat).toBe("en_cours");
