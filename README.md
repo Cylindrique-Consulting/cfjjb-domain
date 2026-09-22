@@ -295,9 +295,20 @@ repos ; D : score de placement).
 | Module                       | Ce qu'il apporte                                                            |
 | ---------------------------- | --------------------------------------------------------------------------- |
 | `src/referential.ts`         | Master 2 violette, marron, noire à 5 min ; `REGLEMENT_DE_REFERENCE`         |
-| `src/round-names.ts`         | `nomDuTour` : T1…T4, QF, DF, F, 3e ; forme longue ; en-tête de colonne      |
+| `src/round-names.ts`         | `nomDuTour` : T1…T4, QF, DF, F, 3e, NDF, NF ; forme longue ; en-tête ; tri  |
 | `src/fight-rest.ts`          | « a disputé un combat », multiplicateur et fin de repos (sans consommateur) |
 | `src/bracket-propagation.ts` | trous #1 et #3 du tableau de trois ; cascade sans filtre de type            |
+
+**Les combats d'arbitrage ont leur propre nom** (retour client du 22/09/2026). Une finale rejouée
+porte la division de la finale et une demi-finale supplémentaire celle des demi-finales : sans
+leur index, `nomDuTour` les nommait « Finale » et « Demi-finale », comme les combats qu'elles
+remplacent. `EntreeNomDuTour` accepte donc un `indexInDivision` **optionnel** : un appelant qui
+nomme une colonne ne le passe pas, un appelant qui l'oublie nomme le tour comme avant. Passé sur
+une coordonnée hors grille (`estHorsGrille`, descendue ici depuis `arbitrage.ts` et réexportée
+par lui), le tour devient « Nouvelle finale » (`NF`) ou « Nouvelle demi-finale » (`NDF`, colonne
+« Nouvelles demi-finales »). `comparerHorsGrille` les range par division décroissante puis par
+index, soit leur ordre de passage : c'est la règle que `arbitragesRequis` et
+`day_arbitrage_combats_creer` écrivaient déjà chacun de leur côté.
 
 Le mot « Repêchage » ne sort plus d'aucun libellé : à trois inscrits, le combat
 « perdant de la 1re demi-finale contre le 3e » est une **demi-finale** (« DF »). Le type
