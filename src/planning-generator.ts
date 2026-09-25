@@ -3,6 +3,7 @@ import type { GeneratedFight } from "./bracket-generator";
 import type { DrawFormat } from "./competition-format";
 import type { BeltDb, DisciplineDb } from "./enums";
 import { BELT_RANK_ORDER } from "./belts";
+import { DEFAULT_BUFFER_SECONDS } from "./capacity";
 
 export type PlanningCategory = {
   id: string;
@@ -54,7 +55,7 @@ export function planCategories(
   categories: PlanningCategory[],
   params: PlanningParams,
 ): TatamiPlan[] {
-  const buffer = params.bufferSeconds ?? 60;
+  const buffer = params.bufferSeconds ?? DEFAULT_BUFFER_SECONDS;
   const childrenFirst = params.childrenFirst ?? true;
   const count = Math.max(1, params.tatamiCount);
 
@@ -124,7 +125,7 @@ export function assignCategoriesToDays(
   }
   if (days.length === 1) return [[...categories]];
 
-  const buffer = params.bufferSeconds ?? 60;
+  const buffer = params.bufferSeconds ?? DEFAULT_BUFFER_SECONDS;
   const tatamiCount = Math.max(1, params.tatamiCount);
   const lengths = days.map(dayLengthSeconds);
   const capacities = lengths.map((length) => length * tatamiCount);
@@ -217,7 +218,7 @@ export type ScheduleResult = {
 export function computeTatamiSchedule(
   orderedCategories: SchedulableCategory[],
   startAtMs: number,
-  bufferSeconds = 60,
+  bufferSeconds = DEFAULT_BUFFER_SECONDS,
 ): ScheduleResult {
   const fightTimes = new Map<FightTimeKey, number>();
   const categoryStarts = new Map<string, number>();

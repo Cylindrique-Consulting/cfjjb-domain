@@ -52,6 +52,16 @@ import {
   formatLastName,
   formatPersonName,
 } from "../src/person-name";
+import {
+  cleDeDepart,
+  comparerPourLeDepart,
+  rangTatamiPrioritaire,
+  trierPourLeDepart,
+  vagueDeCeinture,
+} from "../src/priorite-de-planning";
+import { rangsDeQualiteParDefaut } from "../src/hierarchie-tatamis";
+import { affecterParListe } from "../src/affectation-par-liste";
+import { repartirParScenario } from "../src/scenario-journees";
 
 const SOURCES = import.meta.glob("../src/*.ts", {
   query: "?raw",
@@ -215,5 +225,25 @@ describe("la carte des exports", () => {
     expect(domaine.formatPersonName).toBe(formatPersonName);
     expect(domaine.EXEMPLES_DE_NOMS).toBe(EXEMPLES_DE_NOMS);
     expect(manifeste.exports?.["./person-name"]).toBe("./src/person-name.ts");
+  });
+
+  it("le générateur de planning du 25/09 est joignable depuis la racine et par ses entrées (v0.34.0)", () => {
+    for (const module of [
+      "priorite-de-planning",
+      "hierarchie-tatamis",
+      "affectation-par-liste",
+      "scenario-journees",
+    ]) {
+      expect(modules).toContain(module);
+      expect(manifeste.exports?.[`./${module}`]).toBe(`./src/${module}.ts`);
+    }
+    expect(domaine.vagueDeCeinture).toBe(vagueDeCeinture);
+    expect(domaine.rangTatamiPrioritaire).toBe(rangTatamiPrioritaire);
+    expect(domaine.cleDeDepart).toBe(cleDeDepart);
+    expect(domaine.comparerPourLeDepart).toBe(comparerPourLeDepart);
+    expect(domaine.trierPourLeDepart).toBe(trierPourLeDepart);
+    expect(domaine.rangsDeQualiteParDefaut).toBe(rangsDeQualiteParDefaut);
+    expect(domaine.affecterParListe).toBe(affecterParListe);
+    expect(domaine.repartirParScenario).toBe(repartirParScenario);
   });
 });

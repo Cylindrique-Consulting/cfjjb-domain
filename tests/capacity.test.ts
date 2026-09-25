@@ -7,6 +7,7 @@ import {
   computeFillRate,
   computeFillReport,
   countsInRegistrationTotal,
+  DEFAULT_BUFFER_SECONDS,
   explainCapacity,
   fightsPerCompetitor,
   isActiveBracketStatus,
@@ -204,9 +205,14 @@ describe("computeFightCapacity", () => {
     expect(computeFightCapacity({ ...JOURNEE, averageFightSeconds: 0, bufferSeconds: 0 })).toBe(0);
   });
 
-  it("compte l'espacement dans le créneau, et 60 s par défaut", () => {
-    expect(computeFightCapacity({ ...JOURNEE, bufferSeconds: undefined })).toBe(320);
+  it("compte l'espacement dans le créneau, et 120 s par défaut (DUR.1 A)", () => {
+    expect(DEFAULT_BUFFER_SECONDS).toBe(120);
+    expect(computeFightCapacity({ ...JOURNEE, bufferSeconds: undefined })).toBe(272);
+    expect(computeFightCapacity({ ...JOURNEE, bufferSeconds: 60 })).toBe(320);
     expect(computeFightCapacity({ ...JOURNEE, bufferSeconds: 0 })).toBe(384);
+    expect(explainCapacity({ ...JOURNEE, bufferSeconds: undefined }, ELIMINATION).slotSeconds).toBe(
+      420,
+    );
   });
 });
 

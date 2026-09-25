@@ -175,9 +175,9 @@ describe("recommendTatamiCount", () => {
       { t: 1, tient: false },
       { t: 2, tient: true },
     ]);
-    expect(reco.candidates[0]?.longestTatamiSeconds).toBe(7560);
-    expect(reco.candidates[1]?.longestTatamiSeconds).toBe(4620);
-    expect(reco.candidates[0]?.overrunSeconds).toBe(360);
+    expect(reco.candidates[0]?.longestTatamiSeconds).toBe(8820);
+    expect(reco.candidates[1]?.longestTatamiSeconds).toBe(5460);
+    expect(reco.candidates[0]?.overrunSeconds).toBe(1620);
   });
 
   it("NE PEUT PAS diverger du planning réel : chaque candidat se rejoue à l'identique", () => {
@@ -240,7 +240,7 @@ describe("recommendTatamiCount", () => {
       courte,
     );
     expect({ elimination: elimination.recommended, poule: poule.recommended }).toEqual({
-      elimination: 1,
+      elimination: 2,
       poule: 3,
     });
   });
@@ -270,7 +270,7 @@ describe("recommendTatamiCount", () => {
 
   it("rend le panneau complet, recommandation comprise", () => {
     const panneau = buildSizingPanel(troisCategoriesDeHuit(), { ...SHARED, ...OPTS });
-    expect(panneau.totalFightSeconds).toBe(7560);
+    expect(panneau.totalFightSeconds).toBe(8820);
     expect(panneau.recommendation.recommended).toBe(2);
   });
 });

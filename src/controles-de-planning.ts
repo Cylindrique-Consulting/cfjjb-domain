@@ -13,10 +13,13 @@ export type TypeDeConstat =
   | "chevauchement_de_competitions"
   | "repartition_non_examinee";
 
+// Un repos insuffisant est accepté dans le brouillon mais bloque la publication
+// tant qu'il n'est pas corrigé, comme une double convocation (RPS.3 B, réponse
+// du client du 25/09/2026) : aucune confirmation ne le lève.
 export const GRAVITE_PAR_TYPE: Readonly<Record<TypeDeConstat, GraviteDeControle>> = {
   source_apres_dependant: "refus",
   double_convocation: "bloquant",
-  repos_insuffisant: "avertissement",
+  repos_insuffisant: "bloquant",
   depassement_de_journee: "avertissement",
   desequilibre_de_tatami: "avertissement",
   chevauchement_de_competitions: "avertissement",
@@ -272,8 +275,10 @@ function controlerLesHorairesDeJournee(
       const autres = duJour.filter((f) => f.tatamiId !== fin.tatamiId);
       if (autres.length === 0) continue;
       const moyenne = autres.reduce((somme, f) => somme + f.finMs, 0) / autres.length;
+      // Dans les deux sens : un tatami qui finit bien après les autres, ou bien
+      // avant eux (écart négatif), alors qu'il pourrait reprendre leur travail.
       const ecart = minutes(fin.finMs - moyenne);
-      if (ecart <= ECART_DE_DESEQUILIBRE_MINUTES) continue;
+      if (Math.abs(ecart) <= ECART_DE_DESEQUILIBRE_MINUTES) continue;
       constats.push(
         construireConstat({
           type: "desequilibre_de_tatami",

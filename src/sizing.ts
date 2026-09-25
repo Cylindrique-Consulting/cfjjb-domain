@@ -1,7 +1,12 @@
 import type { BracketEntry, GeneratedFight } from "./bracket-generator";
 import { generateCategoryDraw, type CategoryDraw, type DrawFallback } from "./category-draw";
 import { formatForAgeGroup, type DrawFormat, type FormatByAgeGroup } from "./competition-format";
-import { breakdownRegistrations, isActiveBracketStatus, type FillBreakdown } from "./capacity";
+import {
+  breakdownRegistrations,
+  DEFAULT_BUFFER_SECONDS,
+  isActiveBracketStatus,
+  type FillBreakdown,
+} from "./capacity";
 import { resolveAgeGroup, resolveWeightClass } from "./db-vocabulary";
 import type { BeltDb, DisciplineDb, GenderDb, ThirdPlaceMode } from "./enums";
 import { computeMedalNeed, type MedalNeed } from "./medals";
@@ -349,7 +354,7 @@ export function buildSizingPanel(
   const projection = projectCategories(rows, opts);
   const { categories } = projection;
 
-  const bufferSeconds = opts.bufferSeconds ?? 60;
+  const bufferSeconds = opts.bufferSeconds ?? DEFAULT_BUFFER_SECONDS;
   let competitorCount = 0;
   let singleCompetitorCount = 0;
   let fightCount = 0;

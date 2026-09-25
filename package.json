@@ -1,6 +1,6 @@
 {
   "name": "@cfjjb/domain",
-  "version": "0.33.0",
+  "version": "0.34.0",
   "description": "Noyau métier CFJJB : référentiel poids/durées/ceintures, générateur de brackets, planning, médailles. TypeScript pur, sans IO.",
   "license": "UNLICENSED",
   "private": false,
@@ -47,12 +47,19 @@
     "./repartition-tatamis": "./src/repartition-tatamis.ts",
     "./ordonnanceur-planning": "./src/ordonnanceur-planning.ts",
     "./controles-de-planning": "./src/controles-de-planning.ts",
+    "./continuite-des-tatamis": "./src/continuite-des-tatamis.ts",
     "./enchainement-competitions": "./src/enchainement-competitions.ts",
     "./score-de-placement": "./src/score-de-placement.ts",
     "./sanctions-disciplinaires": "./src/sanctions-disciplinaires.ts",
     "./placement-par-rang": "./src/placement-par-rang.ts",
     "./personnes-seules": "./src/personnes-seules.ts",
-    "./person-name": "./src/person-name.ts"
+    "./person-name": "./src/person-name.ts",
+    "./priorite-de-planning": "./src/priorite-de-planning.ts",
+    "./hierarchie-tatamis": "./src/hierarchie-tatamis.ts",
+    "./affectation-par-liste": "./src/affectation-par-liste.ts",
+    "./scenario-journees": "./src/scenario-journees.ts",
+    "./convergence-des-branches": "./src/convergence-des-branches.ts",
+    "./objectifs-du-planning": "./src/objectifs-du-planning.ts"
   },
   "files": [
     "src"

@@ -1,8 +1,15 @@
-import { TAPIS_ADMIS_ABSOLUT } from "./absolut-regles";
 import type { BracketFightType } from "./bracket-generator";
 import type { DrawFormat } from "./competition-format";
 
-export const NOMBRES_DE_TATAMIS_ADMIS: readonly number[] = TAPIS_ADMIS_ABSOLUT;
+/**
+ * Une catégorie se répartit sur 1 à 8 tatamis, 3, 5, 6 et 7 compris (REP.1 A,
+ * réponse du client du 25/09/2026). Cette liste ne suit plus celle des
+ * absoluts du jour J (`TAPIS_ADMIS_ABSOLUT`, toujours 1, 2, 4 ou 8), dont la
+ * génération n'est pas encore alignée.
+ */
+export const NOMBRES_DE_TATAMIS_ADMIS: readonly number[] = [1, 2, 3, 4, 5, 6, 7, 8];
+
+const PLAFOND_DE_REPARTITION = 8;
 
 export const INSCRITS_MAXIMUM_PAR_CATEGORIE = 128;
 
@@ -11,11 +18,8 @@ export function estNombreDeTatamisAdmis(nombre: number): boolean {
 }
 
 export function plafondDeRepartition(tatamisDeLaCompetition: number): number {
-  let plafond = 1;
-  for (const nombre of NOMBRES_DE_TATAMIS_ADMIS) {
-    if (nombre <= tatamisDeLaCompetition) plafond = nombre;
-  }
-  return plafond;
+  if (Number.isNaN(tatamisDeLaCompetition)) return 1;
+  return Math.max(1, Math.min(PLAFOND_DE_REPARTITION, Math.floor(tatamisDeLaCompetition)));
 }
 
 export function valeursAdmisesDeRepartition(tatamisDeLaCompetition: number): number[] {
@@ -104,6 +108,19 @@ export type PartiesDuCombat = {
   convergence: boolean;
 };
 
+/**
+ * Le tableau se coupe par MORCEAUX ENTIERS (REP.4 A). Il est d'abord divisé en
+ * `unites` = 2^k morceaux égaux, 2^k étant la plus petite puissance de deux qui
+ * atteint le nombre de parties ; les dernières unités sont réunies deux à deux
+ * jusqu'à tomber juste. À 3 parties : un quart, un quart, une moitié ; à 5 :
+ * 1/8, 1/8, 1/4, 1/4, 1/4 ; à 6 : quatre huitièmes et deux quarts ; à 7 : six
+ * huitièmes et un quart. À 1, 2, 4 et 8 parties, chaque unité est une partie.
+ */
+function partieDeLUnite(unite: number, unites: number, parties: number): number {
+  const seules = unites - 2 * (unites - parties);
+  return unite < seules ? unite : seules + Math.floor((unite - seules) / 2);
+}
+
 export function partiesDuCombat(combat: CombatARepartir, parties: number): PartiesDuCombat {
   if (!estNombreDeTatamisAdmis(parties)) {
     throw new RangeError(`nombre de parties non admis pour une catégorie répartie : ${parties}`);
@@ -115,20 +132,26 @@ export function partiesDuCombat(combat: CombatARepartir, parties: number): Parti
   if (combat.type !== "BraketFight" || combat.division <= 1) {
     return { partie: 0, partiesReunies: toutes, convergence: true };
   }
+  const unites = 2 ** Math.ceil(Math.log2(parties));
   const combatsDuTour = 2 ** (combat.division - 1);
-  if (combatsDuTour >= parties) {
-    const brut = Math.floor((combat.indexInDivision * parties) / combatsDuTour);
-    const partie = Math.min(parties - 1, Math.max(0, brut));
+  if (combatsDuTour >= unites) {
+    const brut = Math.floor((combat.indexInDivision * unites) / combatsDuTour);
+    const unite = Math.min(unites - 1, Math.max(0, brut));
+    const partie = partieDeLUnite(unite, unites, parties);
     return { partie, partiesReunies: [partie], convergence: false };
   }
-  const largeur = parties / combatsDuTour;
-  const brut = combat.indexInDivision * largeur;
-  const debut = Math.min(parties - largeur, Math.max(0, brut));
-  return {
-    partie: debut,
-    partiesReunies: Array.from({ length: largeur }, (_, index) => debut + index),
-    convergence: true,
-  };
+  const largeur = unites / combatsDuTour;
+  const debut = Math.min(unites - largeur, Math.max(0, combat.indexInDivision * largeur));
+  const couvertes = new Set<number>();
+  for (let unite = debut; unite < debut + largeur; unite += 1) {
+    couvertes.add(partieDeLUnite(unite, unites, parties));
+  }
+  const partiesReunies = [...couvertes].sort((a, b) => a - b);
+  const partie = partiesReunies[0] ?? 0;
+  if (partiesReunies.length === 1) {
+    return { partie, partiesReunies, convergence: false };
+  }
+  return { partie, partiesReunies, convergence: true };
 }
 
 export type TatamiDeRepartition = {

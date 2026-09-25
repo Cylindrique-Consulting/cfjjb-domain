@@ -525,7 +525,7 @@ tickets PL1, PL2, PL3 ; réponses du client des 11 et 15/09/2026 ; relance BR3.4
 | Module                             | Ce qu'il apporte                                                                  |
 | ---------------------------------- | --------------------------------------------------------------------------------- |
 | `src/ordonnanceur-planning.ts`     | `planifierCombats` : tatami, journée, heure prévue et rang par combat             |
-| `src/repartition-tatamis.ts`       | proposition 1 / 2 / 4 / 8, découpage par parties, convergence, libellés           |
+| `src/repartition-tatamis.ts`       | proposition 1 à 8 (1, 2, 4, 8 avant v0.34.0), découpage, convergence, libellés    |
 | `src/enchainement-competitions.ts` | `planifierLEvenement` : Gi puis No-Gi, athlètes communs, conflits                 |
 | `src/controles-de-planning.ts`     | refus, bloquants, avertissements à confirmer, statut et publication automatique   |
 | `src/ordre-sportif.ts`             | ordre âge › genre › ceinture › poids, absoluts en fin de tranche, sans discipline |
@@ -544,17 +544,18 @@ demi-finale, contre **15 minutes** aujourd'hui (5 de combat + 10 de repos).
   fin nominale du combat source — une durée de combat de la catégorie à venir jusqu'aux
   demi-finales, deux avant toute finale. Un combat bye ne prend pas de place dans la file et
   n'ouvre aucun repos.
-- **Ordre strict dans un tour** (depuis v0.24.0) : les combats d'un même tour passent toujours
-  dans l'ordre du tableau, du haut vers le bas. Seul le premier combat restant du tour en cours
-  est candidat : s'il attend la fin d'un repos, ou un combat source placé sur un autre tatami,
-  aucun autre combat du même tour ne passe devant lui. Deux tours ne sont jamais mélangés : une
-  demi-finale ne remonte pas devant un quart.
+- **Ordre dans un tour** (depuis v0.24.0, assoupli en v0.34.0) : les combats d'un même tour
+  passent dans l'ordre du tableau, du haut vers le bas. S'il attend la fin d'un repos, ou un
+  combat source placé sur un autre tatami, le premier combat restant du tour laisse passer une
+  autre catégorie du tatami ; seulement si aucune ne peut commencer, un autre combat de son tour,
+  prêt à l'heure où le tatami se libère, passe devant lui (ORD.10 B, voir v0.34.0). Deux tours ne
+  sont jamais mélangés : une demi-finale ne remonte pas devant un quart.
 - **Intercalation** : pendant cette attente, l'ordonnanceur fait passer le premier combat
   autorisé des catégories suivantes du même tatami, dans l'ordre du planning ; ce combat porte
   `intercale`. Si aucune n'a de combat autorisé, le tatami attend, puis lance le premier combat
   de tête qui le devient.
-- **Espacement** : 60 secondes par défaut, réglable ; il sépare deux combats d'un tatami et ne
-  s'ajoute pas au repos.
+- **Espacement** : 120 secondes par défaut depuis v0.34.0 (60 avant), réglable ; il sépare deux
+  combats d'un tatami et ne s'ajoute pas au repos.
 - **Athlètes** : les identifiants portés par `combats[].athletes` sont ceux du **licencié**, les
   mêmes dans toutes les compétitions de l'événement. C'est ce qui fait mordre le repos d'une
   compétition sur l'autre ; avec des identifiants d'inscription, la contrainte ne joue pas.
@@ -568,14 +569,16 @@ l'estimateur.
 ### La répartition d'une catégorie
 
 `proposerLaRepartition` propose un nombre de tatamis selon l'effectif — 1 jusqu'à 16, 2 de 17 à
-32, 4 de 33 à 64, 8 au-delà — plafonné au plus grand de 1, 2, 4, 8 qui tient dans la compétition.
-**Jamais 3** : avec trois tatamis, une catégorie de 40 va sur 2 et le troisième reste libre pour
-d'autres catégories. Poules, tableaux de trois et catégories à deux inscrits ne sont jamais
+32, 4 de 33 à 64, 8 au-delà — plafonné au nombre de tatamis de la compétition. Jusqu'à v0.33.0,
+le plafond était le plus grand de 1, 2, 4, 8 qui tient dans la compétition, jamais 3 ; depuis
+v0.34.0, tout nombre de 1 à 8 est admis (REP.1 A) et une catégorie de 40 sur trois tatamis en
+reçoit 3. Poules, tableaux de trois et catégories à deux inscrits ne sont jamais
 réparties. Le responsable accepte, modifie (`valeursAdmises`) ou refuse (`tatamisApresArbitrage`,
 un refus ramène à 1). L'alternative d'un cran (2 jusqu'à 16, 4 de 17 à 32) est rendue par
 `alternativeSuggeree`, à proposer quand l'alerte de déséquilibre vise le tatami de la catégorie.
 
-`partiesDuCombat` découpe le tableau selon ses branches. Un combat du tour de division `d`
+`partiesDuCombat` découpe le tableau selon ses branches (à 3, 5, 6 ou 7 parties, par morceaux
+entiers : voir v0.34.0). Un combat du tour de division `d`
 (2^(d-1) combats) appartient à la partie `floor(index × p / 2^(d-1))` tant que son tour compte au
 moins `p` combats : aucun athlète ne change de tatami avant la convergence. Quand un tour compte
 moins de combats que de parties, chacun réunit les parties deux à deux — à 8 parties, quarts sur
@@ -597,11 +600,10 @@ Gi, No-Gi, Kids Gi et Kids No-Gi sont quatre compétitions distinctes d'un même
 la première compétition d'une journée porte une heure saisie ; `planifierLEvenement` fait partir
 chaque suivante de la **fin prévue de la précédente**, tous tatamis libérés, et le repos des
 athlètes communs est tenu combat par combat : la compétition suivante n'est pas décalée en bloc,
-seul recule ce qui attend l'athlète commun. L'ordre du tableau étant strict à l'intérieur d'un
-tour, un combat de cet athlète placé en tête de son tour retient les combats qui le suivent dans
-ce tour : le tatami fait alors passer une autre catégorie s'il en a une, sinon il attend. Quand
-l'athlète ouvre un tableau seul sur son tatami, c'est donc tout ce tableau qui recule, de son
-repos moins l'espacement au plus. Une heure saisie qui ferait empiéter une
+seul recule ce qui attend l'athlète commun. Un combat de cet athlète placé en tête de son tour
+laisse d'abord passer une autre catégorie du tatami ; s'il n'y en a pas, le combat suivant de son
+tour passe devant lui (ORD.10 B, depuis v0.34.0 ; de v0.24.0 à v0.33.0, le tatami attendait et
+tout le tableau reculait). Une heure saisie qui ferait empiéter une
 compétition sur la précédente est acceptée mais signalée
 (`chevauchement_de_competitions`).
 
@@ -621,14 +623,15 @@ de publier, et chaque constat porte une **clé stable** : une retouche annule la
 | ------------------------------- | ------------- | ----------------------------------------------------------------- |
 | `source_apres_dependant`        | refus         | source rangée après son dépendant, par rang ou par heure          |
 | `double_convocation`            | bloquant      | deux catégories du même jour se disputent le même licencié        |
-| `repos_insuffisant`             | avertissement | moins d'une durée de combat (deux avant une finale) de repos      |
+| `repos_insuffisant`             | bloquant      | moins d'une durée de combat (deux avant une finale) de repos      |
 | `depassement_de_journee`        | avertissement | un tatami finit après l'heure de fin de sa journée                |
 | `desequilibre_de_tatami`        | avertissement | un tatami finit plus de 60 min après la moyenne des autres        |
 | `chevauchement_de_competitions` | avertissement | une compétition commence avant la fin prévue de la précédente     |
 | `repartition_non_examinee`      | avertissement | une proposition de répartition à plus d'un tatami jamais tranchée |
 
 Un refus et un bloquant ne se lèvent par aucune confirmation ; un avertissement exige une
-confirmation explicite. Le déséquilibre de Charléty Adultes (Tatami 1 vers 21:41, les autres
+confirmation explicite. Le repos insuffisant était un avertissement jusqu'à v0.33.0 ; il bloque
+la publication depuis v0.34.0 (RPS.3 B). Le déséquilibre de Charléty Adultes (Tatami 1 vers 21:41, les autres
 avant 19:20, journée jusqu'à 22:30) donne un avertissement de déséquilibre sur le Tatami 1 et
 aucun dépassement.
 
@@ -1058,6 +1061,154 @@ tableaux, la nouvelle finale se dessinait ENTRE les deux nouvelles demi-finales 
   seule peut porter l'index 3 sans qu'il existe d'index 2 (cf. v0.32.0).
 
 Aucun changement de schéma : les deux consommateurs n'ont qu'à épingler le tag.
+
+## Release v0.34.0 : le générateur de planning suit l'ordre des ceintures, la hiérarchie des tatamis, et répartit sur 1 à 8 tatamis
+
+Réponses du client du 25/09/2026 au questionnaire du générateur de planning ; l'identifiant de
+chaque décision est donné entre parenthèses. Le noyau pose les règles, la plateforme les branche
+dans sa propre PR.
+
+| Module                            | Ce qu'il apporte                                                                   |
+| --------------------------------- | ---------------------------------------------------------------------------------- |
+| `src/priorite-de-planning.ts`     | `trierPourLeDepart` et sa clé ; `rangTatamiPrioritaire`, la liste du §8            |
+| `src/hierarchie-tatamis.ts`       | `rangsDeQualiteParDefaut` : les tatamis par paires depuis les deux bouts           |
+| `src/affectation-par-liste.ts`    | `affecterParListe` : un tatami libéré prend la catégorie suivante de la file       |
+| `src/scenario-journees.ts`        | `repartirParScenario` : « ibjjf » (par défaut) ou « gi-samedi »                    |
+| `src/repartition-tatamis.ts`      | 1 à 8 tatamis par catégorie, tableau coupé par morceaux entiers                    |
+| `src/ordonnanceur-planning.ts`    | rotation de 2 minutes, combat suivant du tour qui passe devant, repos de confort   |
+| `src/controles-de-planning.ts`    | `repos_insuffisant` bloque la publication                                          |
+| `src/objectifs-du-planning.ts`    | `evaluerLaJournee`, `comparerLesPlans` : l'ordre du §18 et la marge de 5 minutes   |
+| `src/convergence-des-branches.ts` | derniers tours sur le tatami de la finale, fins de branches rapprochées            |
+| `src/continuite-des-tatamis.ts`   | `controlerLaContinuite` : un combat hors de sa branche, une finale sans ses demies |
+
+### L'ordre de départ
+
+`cleDeDepart` compare, dans cet ordre (le plus petit part le premier) :
+
+1. les Kids d'abord (JRS.4 A ; « les Kids passent toujours en premier sur une compétition ») ;
+2. le Gi puis le No-Gi : Kids Gi, Kids No-Gi, puis Gi, puis No-Gi (SEP.4 A, JRS.4 A) ;
+3. chez les Kids, l'âge, U7 d'abord (ORD.6 B) ; ailleurs, les juvéniles avant les adultes et
+   les Masters (ORD.5 C) ;
+4. hors Kids, la vague de ceinture : bleues et noires (corail et rouge comprises), puis violettes
+   et marrons, puis blanches (ORD.1 A). Les Masters passent dans la vague de leur ceinture, comme
+   les adultes (ORD.4 A) ;
+5. les noires adultes en tête de leur vague ;
+6. la plus longue durée prévue, nombre de combats multiplié par le créneau (ORD.7 B) ;
+7. le poids, du plus léger au plus lourd (ORD.11 B).
+
+Le sexe n'entre pas dans la clé ; l'identifiant départage. `rangSportifDeCategorie` reste l'ordre
+d'affichage.
+
+### Qui prend les meilleurs tatamis
+
+`rangTatamiPrioritaire` rend le rang de la liste du §8 : noire, marron, violette puis bleue
+adultes (1 à 4), les mêmes en Masters (5 à 8), blanche adulte (9), blanche Master (10), juvéniles
+(11), Kids (12) ; corail et rouge comptent comme la noire. `rangsDeQualiteParDefaut` classe les
+tatamis par paires (ORD.2 A) : sur 8, 1 et 8 ont le rang 1, puis 2 et 7, 3 et 6, 4 et 5 ; avec un
+nombre impair, le tatami central est seul au dernier rang.
+
+`affecterParListe` suit la file de `trierPourLeDepart` sans jamais la doubler (ORD.8 A). À
+l'heure où des tatamis se libèrent, les catégories de tête qui y tiennent ensemble forment un lot,
+et la liste du §8 lui répartit les meilleurs tatamis (ORD.1 A). Sur 6 tatamis à 9 h, deux noires
+adultes et quatre bleues : les noires prennent les tatamis 1 et 6, les bleues 2, 5, 3 et 4 ; le
+premier tatami libéré prend la violette qui suit. Une catégorie répartie qui demande plus de
+tatamis qu'il n'y en a de libres prend ceux qui se libèrent le plus tôt, et commence quand le
+dernier d'entre eux se libère : une catégorie suivante ne la double pas.
+
+### Les scénarios de journées
+
+| Scénario                    | Premier jour                                  | Second jour              |
+| --------------------------- | --------------------------------------------- | ------------------------ |
+| `ibjjf` (défaut)            | Gi de couleur hors Kids, juvéniles et Masters | Kids, blanches Gi, No-Gi |
+| `ibjjf`, sans Gi de couleur | ceintures de couleur hors Kids (No-Gi seule…) | blanches et Kids         |
+| `gi-samedi`                 | tout le Gi hors Kids, blanches comprises      | Kids et No-Gi            |
+
+JRS.8 B, JRS.2 A. Une compétition sans aucune ceinture de couleur hors Kids (Kids seuls) reste
+entière le premier jour ; une compétition d'un jour aussi. Rien n'est reporté d'une journée pleine
+vers l'autre (JRS.7 A) : le dépassement se signale, et la CFJJB déplace des catégories.
+
+### La répartition sur 1 à 8 tatamis
+
+`NOMBRES_DE_TATAMIS_ADMIS` vaut 1 à 8 (REP.1 A) et ne suit plus `TAPIS_ADMIS_ABSOLUT`, qui reste
+à 1, 2, 4 ou 8 tant que la génération d'un absolut en SQL n'est pas alignée.
+`plafondDeRepartition` rend le nombre de tatamis de la compétition, huit au plus ; les seuils de
+`proposerLaRepartition` ne changent pas.
+
+`partiesDuCombat` coupe le tableau par morceaux entiers (REP.4 A) : `2^k` unités, `2^k` étant la
+plus petite puissance de deux qui atteint le nombre de parties, et les dernières unités réunies
+deux à deux.
+
+| Parties | Découpage                      |
+| ------- | ------------------------------ |
+| 3       | un quart, un quart, une moitié |
+| 5       | deux huitièmes, trois quarts   |
+| 6       | quatre huitièmes, deux quarts  |
+| 7       | six huitièmes, un quart        |
+
+Un combat qui ne couvre qu'une partie reste sur son tatami, sans convergence : chaque branche
+reste intacte jusqu'à son regroupement. Le tatami qui reçoit la moitié a deux fois plus de
+combats ; il finit plus tard et peut lever l'avertissement de déséquilibre. À 1, 2, 4 et 8
+parties, le découpage est celui d'avant, combat par combat.
+
+### L'ordonnanceur
+
+- **Rotation de 2 minutes par défaut** (DUR.1 A). `DEFAULT_BUFFER_SECONDS` passe de 60 à 120
+  secondes et `ESPACEMENT_PAR_DEFAUT_SECONDES` en est l'alias : ordonnanceur, enchaînement des
+  compétitions, capacité, dimensionnement et planning par catégorie lisent la même constante.
+- **Le combat suivant du même tour passe devant** (ORD.10 B), seulement quand aucune catégorie
+  du tatami ne peut commencer à l'heure où il se libère, et seulement pour un combat prêt à cette
+  heure-là. Les files sont lues dans l'ordre du planning, puis les combats dans l'ordre du
+  tableau ; deux tours ne se mélangent jamais. Un combat qui devrait lui-même attendre ne passe
+  pas : le tatami attend alors le combat de tête prêt le plus tôt.
+- **Repos de confort** (RPS.4 A) : `reposDeConfort` vise deux durées de combat avant tout combat,
+  au lieu d'une hors finale. Le noyau ne compare rien : la plateforme ne garde le confort que s'il
+  ne retarde aucune fin de journée (RPS.5 A).
+
+Ce que change ORD.10 B, en combats de 5 minutes séparés de 60 secondes :
+
+| Cas                                                               | v0.24.0 à v0.33.0                             | v0.34.0                                                     |
+| ----------------------------------------------------------------- | --------------------------------------------- | ----------------------------------------------------------- |
+| Tableau de 5 inscrits seul sur son tatami, 1er tour à 09:00       | 1re demi-finale 09:10, 2e 09:16, finale 09:31 | 2e demi-finale 09:06, 1re 09:12, finale 09:27               |
+| Le même, suivi sur le tatami d'une catégorie de 4 inscrits        | l'autre catégorie passe à 09:06 et 09:24      | inchangé : une autre catégorie prête passe toujours d'abord |
+| Tableaux de 9, 17 et 33 inscrits seuls sur leur tatami            | finales à 09:55, 10:43 et 12:19               | finales à 09:51, 10:39 et 12:15                             |
+| Gi finie à 13:59, athlète commun au 1er combat d'un tableau de 16 | combat 1 à 14:04, finale 15:37                | combat 2 à 14:00, combat 1 à 14:06, finale 15:33            |
+
+Sur deux compétitions **parallèles**, la catégorie de l'athlète commun commence désormais sans
+lui : sa convocation chevauche l'autre compétition, et la double convocation bloque la
+publication, en plus du chevauchement déjà signalé.
+
+### Les contrôles
+
+`repos_insuffisant` passe de l'avertissement au bloquant (RPS.3 B) : une retouche qui place un
+combat pendant le repos réglementaire d'un athlète est acceptée dans le brouillon, mais le
+planning ne se publie pas tant qu'elle n'est pas corrigée, comme une double convocation.
+
+### Choisir entre deux plans, et la continuité des tatamis
+
+`comparerLesPlans` départage deux plans d'une journée selon l'ordre des objectifs du §18. Une fin
+plus précoce d'au moins `MARGE_ENTRE_PLANS_MINUTES` (5) l'emporte. En deçà, les objectifs suivants
+départagent, dans l'ordre (ORD.9 B). `retoucheSansRetard` dit si un changement ne fait pas reculer
+la fin de la journée.
+
+`regrouperLesDerniersTours` place les demi-finales, puis les quarts, sur le tatami de la finale,
+seulement si la journée ne finit pas plus tard (REP.5 C). `debutsPourRapprocherLesBranches`
+rapproche les fins des branches d'une catégorie répartie, aux mêmes conditions (REP.6 A).
+
+`controlerLaContinuite` signale deux cas, par un avertissement jamais bloquant : un combat placé
+hors de sa branche, et la finale d'une catégorie répartie posée sur un tatami qui n'a joué aucune
+de ses demi-finales (§12.1, §12.5).
+
+Le contrôle `desequilibre_de_tatami` signale désormais un tatami qui finit plus d'une heure avant
+ou après la moyenne des autres.
+
+### Pour les consommateurs
+
+- Une compétition sans espacement réglé passe de 60 à 120 secondes : toutes les heures générées
+  changent. Le repli SQL de l'estimation du jour J (`jour_j_espacement_effectif`) doit suivre.
+- Une catégorie ne peut être enregistrée sur 3, 5, 6 ou 7 tatamis qu'une fois levée la contrainte
+  de cardinalité 1, 2, 4 ou 8 côté base.
+- Une confirmation déjà donnée à un `repos_insuffisant` reste enregistrée mais ne lève plus rien :
+  le constat passe dans `bloquants`, et seul un planning corrigé le fait disparaître.
 
 ## Pureté, vérifiée et non recommandée
 

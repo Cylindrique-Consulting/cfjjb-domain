@@ -29,10 +29,10 @@ const combat = (partiel: Partial<CombatControle> & { fightId: string }): CombatC
 });
 
 describe("la gravité des contrôles", () => {
-  it("refuse la dépendance impossible, bloque la double convocation, avertit sur le reste", () => {
+  it("refuse la dépendance impossible, bloque la double convocation et le repos insuffisant (RPS.3 B), avertit sur le reste", () => {
     expect(GRAVITE_PAR_TYPE.source_apres_dependant).toBe("refus");
     expect(GRAVITE_PAR_TYPE.double_convocation).toBe("bloquant");
-    expect(GRAVITE_PAR_TYPE.repos_insuffisant).toBe("avertissement");
+    expect(GRAVITE_PAR_TYPE.repos_insuffisant).toBe("bloquant");
     expect(GRAVITE_PAR_TYPE.depassement_de_journee).toBe("avertissement");
     expect(GRAVITE_PAR_TYPE.desequilibre_de_tatami).toBe("avertissement");
     expect(GRAVITE_PAR_TYPE.repartition_non_examinee).toBe("avertissement");
@@ -98,7 +98,7 @@ describe("le contrôle des dépendances du tableau", () => {
     expect(constats.map((c) => c.type)).toEqual(["source_apres_dependant"]);
   });
 
-  it("avertit d'un repos raccourci entre une source et son dépendant", () => {
+  it("signale un repos raccourci entre une source et son dépendant, en bloquant (RPS.3 B)", () => {
     const constats = controlerLePlanning({
       combats: [
         combat({
@@ -121,7 +121,7 @@ describe("le contrôle des dépendances du tableau", () => {
     expect(constats).toHaveLength(1);
     expect(constats[0]).toMatchObject({
       type: "repos_insuffisant",
-      gravite: "avertissement",
+      gravite: "bloquant",
       combatId: "finale",
       autreCombatId: "demie",
       ecartMinutes: 9,
@@ -200,7 +200,7 @@ describe("le contrôle des athlètes communs", () => {
     });
   });
 
-  it("avertit d'un repos trop court entre deux compétitions d'un même événement", () => {
+  it("signale un repos trop court entre deux compétitions d'un même événement, en bloquant (RPS.3 B)", () => {
     const constats = controlerLePlanning({
       engagements: [
         {
@@ -224,6 +224,7 @@ describe("le contrôle des athlètes communs", () => {
       ],
     });
     expect(constats.map((c) => c.type)).toEqual(["repos_insuffisant"]);
+    expect(constats[0]?.gravite).toBe("bloquant");
     expect(constats[0]?.ecartMinutes).toBe(2);
   });
 
@@ -351,13 +352,33 @@ describe("le contrôle des horaires de journée", () => {
     expect(constats[0]?.ecartMinutes).toBe(15);
   });
 
-  it("avertit du déséquilibre de Charléty : Tatami 1 à 21:41, les autres avant 19:20", () => {
+  it("avertit du déséquilibre de Charléty : Tatami 1 à 21:41, les autres avant 19:20, qui finissent plus d'une heure avant les autres", () => {
     const constats = controlerLePlanning({
       combats: [finDeTatami("t1", "21:41"), finDeTatami("t2", "19:17"), finDeTatami("t3", "19:05")],
       journees: [{ jour: 0, finMs: heure("22:30") }],
     });
-    expect(constats.map((c) => c.type)).toEqual(["desequilibre_de_tatami"]);
+    expect(constats.map((c) => c.type)).toEqual([
+      "desequilibre_de_tatami",
+      "desequilibre_de_tatami",
+      "desequilibre_de_tatami",
+    ]);
     expect(constats[0]).toMatchObject({ tatamiId: "t1", jour: 0, ecartMinutes: 150 });
+    expect(constats[1]).toMatchObject({ tatamiId: "t2", jour: 0, ecartMinutes: -66 });
+    expect(constats[2]).toMatchObject({ tatamiId: "t3", jour: 0, ecartMinutes: -84 });
+  });
+
+  it("avertit aussi d'un tatami qui finit plus d'une heure avant la moyenne des autres : T2 de l'Open IdF à 16:45", () => {
+    const constats = controlerLePlanning({
+      combats: [
+        finDeTatami("t1", "19:13"),
+        finDeTatami("t2", "16:45"),
+        finDeTatami("t3", "18:31"),
+        finDeTatami("t4", "19:18"),
+        finDeTatami("t5", "19:06"),
+        finDeTatami("t6", "18:58"),
+      ],
+    }).filter((c) => c.type === "desequilibre_de_tatami");
+    expect(constats.map((c) => [c.tatamiId, c.ecartMinutes])).toEqual([["t2", -136]]);
   });
 
   it("tolère un écart de 60 minutes, avertit au-delà", () => {
@@ -375,7 +396,13 @@ describe("le contrôle des horaires de journée", () => {
         ],
       }).filter((c) => c.type === "desequilibre_de_tatami");
     expect(ecart(ECART_DE_DESEQUILIBRE_MINUTES)).toEqual([]);
-    expect(ecart(ECART_DE_DESEQUILIBRE_MINUTES + 1).map((c) => c.tatamiId)).toEqual(["t2"]);
+    // À deux tatamis, chacun est l'« autre » de l'autre : le premier finit en avance, le second en retard.
+    expect(
+      ecart(ECART_DE_DESEQUILIBRE_MINUTES + 1).map((c) => [c.tatamiId, c.ecartMinutes]),
+    ).toEqual([
+      ["t1", -(ECART_DE_DESEQUILIBRE_MINUTES + 1)],
+      ["t2", ECART_DE_DESEQUILIBRE_MINUTES + 1],
+    ]);
   });
 
   it("ne parle pas de déséquilibre quand un seul tatami travaille", () => {
@@ -432,30 +459,28 @@ describe("le contrôle des propositions de répartition", () => {
 });
 
 describe("le verdict de publication", () => {
-  const constats = controlerLePlanning({
-    combats: [
-      combat({
-        fightId: "demie",
-        division: 2,
-        rang: 1,
-        debutMs: heure("09:00"),
-        finMs: heure("09:05"),
-      }),
-      combat({
-        fightId: "finale",
-        division: 1,
-        rang: 2,
-        debutMs: heure("09:06"),
-        finMs: heure("09:11"),
-        sources: ["demie", null],
-      }),
-    ],
+  const demie = combat({
+    fightId: "demie",
+    division: 2,
+    rang: 1,
+    debutMs: heure("09:00"),
+    finMs: heure("09:05"),
   });
+  const finale = combat({
+    fightId: "finale",
+    division: 1,
+    rang: 2,
+    debutMs: heure("09:15"),
+    finMs: heure("09:20"),
+    sources: ["demie", null],
+  });
+  const journees = [{ jour: 0, finMs: heure("09:18") }];
+  const constats = controlerLePlanning({ combats: [demie, finale], journees });
 
   it("interdit la publication tant qu'un avertissement n'est pas confirmé", () => {
     const verdict = verdictDePublication(constats);
     expect(verdict.publiable).toBe(false);
-    expect(verdict.aConfirmer.map((c) => c.type)).toEqual(["repos_insuffisant"]);
+    expect(verdict.aConfirmer.map((c) => c.type)).toEqual(["depassement_de_journee"]);
   });
 
   it("autorise la publication quand le responsable confirme l'avertissement", () => {
@@ -494,6 +519,20 @@ describe("le verdict de publication", () => {
     expect(verdict.bloquants).toHaveLength(1);
   });
 
+  it("ne lève jamais un repos insuffisant par une confirmation (RPS.3 B)", () => {
+    const raccourci = controlerLePlanning({
+      combats: [demie, { ...finale, debutMs: heure("09:06"), finMs: heure("09:11") }],
+    });
+    expect(raccourci.map((c) => c.type)).toEqual(["repos_insuffisant"]);
+    const verdict = verdictDePublication(
+      raccourci,
+      raccourci.map((c) => c.cle),
+    );
+    expect(verdict.publiable).toBe(false);
+    expect(verdict.bloquants.map((c) => c.type)).toEqual(["repos_insuffisant"]);
+    expect(verdict.aConfirmer).toEqual([]);
+  });
+
   it("ne lève jamais un refus par une confirmation", () => {
     const refus = controlerLePlanning({
       combats: [
@@ -526,25 +565,8 @@ describe("le verdict de publication", () => {
   });
 
   it("donne à chaque constat une clé stable, indépendante de l'ordre de lecture", () => {
-    const relu = controlerLePlanning({
-      combats: [
-        combat({
-          fightId: "finale",
-          division: 1,
-          rang: 2,
-          debutMs: heure("09:06"),
-          finMs: heure("09:11"),
-          sources: ["demie", null],
-        }),
-        combat({
-          fightId: "demie",
-          division: 2,
-          rang: 1,
-          debutMs: heure("09:00"),
-          finMs: heure("09:05"),
-        }),
-      ],
-    });
+    const relu = controlerLePlanning({ combats: [finale, demie], journees });
+    expect(constats).toHaveLength(1);
     expect(relu.map((c) => c.cle)).toEqual(constats.map((c) => c.cle));
   });
 });

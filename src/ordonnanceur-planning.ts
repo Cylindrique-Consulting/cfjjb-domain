@@ -1,10 +1,12 @@
 import type { BracketFightType } from "./bracket-generator";
 import { findFeederFight, type PropagationFight, type Slot } from "./bracket-propagation";
+import { DEFAULT_BUFFER_SECONDS } from "./capacity";
 import type { DrawFormat } from "./competition-format";
 import { multiplicateurDeRepos } from "./fight-rest";
 import { categoryRunningOrder } from "./planning-generator";
 
-export const ESPACEMENT_PAR_DEFAUT_SECONDES = 60;
+/** Temps de rotation entre deux combats d'un tatami : 2 minutes par défaut (DUR.1 A). */
+export const ESPACEMENT_PAR_DEFAUT_SECONDES = DEFAULT_BUFFER_SECONDS;
 
 export type CombatAPlanifier = {
   id: string;
@@ -23,6 +25,19 @@ export type CategorieAPlanifier = {
   jour: number;
   rangDePlanning: number;
   format?: DrawFormat;
+  /**
+   * Repos de confort pour cette catégorie seulement (RPS.4 A), comme
+   * `EntreeDePlanification.reposDeConfort` pour toutes : l'appelant le garde
+   * journée par journée (RPS.5 A, ORD.9 B).
+   */
+  reposDeConfort?: boolean;
+  /**
+   * Heure avant laquelle la catégorie ne commence aucun combat sur un tatami,
+   * par identifiant de tatami : sa branche y est « légèrement décalée » pour
+   * converger avec les autres (§9, REP.6 A). Le tatami fait passer ses autres
+   * catégories en attendant.
+   */
+  debutAuPlusTotParTatami?: Readonly<Record<string, number>>;
 };
 
 export type TatamiAPlanifier = {
@@ -41,6 +56,13 @@ export type CreneauOccupe = {
 export type EntreeDePlanification = {
   espacementSecondes?: number;
   debutAuPlusTotMs?: number;
+  /**
+   * Repos de confort (RPS.4 A) : deux durées de combat avant TOUT combat, au
+   * lieu d'une seule hors finale. Faux par défaut. Le confort ne doit retarder
+   * aucune fin de journée (RPS.5 A) : c'est à l'appelant de comparer les deux
+   * calculs et de ne le garder qu'à cette condition.
+   */
+  reposDeConfort?: boolean;
   tatamis: readonly TatamiAPlanifier[];
   categories: readonly CategorieAPlanifier[];
   combats: readonly CombatAPlanifier[];
@@ -316,8 +338,11 @@ export function planifierCombats(entree: EntreeDePlanification): ResultatDePlani
     const categorie = categories.get(combat.categorieId);
     const dureeMs = Math.max(0, categorie?.dureeSecondes ?? 0) * 1000;
     const libre = libreDe(piste);
-    const reposMs =
-      multiplicateurDeRepos({ division: combat.division, type: combat.type }) * dureeMs;
+    const multiplicateur =
+      entree.reposDeConfort === true || categorie?.reposDeConfort === true
+        ? 2
+        : multiplicateurDeRepos({ division: combat.division, type: combat.type });
+    const reposMs = multiplicateur * dureeMs;
     let contrainte: number | null = null;
     let bloque = false;
     const sourcesDuCombat = sources.get(combat.id);
@@ -341,7 +366,9 @@ export function planifierCombats(entree: EntreeDePlanification): ResultatDePlani
         bloque = true;
       }
     }
-    const debut = contrainte === null ? libre : Math.max(libre, contrainte);
+    const plancher = categorie?.debutAuPlusTotParTatami?.[piste.tatamiId];
+    const pret = contrainte === null ? libre : Math.max(libre, contrainte);
+    const debut = plancher === undefined ? pret : Math.max(pret, plancher);
     return {
       debutMs: debut,
       finMs: debut + dureeMs,
@@ -364,7 +391,29 @@ export function planifierCombats(entree: EntreeDePlanification): ResultatDePlani
         differe = suivant;
       }
     }
+    if (!ignorerSources) {
+      const devant = combatQuiPasseDevant(piste, libre);
+      if (devant !== null) return devant;
+    }
     return differe;
+  };
+
+  // ORD.10 B : aucune catégorie du tatami ne peut commencer à l'heure où il se
+  // libère ; un autre combat du tour en cours, prêt à cette heure, passe alors
+  // devant le premier, qui attend son repos ou un combat source.
+  const combatQuiPasseDevant = (piste: Piste, libre: number): Candidat | null => {
+    for (const file of piste.files) {
+      const tour = file.tours[file.position] ?? [];
+      for (let index = 1; index < tour.length; index += 1) {
+        const combat = tour[index];
+        if (combat === undefined) continue;
+        const evaluation = evaluer(piste, combat, false);
+        if (!evaluation.bloque && evaluation.debutMs <= libre) {
+          return { piste, file, combat, evaluation };
+        }
+      }
+    }
+    return null;
   };
 
   const mieux = (a: Candidat | null, b: Candidat): Candidat => {
