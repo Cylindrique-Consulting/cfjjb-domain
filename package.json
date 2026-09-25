@@ -56,7 +56,9 @@
     "./priorite-de-planning": "./src/priorite-de-planning.ts",
     "./hierarchie-tatamis": "./src/hierarchie-tatamis.ts",
     "./affectation-par-liste": "./src/affectation-par-liste.ts",
-    "./scenario-journees": "./src/scenario-journees.ts"
+    "./scenario-journees": "./src/scenario-journees.ts",
+    "./convergence-des-branches": "./src/convergence-des-branches.ts",
+    "./objectifs-du-planning": "./src/objectifs-du-planning.ts"
   },
   "files": [
     "src"

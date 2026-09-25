@@ -25,6 +25,19 @@ export type CategorieAPlanifier = {
   jour: number;
   rangDePlanning: number;
   format?: DrawFormat;
+  /**
+   * Repos de confort pour cette catégorie seulement (RPS.4 A), comme
+   * `EntreeDePlanification.reposDeConfort` pour toutes : l'appelant le garde
+   * journée par journée (RPS.5 A, ORD.9 B).
+   */
+  reposDeConfort?: boolean;
+  /**
+   * Heure avant laquelle la catégorie ne commence aucun combat sur un tatami,
+   * par identifiant de tatami : sa branche y est « légèrement décalée » pour
+   * converger avec les autres (§9, REP.6 A). Le tatami fait passer ses autres
+   * catégories en attendant.
+   */
+  debutAuPlusTotParTatami?: Readonly<Record<string, number>>;
 };
 
 export type TatamiAPlanifier = {
@@ -326,7 +339,7 @@ export function planifierCombats(entree: EntreeDePlanification): ResultatDePlani
     const dureeMs = Math.max(0, categorie?.dureeSecondes ?? 0) * 1000;
     const libre = libreDe(piste);
     const multiplicateur =
-      entree.reposDeConfort === true
+      entree.reposDeConfort === true || categorie?.reposDeConfort === true
         ? 2
         : multiplicateurDeRepos({ division: combat.division, type: combat.type });
     const reposMs = multiplicateur * dureeMs;
@@ -353,7 +366,9 @@ export function planifierCombats(entree: EntreeDePlanification): ResultatDePlani
         bloque = true;
       }
     }
-    const debut = contrainte === null ? libre : Math.max(libre, contrainte);
+    const plancher = categorie?.debutAuPlusTotParTatami?.[piste.tatamiId];
+    const pret = contrainte === null ? libre : Math.max(libre, contrainte);
+    const debut = plancher === undefined ? pret : Math.max(pret, plancher);
     return {
       debutMs: debut,
       finMs: debut + dureeMs,
