@@ -43,3 +43,5 @@ export * from "./priorite-de-planning";
 export * from "./hierarchie-tatamis";
 export * from "./affectation-par-liste";
 export * from "./scenario-journees";
+export * from "./convergence-des-branches";
+export * from "./objectifs-du-planning";
