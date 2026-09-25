@@ -132,8 +132,8 @@ describe("l'ordonnanceur au combat", () => {
     }
   });
 
-  it("tient le repos et les dépendances d'une catégorie répartie sur 2, 4 puis 8 tatamis", () => {
-    for (const parties of [2, 4, 8]) {
+  it("tient le repos et les dépendances d'une catégorie répartie sur 2 à 8 tatamis", () => {
+    for (const parties of [2, 3, 4, 5, 6, 7, 8]) {
       const montage = monter([
         {
           id: "c",
@@ -151,7 +151,11 @@ describe("l'ordonnanceur au combat", () => {
       const constats = controlerLePlanning({
         combats: versControle(montage, resultat, { c: 300 }),
       });
-      expect(constats, `${parties} parties`).toEqual([]);
+      expect(
+        constats.filter((c) => c.type !== "desequilibre_de_tatami"),
+        `${parties} parties`,
+      ).toEqual([]);
+      if ([2, 4, 8].includes(parties)) expect(constats, `${parties} parties`).toEqual([]);
     }
   });
 
