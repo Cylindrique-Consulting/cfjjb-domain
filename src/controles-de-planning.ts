@@ -13,10 +13,13 @@ export type TypeDeConstat =
   | "chevauchement_de_competitions"
   | "repartition_non_examinee";
 
+// Un repos insuffisant est accepté dans le brouillon mais bloque la publication
+// tant qu'il n'est pas corrigé, comme une double convocation (RPS.3 B, réponse
+// du client du 25/09/2026) : aucune confirmation ne le lève.
 export const GRAVITE_PAR_TYPE: Readonly<Record<TypeDeConstat, GraviteDeControle>> = {
   source_apres_dependant: "refus",
   double_convocation: "bloquant",
-  repos_insuffisant: "avertissement",
+  repos_insuffisant: "bloquant",
   depassement_de_journee: "avertissement",
   desequilibre_de_tatami: "avertissement",
   chevauchement_de_competitions: "avertissement",
