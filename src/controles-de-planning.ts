@@ -275,8 +275,10 @@ function controlerLesHorairesDeJournee(
       const autres = duJour.filter((f) => f.tatamiId !== fin.tatamiId);
       if (autres.length === 0) continue;
       const moyenne = autres.reduce((somme, f) => somme + f.finMs, 0) / autres.length;
+      // Dans les deux sens : un tatami qui finit bien après les autres, ou bien
+      // avant eux (écart négatif), alors qu'il pourrait reprendre leur travail.
       const ecart = minutes(fin.finMs - moyenne);
-      if (ecart <= ECART_DE_DESEQUILIBRE_MINUTES) continue;
+      if (Math.abs(ecart) <= ECART_DE_DESEQUILIBRE_MINUTES) continue;
       constats.push(
         construireConstat({
           type: "desequilibre_de_tatami",

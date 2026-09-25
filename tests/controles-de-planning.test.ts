@@ -352,13 +352,33 @@ describe("le contrôle des horaires de journée", () => {
     expect(constats[0]?.ecartMinutes).toBe(15);
   });
 
-  it("avertit du déséquilibre de Charléty : Tatami 1 à 21:41, les autres avant 19:20", () => {
+  it("avertit du déséquilibre de Charléty : Tatami 1 à 21:41, les autres avant 19:20, qui finissent plus d'une heure avant les autres", () => {
     const constats = controlerLePlanning({
       combats: [finDeTatami("t1", "21:41"), finDeTatami("t2", "19:17"), finDeTatami("t3", "19:05")],
       journees: [{ jour: 0, finMs: heure("22:30") }],
     });
-    expect(constats.map((c) => c.type)).toEqual(["desequilibre_de_tatami"]);
+    expect(constats.map((c) => c.type)).toEqual([
+      "desequilibre_de_tatami",
+      "desequilibre_de_tatami",
+      "desequilibre_de_tatami",
+    ]);
     expect(constats[0]).toMatchObject({ tatamiId: "t1", jour: 0, ecartMinutes: 150 });
+    expect(constats[1]).toMatchObject({ tatamiId: "t2", jour: 0, ecartMinutes: -66 });
+    expect(constats[2]).toMatchObject({ tatamiId: "t3", jour: 0, ecartMinutes: -84 });
+  });
+
+  it("avertit aussi d'un tatami qui finit plus d'une heure avant la moyenne des autres : T2 de l'Open IdF à 16:45", () => {
+    const constats = controlerLePlanning({
+      combats: [
+        finDeTatami("t1", "19:13"),
+        finDeTatami("t2", "16:45"),
+        finDeTatami("t3", "18:31"),
+        finDeTatami("t4", "19:18"),
+        finDeTatami("t5", "19:06"),
+        finDeTatami("t6", "18:58"),
+      ],
+    }).filter((c) => c.type === "desequilibre_de_tatami");
+    expect(constats.map((c) => [c.tatamiId, c.ecartMinutes])).toEqual([["t2", -136]]);
   });
 
   it("tolère un écart de 60 minutes, avertit au-delà", () => {
@@ -376,7 +396,13 @@ describe("le contrôle des horaires de journée", () => {
         ],
       }).filter((c) => c.type === "desequilibre_de_tatami");
     expect(ecart(ECART_DE_DESEQUILIBRE_MINUTES)).toEqual([]);
-    expect(ecart(ECART_DE_DESEQUILIBRE_MINUTES + 1).map((c) => c.tatamiId)).toEqual(["t2"]);
+    // À deux tatamis, chacun est l'« autre » de l'autre : le premier finit en avance, le second en retard.
+    expect(
+      ecart(ECART_DE_DESEQUILIBRE_MINUTES + 1).map((c) => [c.tatamiId, c.ecartMinutes]),
+    ).toEqual([
+      ["t1", -(ECART_DE_DESEQUILIBRE_MINUTES + 1)],
+      ["t2", ECART_DE_DESEQUILIBRE_MINUTES + 1],
+    ]);
   });
 
   it("ne parle pas de déséquilibre quand un seul tatami travaille", () => {
