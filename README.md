@@ -1068,15 +1068,18 @@ Réponses du client du 25/09/2026 au questionnaire du générateur de planning ;
 chaque décision est donné entre parenthèses. Le noyau pose les règles, la plateforme les branche
 dans sa propre PR.
 
-| Module                         | Ce qu'il apporte                                                                 |
-| ------------------------------ | -------------------------------------------------------------------------------- |
-| `src/priorite-de-planning.ts`  | `trierPourLeDepart` et sa clé ; `rangTatamiPrioritaire`, la liste du §8          |
-| `src/hierarchie-tatamis.ts`    | `rangsDeQualiteParDefaut` : les tatamis par paires depuis les deux bouts         |
-| `src/affectation-par-liste.ts` | `affecterParListe` : un tatami libéré prend la catégorie suivante de la file     |
-| `src/scenario-journees.ts`     | `repartirParScenario` : « ibjjf » (par défaut) ou « gi-samedi »                  |
-| `src/repartition-tatamis.ts`   | 1 à 8 tatamis par catégorie, tableau coupé par morceaux entiers                  |
-| `src/ordonnanceur-planning.ts` | rotation de 2 minutes, combat suivant du tour qui passe devant, repos de confort |
-| `src/controles-de-planning.ts` | `repos_insuffisant` bloque la publication                                        |
+| Module                            | Ce qu'il apporte                                                                   |
+| --------------------------------- | ---------------------------------------------------------------------------------- |
+| `src/priorite-de-planning.ts`     | `trierPourLeDepart` et sa clé ; `rangTatamiPrioritaire`, la liste du §8            |
+| `src/hierarchie-tatamis.ts`       | `rangsDeQualiteParDefaut` : les tatamis par paires depuis les deux bouts           |
+| `src/affectation-par-liste.ts`    | `affecterParListe` : un tatami libéré prend la catégorie suivante de la file       |
+| `src/scenario-journees.ts`        | `repartirParScenario` : « ibjjf » (par défaut) ou « gi-samedi »                    |
+| `src/repartition-tatamis.ts`      | 1 à 8 tatamis par catégorie, tableau coupé par morceaux entiers                    |
+| `src/ordonnanceur-planning.ts`    | rotation de 2 minutes, combat suivant du tour qui passe devant, repos de confort   |
+| `src/controles-de-planning.ts`    | `repos_insuffisant` bloque la publication                                          |
+| `src/objectifs-du-planning.ts`    | `evaluerLaJournee`, `comparerLesPlans` : l'ordre du §18 et la marge de 5 minutes   |
+| `src/convergence-des-branches.ts` | derniers tours sur le tatami de la finale, fins de branches rapprochées            |
+| `src/continuite-des-tatamis.ts`   | `controlerLaContinuite` : un combat hors de sa branche, une finale sans ses demies |
 
 ### L'ordre de départ
 
@@ -1179,6 +1182,24 @@ publication, en plus du chevauchement déjà signalé.
 `repos_insuffisant` passe de l'avertissement au bloquant (RPS.3 B) : une retouche qui place un
 combat pendant le repos réglementaire d'un athlète est acceptée dans le brouillon, mais le
 planning ne se publie pas tant qu'elle n'est pas corrigée, comme une double convocation.
+
+### Choisir entre deux plans, et la continuité des tatamis
+
+`comparerLesPlans` départage deux plans d'une journée selon l'ordre des objectifs du §18. Une fin
+plus précoce d'au moins `MARGE_ENTRE_PLANS_MINUTES` (5) l'emporte. En deçà, les objectifs suivants
+départagent, dans l'ordre (ORD.9 B). `retoucheSansRetard` dit si un changement ne fait pas reculer
+la fin de la journée.
+
+`regrouperLesDerniersTours` place les demi-finales, puis les quarts, sur le tatami de la finale,
+seulement si la journée ne finit pas plus tard (REP.5 C). `debutsPourRapprocherLesBranches`
+rapproche les fins des branches d'une catégorie répartie, aux mêmes conditions (REP.6 A).
+
+`controlerLaContinuite` signale deux cas, par un avertissement jamais bloquant : un combat placé
+hors de sa branche, et la finale d'une catégorie répartie posée sur un tatami qui n'a joué aucune
+de ses demi-finales (§12.1, §12.5).
+
+Le contrôle `desequilibre_de_tatami` signale désormais un tatami qui finit plus d'une heure avant
+ou après la moyenne des autres.
 
 ### Pour les consommateurs
 
