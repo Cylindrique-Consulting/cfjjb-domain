@@ -7,6 +7,10 @@ import { heure, hhmm, monter, tableau, tatamis, MINUTE } from "./aides-planning"
 
 const JOUR_MS = 24 * 60 * 60_000;
 
+// Horaires calculés à la main avec une minute d'espacement, dans la compétition
+// comme entre deux compétitions ; le défaut de deux minutes (DUR.1 A) a ses tests.
+const UNE_MINUTE = 60;
+
 type Reglage = {
   id: string;
   ordre: number;
@@ -16,6 +20,7 @@ type Reglage = {
   inscrits?: number;
   athletes?: readonly string[];
   autreCategorie?: { prefixe: string; inscrits: number };
+  espacementSecondes?: number;
 };
 
 function competition(reglage: Reglage): CompetitionDeLEvenement {
@@ -48,6 +53,9 @@ function competition(reglage: Reglage): CompetitionDeLEvenement {
     jour: reglage.jour ?? 0,
     ...(reglage.debutSaisiMs === undefined ? {} : { debutSaisiMs: reglage.debutSaisiMs }),
     planification: {
+      ...(reglage.espacementSecondes === undefined
+        ? {}
+        : { espacementSecondes: reglage.espacementSecondes }),
       tatamis: [
         {
           id: "t1",
@@ -64,14 +72,14 @@ function competition(reglage: Reglage): CompetitionDeLEvenement {
 }
 
 describe("l'enchaînement des compétitions d'un événement", () => {
-  it("fait partir chaque compétition de la fin prévue de la précédente", () => {
+  it("fait partir chaque compétition de la fin prévue de la précédente, deux minutes plus tard par défaut (DUR.1 A)", () => {
     const resultat = planifierLEvenement([
       competition({ id: "GI", ordre: 0, debutSaisiMs: heure("09:00"), prefixe: "g" }),
       competition({ id: "NOGI", ordre: 1, prefixe: "n" }),
     ]);
     expect(hhmm(resultat.debutsRetenus.get("GI") ?? 0)).toBe("09:00");
     const finGi = resultat.finsPrevues.get("GI") ?? 0;
-    expect(resultat.debutsRetenus.get("NOGI")).toBe(finGi + MINUTE);
+    expect(resultat.debutsRetenus.get("NOGI")).toBe(finGi + 2 * MINUTE);
     expect(resultat.conflits).toEqual([]);
   });
 
@@ -127,29 +135,42 @@ describe("l'enchaînement des compétitions d'un événement", () => {
     ]);
   });
 
-  it("sans autre catégorie, le tatami attend la fin du repos de l'athlète commun (PL3.9 option B)", () => {
-    const resultat = planifierLEvenement([
-      competition({
-        id: "GI",
-        ordre: 0,
-        debutSaisiMs: heure("13:33"),
-        prefixe: "L",
-        athletes: ["L3"],
-      }),
-      competition({ id: "NOGI", ordre: 1, prefixe: "L", inscrits: 16, athletes: ["L3"] }),
-    ]);
+  it("sans autre catégorie, le combat suivant du tour passe pendant le repos de l'athlète commun (ORD.10 B)", () => {
+    const resultat = planifierLEvenement(
+      [
+        competition({
+          id: "GI",
+          ordre: 0,
+          debutSaisiMs: heure("13:33"),
+          prefixe: "L",
+          athletes: ["L3"],
+          espacementSecondes: UNE_MINUTE,
+        }),
+        competition({
+          id: "NOGI",
+          ordre: 1,
+          prefixe: "L",
+          inscrits: 16,
+          athletes: ["L3"],
+          espacementSecondes: UNE_MINUTE,
+        }),
+      ],
+      { espacementEntreCompetitionsSecondes: UNE_MINUTE },
+    );
     expect(hhmm(resultat.finsPrevues.get("GI") ?? 0)).toBe("13:59");
     expect(hhmm(resultat.debutsRetenus.get("NOGI") ?? 0)).toBe("14:00");
     const places = [...(resultat.competitions.get("NOGI")?.combats.values() ?? [])].sort(
       (a, b) => a.rang - b.rang,
     );
     expect(places.slice(0, 3).map((p) => `${p.fightId} ${hhmm(p.debutMs)}`)).toEqual([
-      "NOGI-c:4:0:BraketFight 14:04",
-      "NOGI-c:4:1:BraketFight 14:10",
-      "NOGI-c:4:2:BraketFight 14:16",
+      "NOGI-c:4:1:BraketFight 14:00",
+      "NOGI-c:4:0:BraketFight 14:06",
+      "NOGI-c:4:2:BraketFight 14:12",
     ]);
-    expect(places[0]?.attenteDeRepos).toBe(true);
-    expect(hhmm(places[places.length - 1]?.debutMs ?? 0)).toBe("15:37");
+    expect(places.slice(0, 2).map((p) => p.attenteDeRepos)).toEqual([false, false]);
+    expect(hhmm(places[places.length - 1]?.debutMs ?? 0)).toBe("15:33");
+    const engagement = resultat.engagements.find((e) => e.competitionId === "NOGI");
+    expect(hhmm(engagement?.premierCombatMs ?? 0)).toBe("14:06");
     expect(resultat.conflits).toEqual([]);
   });
 
@@ -191,34 +212,41 @@ describe("l'enchaînement des compétitions d'un événement", () => {
     expect(bloquants[0]?.athleteId).toBe("L2");
   });
 
-  it("n'avance pas un autre combat devant l'athlète commun qui ouvre le tableau d'une compétition parallèle", () => {
-    const resultat = planifierLEvenement([
-      competition({
-        id: "ENFANTS",
-        ordre: 0,
-        debutSaisiMs: heure("09:00"),
-        prefixe: "L",
-        athletes: ["L1"],
-      }),
-      competition({
-        id: "ADULTES",
-        ordre: 1,
-        debutSaisiMs: heure("09:00"),
-        prefixe: "L",
-        athletes: ["L1"],
-      }),
-    ]);
+  it("dans une compétition parallèle, fait passer le combat suivant du tour devant l'athlète commun, et la double convocation bloque la publication", () => {
+    const resultat = planifierLEvenement(
+      [
+        competition({
+          id: "ENFANTS",
+          ordre: 0,
+          debutSaisiMs: heure("09:00"),
+          prefixe: "L",
+          athletes: ["L1"],
+          espacementSecondes: UNE_MINUTE,
+        }),
+        competition({
+          id: "ADULTES",
+          ordre: 1,
+          debutSaisiMs: heure("09:00"),
+          prefixe: "L",
+          athletes: ["L1"],
+          espacementSecondes: UNE_MINUTE,
+        }),
+      ],
+      { espacementEntreCompetitionsSecondes: UNE_MINUTE },
+    );
     const adultes = [...(resultat.competitions.get("ADULTES")?.combats.values() ?? [])].sort(
       (a, b) => a.rang - b.rang,
     );
     expect(adultes.map((p) => `${p.fightId} ${hhmm(p.debutMs)}`)).toEqual([
+      "ADULTES-c:2:1:BraketFight 09:00",
       "ADULTES-c:2:0:BraketFight 09:31",
-      "ADULTES-c:2:1:BraketFight 09:37",
-      "ADULTES-c:1:0:BraketFight 09:52",
+      "ADULTES-c:1:0:BraketFight 09:46",
     ]);
     expect(resultat.conflits.map((c) => `${c.type} ${c.gravite}`)).toEqual([
       "chevauchement_de_competitions avertissement",
+      "double_convocation bloquant",
     ]);
+    expect(resultat.conflits[1]?.athleteId).toBe("L1");
   });
 
   it("respecte l'ordre saisi, qui peut inverser Gi et No-Gi", () => {
@@ -243,7 +271,7 @@ describe("l'enchaînement des compétitions d'un événement", () => {
     ]);
     expect(hhmm(resultat.debutsRetenus.get("DIMANCHE-KIDS") ?? 0, JOUR_MS)).toBe("09:00");
     const finKids = resultat.finsPrevues.get("DIMANCHE-KIDS") ?? 0;
-    expect(resultat.debutsRetenus.get("DIMANCHE-NOGI")).toBe(finKids + MINUTE);
+    expect(resultat.debutsRetenus.get("DIMANCHE-NOGI")).toBe(finKids + 2 * MINUTE);
     expect(resultat.debutsRetenus.get("SAMEDI")).toBe(heure("09:00"));
   });
 

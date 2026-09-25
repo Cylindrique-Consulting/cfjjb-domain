@@ -99,7 +99,8 @@ export function fightsPerCompetitor(shape: CategoryShape): number {
   return (n - 1 + thirdPlace + repechage3) / n;
 }
 
-export const DEFAULT_BUFFER_SECONDS = 60;
+/** Temps de rotation entre deux combats : 2 minutes par défaut (DUR.1 A, réponse du client du 25/09/2026). */
+export const DEFAULT_BUFFER_SECONDS = 120;
 
 export type CapacityParams = {
   readonly tatamiCount: number;

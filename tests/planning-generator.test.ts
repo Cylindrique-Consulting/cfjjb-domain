@@ -11,6 +11,11 @@ import {
   type PlanningDay,
   type SchedulableCategory,
 } from "../src/planning-generator";
+import { DEFAULT_BUFFER_SECONDS } from "../src/capacity";
+
+// Le planning par catégorie d'avant la dimension jour a été figé avec une minute
+// d'espacement ; ses tests la gardent, le défaut de 2 minutes a son propre test.
+const UNE_MINUTE = 60;
 
 function cat(id: string, overrides: Partial<PlanningCategory> = {}): PlanningCategory {
   return {
@@ -38,7 +43,9 @@ describe("planCategories", () => {
     const plans = planCategories(categories, { tatamiCount: 2, childrenFirst: false });
     expect(plans).toHaveLength(2);
     const loads = plans.map((p) => p.totalSeconds);
-    const maxCategory = Math.max(...categories.map((c) => c.realFightCount * (360 + 60)));
+    const maxCategory = Math.max(
+      ...categories.map((c) => c.realFightCount * (360 + DEFAULT_BUFFER_SECONDS)),
+    );
     expect(Math.abs((loads[0] ?? 0) - (loads[1] ?? 0))).toBeLessThanOrEqual(maxCategory);
     const all = plans.flatMap((p) => p.categoryIds).sort();
     expect(all).toEqual(["a", "b", "c", "d", "e", "f"]);
@@ -295,7 +302,11 @@ function chargeDuJour(day: DayPlan | undefined): number {
 
 describe("planCategoriesOverDays", () => {
   it("à un seul jour, rend au bit le planning d'avant la dimension jour", () => {
-    const jours = planCategoriesOverDays(CORPUS, { tatamiCount: 6, days: [jour(JOUR_1, 9)] });
+    const jours = planCategoriesOverDays(CORPUS, {
+      tatamiCount: 6,
+      bufferSeconds: UNE_MINUTE,
+      days: [jour(JOUR_1, 9)],
+    });
 
     expect(jours, "un seul jour demandé, un seul jour rendu").toHaveLength(1);
     expect(jours[0]?.tatamis, "planning du jour unique = planning gelé d'avant le lot").toEqual(
@@ -304,13 +315,14 @@ describe("planCategoriesOverDays", () => {
     expect(
       JSON.stringify(jours[0]?.tatamis),
       "identité littérale avec planCategories, ordre des clés compris",
-    ).toBe(JSON.stringify(planCategories(CORPUS, { tatamiCount: 6 })));
+    ).toBe(JSON.stringify(planCategories(CORPUS, { tatamiCount: 6, bufferSeconds: UNE_MINUTE })));
     expect(jours[0]?.overrunSeconds, "9 h sur 6 tatamis : aucun dépassement").toBe(0);
   });
 
   it("répartit les catégories entre les deux jours quand le jour 1 est trop court", () => {
     const jours = planCategoriesOverDays(CORPUS, {
       tatamiCount: 1,
+      bufferSeconds: UNE_MINUTE,
       days: [jour(JOUR_1, 6), jour(JOUR_2, 9)],
     });
 
@@ -363,6 +375,7 @@ describe("planCategoriesOverDays", () => {
   it("respecte l'heure de fin de chaque jour et le signale sinon", () => {
     const jours = planCategoriesOverDays(CORPUS, {
       tatamiCount: 1,
+      bufferSeconds: UNE_MINUTE,
       days: [jour(JOUR_1, 6), jour(JOUR_2, 9)],
     });
 
@@ -384,6 +397,7 @@ describe("planCategoriesOverDays", () => {
     ];
     const jours = planCategoriesOverDays(corpus, {
       tatamiCount: 4,
+      bufferSeconds: UNE_MINUTE,
       days: [jour(JOUR_1, 1), jour(JOUR_2, 9)],
     });
 
@@ -404,6 +418,7 @@ describe("planCategoriesOverDays", () => {
     const trop_longue = CORPUS.find((c) => c.id === "adulte-blue-pena") as PlanningCategory;
     const jours = planCategoriesOverDays([trop_longue], {
       tatamiCount: 1,
+      bufferSeconds: UNE_MINUTE,
       days: [jour(JOUR_1, 1), jour(JOUR_2, 1)],
     });
 
@@ -425,7 +440,7 @@ describe("planCategoriesOverDays", () => {
 
     expect(
       idsDuJour(avecTampon[0]),
-      "tampon de 60 s : adulte-blue-pena ne tient plus dans le jour 1",
+      "tampon par défaut de 120 s : adulte-blue-pena ne tient plus dans le jour 1",
     ).not.toContain("adulte-blue-pena");
     expect(
       idsDuJour(sansTampon[0]),
@@ -436,6 +451,7 @@ describe("planCategoriesOverDays", () => {
   it("cas dégénéré : tout tient dans le jour 1, le jour 2 reste vide", () => {
     const jours = planCategoriesOverDays(CORPUS, {
       tatamiCount: 6,
+      bufferSeconds: UNE_MINUTE,
       days: [jour(JOUR_1, 9), jour(JOUR_2, 9)],
     });
 
@@ -466,6 +482,32 @@ describe("planCategoriesOverDays", () => {
       () => planCategoriesOverDays(CORPUS, { tatamiCount: 6, days: [] }),
       "sans jour, un planning vide serait muet : 14 catégories nulle part",
     ).toThrow(/au moins un jour/);
+  });
+});
+
+describe("le tampon par défaut du planning par catégorie (DUR.1 A)", () => {
+  it("vaut deux minutes, DEFAULT_BUFFER_SECONDS, dans les trois calculs", () => {
+    expect(DEFAULT_BUFFER_SECONDS).toBe(120);
+    expect(planCategories(CORPUS, { tatamiCount: 3 })).toEqual(
+      planCategories(CORPUS, { tatamiCount: 3, bufferSeconds: 120 }),
+    );
+    expect(planCategories(CORPUS, { tatamiCount: 3 })).not.toEqual(
+      planCategories(CORPUS, { tatamiCount: 3, bufferSeconds: UNE_MINUTE }),
+    );
+    const params = { tatamiCount: 1, days: [jour(JOUR_1, 6), jour(JOUR_2, 9)] };
+    expect(assignCategoriesToDays(CORPUS, params)).toEqual(
+      assignCategoriesToDays(CORPUS, { ...params, bufferSeconds: 120 }),
+    );
+    const finale = [
+      { division: 1, indexInDivision: 0, type: "BraketFight" as const, isBye: false },
+    ];
+    const deuxCategories: SchedulableCategory[] = [
+      { id: "a", fightTimeSeconds: 300, fights: finale },
+      { id: "b", fightTimeSeconds: 300, fights: finale },
+    ];
+    expect(computeTatamiSchedule(deuxCategories, JOUR_1).categoryStarts.get("b")).toBe(
+      JOUR_1 + 7 * 60_000,
+    );
   });
 });
 

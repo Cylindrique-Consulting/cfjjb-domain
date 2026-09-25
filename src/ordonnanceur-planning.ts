@@ -1,10 +1,12 @@
 import type { BracketFightType } from "./bracket-generator";
 import { findFeederFight, type PropagationFight, type Slot } from "./bracket-propagation";
+import { DEFAULT_BUFFER_SECONDS } from "./capacity";
 import type { DrawFormat } from "./competition-format";
 import { multiplicateurDeRepos } from "./fight-rest";
 import { categoryRunningOrder } from "./planning-generator";
 
-export const ESPACEMENT_PAR_DEFAUT_SECONDES = 60;
+/** Temps de rotation entre deux combats d'un tatami : 2 minutes par défaut (DUR.1 A). */
+export const ESPACEMENT_PAR_DEFAUT_SECONDES = DEFAULT_BUFFER_SECONDS;
 
 export type CombatAPlanifier = {
   id: string;
@@ -374,7 +376,29 @@ export function planifierCombats(entree: EntreeDePlanification): ResultatDePlani
         differe = suivant;
       }
     }
+    if (!ignorerSources) {
+      const devant = combatQuiPasseDevant(piste, libre);
+      if (devant !== null) return devant;
+    }
     return differe;
+  };
+
+  // ORD.10 B : aucune catégorie du tatami ne peut commencer à l'heure où il se
+  // libère ; un autre combat du tour en cours, prêt à cette heure, passe alors
+  // devant le premier, qui attend son repos ou un combat source.
+  const combatQuiPasseDevant = (piste: Piste, libre: number): Candidat | null => {
+    for (const file of piste.files) {
+      const tour = file.tours[file.position] ?? [];
+      for (let index = 1; index < tour.length; index += 1) {
+        const combat = tour[index];
+        if (combat === undefined) continue;
+        const evaluation = evaluer(piste, combat, false);
+        if (!evaluation.bloque && evaluation.debutMs <= libre) {
+          return { piste, file, combat, evaluation };
+        }
+      }
+    }
+    return null;
   };
 
   const mieux = (a: Candidat | null, b: Candidat): Candidat => {
