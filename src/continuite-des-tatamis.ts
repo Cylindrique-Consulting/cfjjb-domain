@@ -52,6 +52,11 @@ export type ConstatDeContinuite = {
    * pour une finale loin de ses demi-finales, ceux de ses demi-finales.
    */
   tatamisAttendus: string[];
+  /**
+   * Jamais d'athlète : la continuité juge un combat, pas un athlète. Déclaré
+   * pour qui lit `athleteId` sur tous les constats d'un planning.
+   */
+  athleteId?: undefined;
 };
 
 export type CombatDeContinuite = {
