@@ -41,6 +41,13 @@ export type CreneauOccupe = {
 export type EntreeDePlanification = {
   espacementSecondes?: number;
   debutAuPlusTotMs?: number;
+  /**
+   * Repos de confort (RPS.4 A) : deux durées de combat avant TOUT combat, au
+   * lieu d'une seule hors finale. Faux par défaut. Le confort ne doit retarder
+   * aucune fin de journée (RPS.5 A) : c'est à l'appelant de comparer les deux
+   * calculs et de ne le garder qu'à cette condition.
+   */
+  reposDeConfort?: boolean;
   tatamis: readonly TatamiAPlanifier[];
   categories: readonly CategorieAPlanifier[];
   combats: readonly CombatAPlanifier[];
@@ -316,8 +323,11 @@ export function planifierCombats(entree: EntreeDePlanification): ResultatDePlani
     const categorie = categories.get(combat.categorieId);
     const dureeMs = Math.max(0, categorie?.dureeSecondes ?? 0) * 1000;
     const libre = libreDe(piste);
-    const reposMs =
-      multiplicateurDeRepos({ division: combat.division, type: combat.type }) * dureeMs;
+    const multiplicateur =
+      entree.reposDeConfort === true
+        ? 2
+        : multiplicateurDeRepos({ division: combat.division, type: combat.type });
+    const reposMs = multiplicateur * dureeMs;
     let contrainte: number | null = null;
     let bloque = false;
     const sourcesDuCombat = sources.get(combat.id);
