@@ -33,6 +33,7 @@ export * from "./ordre-sportif";
 export * from "./repartition-tatamis";
 export * from "./ordonnanceur-planning";
 export * from "./controles-de-planning";
+export * from "./continuite-des-tatamis";
 export * from "./enchainement-competitions";
 export * from "./score-de-placement";
 export * from "./sanctions-disciplinaires";
