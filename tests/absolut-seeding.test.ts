@@ -360,7 +360,11 @@ describe("absolut : deux médaillés d'une même catégorie source ne se retrouv
     expect(pairCount(pipeline(podium).leaves, 2, "source-category")).toBe(1);
   });
 
-  it("la règle est exprimée DANS LE PIPELINE, au palier le plus fort", () => {
+  // GUIDE v1.3, §7 : la revanche immédiate n'est évitée « que si elle ne pénalise aucun
+  // mieux classé et respecte toutes les séparations impératives ». Jusqu'à v0.34.0, elle
+  // passait au palier 0, avant l'équipe : #1 et #4 coéquipiers, #3 venu de la catégorie de
+  // #1, l'échange qui les séparait était refusé.
+  it("la règle est exprimée DANS LE PIPELINE, au dernier palier : l'équipe passe avant", () => {
     const actives = ABSOLUT_SEEDING_PLAN.constraints.filter((c) => c.enabled);
     const separation = actives.find((c) => c.key === "source-category");
     expect(
@@ -371,14 +375,13 @@ describe("absolut : deux médaillés d'une même catégorie source ne se retrouv
       kind: "round",
       round: 1,
     });
+    expect(separation?.tier, "dernier palier : l'équipe attribuée passe avant la revanche").toBe(
+      Math.max(...actives.map((c) => c.tier)),
+    );
     expect(
-      separation?.tier,
-      "palier 0 : deux finalistes qui viennent de se battre passent avant l'anti-club",
-    ).toBe(0);
-    expect(
-      Math.min(...actives.filter((c) => c.key === "club").map((c) => c.tier)),
-      "l'anti-club reste actif, mais après",
-    ).toBeGreaterThan(0);
+      Math.max(...actives.filter((c) => c.key === "club").map((c) => c.tier)),
+      "toutes les séparations d'équipe restent actives, et avant",
+    ).toBeLessThan(separation?.tier ?? -1);
   });
 
   it("l'anti-club reste tenu, sans entrelacement", () => {
@@ -460,12 +463,20 @@ describe("absolut : deux coéquipiers ne se retrouvent qu'en finale", () => {
     expect(echecs).toEqual([]);
   });
 
-  it("la règle est au dernier palier du plan, après le premier tour et le quart de tableau", () => {
+  // GUIDE v1.3, §5 : la séparation par moitié est impérative, le quart ne l'est pas, et la
+  // revanche vient en dernier (§7). La moitié suit donc directement le premier tour.
+  it("la moitié d'équipe suit le premier tour, avant le quart et la revanche", () => {
     const actives = ABSOLUT_SEEDING_PLAN.constraints.filter((c) => c.enabled);
-    const moitie = actives.find((c) => c.scope.kind === "half");
-    expect(moitie).toMatchObject({ name: "meme-club-meme-moitie", key: "club" });
-    expect(Math.max(...actives.map((c) => c.tier))).toBe(moitie?.tier);
-    expect(actives.filter((c) => c.tier === moitie?.tier)).toHaveLength(1);
+    const palier = (name: string) => actives.find((c) => c.name === name)?.tier;
+    expect(actives.find((c) => c.scope.kind === "half")).toMatchObject({
+      name: "meme-club-meme-moitie",
+      key: "club",
+      tier: 1,
+    });
+    expect(palier("meme-club-premier-tour")).toBe(0);
+    expect(palier("meme-club-quart-de-tableau")).toBe(2);
+    expect(palier("meme-categorie-source-premier-tour")).toBe(3);
+    expect(actives.filter((c) => c.tier === 1)).toHaveLength(1);
   });
 });
 

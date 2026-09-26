@@ -41,6 +41,17 @@ export function absolutEntries(registrations: readonly AbsolutRegistration[]): B
     }));
 }
 
+/**
+ * L'ÉQUIPE AVANT LA REVANCHE (guide v1.3, §7). Deux coéquipiers de la même équipe
+ * attribuée ne se rencontrent qu'en finale : premier tour d'abord, puis moitiés.
+ * La revanche immédiate (même catégorie source au premier tour) n'est évitée
+ * qu'ensuite, « si elle ne pénalise aucun mieux classé et respecte toutes les
+ * séparations impératives ». Jusqu'à v0.34.0, la catégorie source passait en
+ * premier : #1 et #4 coéquipiers, #3 venu de la catégorie de #1, et l'échange qui
+ * les séparait était refusé.
+ *
+ * `club` porte ici l'équipe attribuée figée à l'inscription à l'absolut.
+ */
 export const ABSOLUT_SEEDING_PLAN: SeedingPlan = {
   order: [
     { kind: "interleave", enabled: false, key: "club" },
@@ -48,18 +59,18 @@ export const ABSOLUT_SEEDING_PLAN: SeedingPlan = {
   ],
   constraints: [
     {
-      name: "meme-categorie-source-premier-tour",
+      name: "meme-club-premier-tour",
       enabled: true,
-      key: "source-category",
+      key: "club",
       scope: { kind: "round", round: 1 },
       tier: 0,
       weight: 1,
     },
     {
-      name: "meme-club-premier-tour",
+      name: "meme-club-meme-moitie",
       enabled: true,
       key: "club",
-      scope: { kind: "round", round: 1 },
+      scope: { kind: "half" },
       tier: 1,
       weight: 1,
     },
@@ -72,10 +83,10 @@ export const ABSOLUT_SEEDING_PLAN: SeedingPlan = {
       weight: 1,
     },
     {
-      name: "meme-club-meme-moitie",
+      name: "meme-categorie-source-premier-tour",
       enabled: true,
-      key: "club",
-      scope: { kind: "half" },
+      key: "source-category",
+      scope: { kind: "round", round: 1 },
       tier: 3,
       weight: 1,
     },
@@ -87,19 +98,11 @@ export const ABSOLUT_RANG_SPORTIF_SEEDING_PLAN: SeedingPlan = {
   order: [{ kind: "rang-sportif", enabled: true }],
   constraints: [
     {
-      name: "meme-categorie-source-premier-tour",
-      enabled: true,
-      key: "source-category",
-      scope: { kind: "round", round: 1 },
-      tier: 0,
-      weight: 1,
-    },
-    {
       name: "meme-club-premier-tour",
       enabled: true,
       key: "club",
       scope: { kind: "round", round: 1 },
-      tier: 1,
+      tier: 0,
       weight: 1,
     },
     {
@@ -107,7 +110,15 @@ export const ABSOLUT_RANG_SPORTIF_SEEDING_PLAN: SeedingPlan = {
       enabled: true,
       key: "club",
       scope: { kind: "half" },
-      tier: 2,
+      tier: 1,
+      weight: 1,
+    },
+    {
+      name: "meme-categorie-source-premier-tour",
+      enabled: true,
+      key: "source-category",
+      scope: { kind: "round", round: 1 },
+      tier: 3,
       weight: 1,
     },
   ],

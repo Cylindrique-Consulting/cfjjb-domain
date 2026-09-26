@@ -473,6 +473,26 @@ function parVoisinage(cible: number): (gx: number, gy: number) => number {
   };
 }
 
+/**
+ * LE TOUR BLANC QU'UNE CATÉGORIE PEUT RÉATTRIBUER, UNE SEULE FOIS (guide v1.3, §4).
+ *
+ * Quand aucun échange entre combats pleins ne sépare deux coéquipiers, un tour
+ * blanc change de main : « Le générateur ne réattribue qu'un seul tour blanc. Il
+ * protège d'abord #1, puis #2, puis les rangs suivants. » Le même compteur sert au
+ * premier tour et aux moitiés : jamais deux tours blancs réattribués dans une
+ * catégorie.
+ */
+type BudgetDeTourBlanc = { reattribue: boolean };
+
+/**
+ * La revanche (même catégorie source, absolut) ne déplace jamais un tour blanc :
+ * « Cette règle n'est appliquée que si elle ne pénalise aucun mieux classé »
+ * (guide v1.3, §7), et céder son tour blanc pénalise celui qui le perd.
+ */
+function peutReattribuerUnTourBlanc(contrainte: SeparationConstraint): boolean {
+  return contrainte.key !== "source-category";
+}
+
 function reparerAuRangVoisin(
   placement: readonly Leaf[],
   seedOrder: readonly BracketEntry[],
@@ -491,6 +511,7 @@ function reparerAuRangVoisin(
     return { leaves: out, echanges };
   }
 
+  const effectif = out.filter((l) => l !== null).length;
   const graines = new Map(seedOrder.map((e, i) => [e.registrationId, i + 1] as const));
   const graineDe = (l: Leaf): number =>
     l === null
@@ -498,6 +519,13 @@ function reparerAuRangVoisin(
       : (graines.get(l.registrationId) ?? Number.POSITIVE_INFINITY);
   const conflit = (a: Leaf, b: Leaf): SeparationConstraint | null =>
     conflitSelon(contraintes, a, b);
+  // UN ÉCHANGE N'EST REFUSÉ QUE PAR UN CONFLIT AU MOINS AUSSI IMPORTANT que celui
+  // qu'il répare : séparer deux coéquipiers peut créer une revanche de catégorie
+  // source (absolut, palier plus bas), jamais l'inverse.
+  const bloque = (x: Leaf, y: Leaf, palier: number): boolean => {
+    const c = conflit(x, y);
+    return c !== null && c.tier <= palier;
+  };
   const moitie = (feuille: number): number => (feuille < size / 2 ? 0 : 1);
   const partenaire = (feuille: number): number => feuille ^ 1;
   const tetesDeSerieOpposees = (): boolean => {
@@ -506,28 +534,40 @@ function reparerAuRangVoisin(
     if (premier < 0 || second < 0) return true;
     return moitie(premier) !== moitie(second);
   };
+  // À partir de quatre, #1 et #2 gardent leur tour blanc. À trois, le format du
+  // guide (§6) : #2 et #3 coéquipiers, #1 affronte #3 et #2 attend la 2e demi.
+  const peutCederSonTourBlanc = (l: Leaf): boolean => effectif === 3 || graineDe(l) > 2;
+  const budget: BudgetDeTourBlanc = { reattribue: false };
 
   const irreparables = new Set<number>();
   for (let garde = 0; garde <= size; garde++) {
-    let choisi: { combat: number; feuilleA: number; feuilleB: number } | null = null;
+    let choisi: {
+      combat: number;
+      feuilleA: number;
+      feuilleB: number;
+      contrainte: SeparationConstraint;
+    } | null = null;
     for (let combat = 0; combat < size / 2; combat++) {
       if (irreparables.has(combat)) continue;
       const haut = out[2 * combat] ?? null;
       const bas = out[2 * combat + 1] ?? null;
-      if (conflit(haut, bas) === null) continue;
+      const contrainte = conflit(haut, bas);
+      if (contrainte === null) continue;
       const feuilleB = graineDe(haut) > graineDe(bas) ? 2 * combat : 2 * combat + 1;
       if (
         choisi === null ||
-        graineDe(out[feuilleB] ?? null) < graineDe(out[choisi.feuilleB] ?? null)
+        contrainte.tier < choisi.contrainte.tier ||
+        (contrainte.tier === choisi.contrainte.tier &&
+          graineDe(out[feuilleB] ?? null) < graineDe(out[choisi.feuilleB] ?? null))
       ) {
-        choisi = { combat, feuilleA: partenaire(feuilleB), feuilleB };
+        choisi = { combat, feuilleA: partenaire(feuilleB), feuilleB, contrainte };
       }
     }
     if (choisi === null) break;
 
     const a = out[choisi.feuilleA] as BracketEntry;
     const b = out[choisi.feuilleB] as BracketEntry;
-    const contrainte = conflit(a, b) as SeparationConstraint;
+    const { contrainte } = choisi;
     const graineB = graineDe(b);
 
     const candidats: number[] = [];
@@ -537,14 +577,38 @@ function reparerAuRangVoisin(
       if ((out[partenaire(feuille)] ?? null) === null) continue;
       candidats.push(feuille);
     }
+    // AU RANG LE PLUS PROCHE ; à distance égale, celui qui laisse les deux
+    // coéquipiers dans deux moitiés (un seul échange au lieu de deux, comme
+    // l'exemple du guide §5, #16 avec #15), puis le moins bien classé.
+    const moitiesApres = new Map<number, number>();
+    if (contraintesDeMoitie.length > 0) {
+      for (const feuille of candidats) {
+        const c = out[feuille] ?? null;
+        out[choisi.feuilleB] = c;
+        out[feuille] = b;
+        moitiesApres.set(
+          feuille,
+          contraintesDeMoitie.reduce((somme, cm) => somme + penaltyOf(out, cm), 0),
+        );
+        out[choisi.feuilleB] = b;
+        out[feuille] = c;
+      }
+    }
     const auVoisinage = parVoisinage(graineB);
-    candidats.sort((x, y) => auVoisinage(graineDe(out[x] ?? null), graineDe(out[y] ?? null)));
+    candidats.sort((x, y) => {
+      const gx = graineDe(out[x] ?? null);
+      const gy = graineDe(out[y] ?? null);
+      const ecart = Math.abs(gx - graineB) - Math.abs(gy - graineB);
+      if (ecart !== 0) return ecart;
+      const moities = (moitiesApres.get(x) ?? 0) - (moitiesApres.get(y) ?? 0);
+      return moities !== 0 ? moities : auVoisinage(gx, gy);
+    });
 
     let tenu = false;
     for (const feuille of candidats) {
       const c = out[feuille] as BracketEntry;
       const d = out[partenaire(feuille)] as BracketEntry;
-      if (conflit(a, c) !== null || conflit(b, d) !== null) continue;
+      if (bloque(a, c, contrainte.tier) || bloque(b, d, contrainte.tier)) continue;
       out[choisi.feuilleB] = c;
       out[feuille] = b;
       if (!tetesDeSerieOpposees()) {
@@ -560,10 +624,52 @@ function reparerAuRangVoisin(
       tenu = true;
       break;
     }
+    // PLUS AUCUN COMBAT PLEIN NE LES SÉPARE : le mieux classé des deux prend le
+    // tour blanc du moins bien classé des exemptés qui peut le céder, et celui-ci
+    // affronte l'autre coéquipier (guide §4 : à cinq, #4 et #5 coéquipiers
+    // donnent les tours blancs #1, #2 et #4 et le combat #3/#5).
+    if (!tenu && !budget.reattribue && peutReattribuerUnTourBlanc(contrainte)) {
+      const exemptes: number[] = [];
+      for (let feuille = 0; feuille < size; feuille++) {
+        if (feuille === choisi.feuilleA || feuille === choisi.feuilleB) continue;
+        const l = out[feuille] ?? null;
+        if (l === null || (out[partenaire(feuille)] ?? null) !== null) continue;
+        if (peutCederSonTourBlanc(l)) exemptes.push(feuille);
+      }
+      exemptes.sort((x, y) => graineDe(out[y] ?? null) - graineDe(out[x] ?? null));
+      for (const feuille of exemptes) {
+        const c = out[feuille] as BracketEntry;
+        if (bloque(c, b, contrainte.tier)) continue;
+        out[choisi.feuilleA] = c;
+        out[feuille] = a;
+        if (!tetesDeSerieOpposees()) {
+          out[choisi.feuilleA] = a;
+          out[feuille] = c;
+          continue;
+        }
+        echanges.push({
+          deplace: a.registrationId,
+          avec: c.registrationId,
+          contrainte: contrainte.name,
+        });
+        budget.reattribue = true;
+        tenu = true;
+        break;
+      }
+    }
     if (!tenu) irreparables.add(choisi.combat);
   }
-  if (contraintesDeMoitie.length > 0) {
-    separerLesMoities(out, graineDe, [...contraintes, ...contraintesDeMoitie], echanges);
+  // Les moitiés, à partir de quatre combattants seulement (guide §5) : à trois,
+  // le format de la 1re demi-finale suffit, et il est conservé tel quel.
+  if (contraintesDeMoitie.length > 0 && effectif >= 4) {
+    separerLesMoities(
+      out,
+      graineDe,
+      [...contraintes, ...contraintesDeMoitie],
+      echanges,
+      budget,
+      peutCederSonTourBlanc,
+    );
   }
   return { leaves: out, echanges };
 }
@@ -573,6 +679,8 @@ function separerLesMoities(
   graineDe: (l: Leaf) => number,
   contraintes: readonly SeparationConstraint[],
   echanges: EchangeDeSeparation[],
+  budget: BudgetDeTourBlanc,
+  peutCederSonTourBlanc: (l: Leaf) => boolean,
 ): void {
   const size = out.length;
   const contraintesDeMoitie = contraintes.filter((c) => c.scope.kind === "half");
@@ -667,6 +775,51 @@ function separerLesMoities(
     return false;
   };
 
+  // LE DERNIER RECOURS, UNE FOIS PAR CATÉGORIE (guide §4) : l'athlète passe dans
+  // l'autre moitié en échangeant sa place avec un athlète de statut contraire, et
+  // un tour blanc change de main. Il est pris au moins bien classé des exemptés
+  // qui peuvent le céder : à cinq, #1+#4 et #2+#5 coéquipiers, #4 prend le tour
+  // blanc de #3, qui affronte #5.
+  const reattribuerUnTourBlanc = (feuille: number, contrainte: SeparationConstraint): boolean => {
+    if (budget.reattribue || !peutReattribuerUnTourBlanc(contrainte)) return false;
+    const x = out[feuille] as BracketEntry;
+    const exempte = (out[partenaire(feuille)] ?? null) === null;
+    if (exempte && !peutCederSonTourBlanc(x)) return false;
+    const candidats: number[] = [];
+    for (let f = 0; f < size; f++) {
+      if (moitie(f) === moitie(feuille)) continue;
+      const y = out[f] ?? null;
+      if (y === null) continue;
+      const yExempte = (out[partenaire(f)] ?? null) === null;
+      if (yExempte === exempte) continue;
+      if (yExempte && !peutCederSonTourBlanc(y)) continue;
+      candidats.push(f);
+    }
+    const cedant = (f: number): number => (exempte ? graineDe(x) : graineDe(out[f] ?? null));
+    const auVoisinage = parVoisinage(graineDe(x));
+    candidats.sort(
+      (p, q) =>
+        cedant(q) - cedant(p) || auVoisinage(graineDe(out[p] ?? null), graineDe(out[q] ?? null)),
+    );
+    for (const f of candidats) {
+      const y = out[f] as BracketEntry;
+      out[feuille] = y;
+      out[f] = x;
+      if (retenir()) {
+        budget.reattribue = true;
+        echanges.push({
+          deplace: x.registrationId,
+          avec: y.registrationId,
+          contrainte: contrainte.name,
+        });
+        return true;
+      }
+      out[feuille] = x;
+      out[f] = y;
+    }
+    return false;
+  };
+
   const irreparables = new Set<string>();
   for (let garde = 0; garde <= 2 * size; garde++) {
     let choisi: { feuilleA: number; feuilleB: number; contrainte: SeparationConstraint } | null =
@@ -695,7 +848,9 @@ function separerLesMoities(
       !echangerLAthlete(feuilleB, contrainte) &&
       !echangerLeCombat(feuilleB, contrainte) &&
       !echangerLAthlete(feuilleA, contrainte) &&
-      !echangerLeCombat(feuilleA, contrainte)
+      !echangerLeCombat(feuilleA, contrainte) &&
+      !reattribuerUnTourBlanc(feuilleB, contrainte) &&
+      !reattribuerUnTourBlanc(feuilleA, contrainte)
     ) {
       irreparables.add(b.registrationId);
     }
