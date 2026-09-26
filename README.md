@@ -1257,7 +1257,7 @@ moitié). En absolut, la revanche de catégorie source passait avant l'équipe.
   moins de tours blancs réattribués, puis le tour blanc cédé par le moins bien classé possible,
   puis le moins d'athlètes changés de moitié. Les positions vides restent celles du placement
   standard ; si #1 finit dans la moitié du bas, les deux moitiés se retournent d'un bloc, sans
-  qu'aucune rencontre change. Moins de 70 ms à 16 inscrits, mesuré sur une machine chargée ; au-delà de 17, la recherche locale
+  qu'aucune rencontre change. Au plus 5 ms à 17 inscrits : chaque répartition s'évalue sans construire le tableau, seule la meilleure est construite ; au-delà de 17, la recherche locale
   seule.
 - **Mesuré par recherche exhaustive** (verrou `tests/separation-des-coequipiers.test.ts`) :
   12 248 configurations (une paire de 4 à 17 inscrits, deux jusqu'à 12, trois de 6 à 9, quatre

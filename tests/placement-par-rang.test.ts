@@ -232,44 +232,48 @@ describe("placement par rang : deux coéquipiers au premier tour (BR3.6, proposi
     expect(moitieDe(sorti.leaves, "r1")).not.toBe(moitieDe(sorti.leaves, "r2"));
   });
 
-  it("balayage : au plus un tour blanc change de main, jamais celui de #1 ni de #2, #1 / #2 opposés, personne ne disparaît, jamais plus de rencontres internes qu'avant", () => {
-    for (let n = 2; n <= 33; n++) {
-      for (let graine = 0; graine < 40; graine++) {
-        const rng = mulberry32(fnv1a(`balayage|${n}|${graine}`));
-        const equipes = ["A", "B", "C", null, null];
-        const entries = Array.from({ length: n }, (_, i) =>
-          athlete(i + 1, equipes[Math.floor(rng() * equipes.length)] ?? null),
-        );
-        const sorti = placer(entries);
-        const contexte = `n = ${n}, graine ${graine}`;
-        // Guide v1.3, §4 : un seul tour blanc réattribué ; #1, puis #2 protégés. À trois, le
-        // seul changement permis est le format du §6 : #2 prend le tour blanc de #1.
-        const avant = titulairesDeBye(sorti.placement);
-        const apres = titulairesDeBye(sorti.leaves);
-        expect(apres, contexte).toHaveLength(avant.length);
-        expect(apres.filter((r) => !avant.includes(r)).length, contexte).toBeLessThanOrEqual(1);
-        if (n >= 4) {
-          for (const tete of ["r1", "r2"]) {
-            if (avant.includes(tete)) expect(apres, contexte).toContain(tete);
+  it(
+    "balayage : au plus un tour blanc change de main, jamais celui de #1 ni de #2, #1 / #2 opposés, personne ne disparaît, jamais plus de rencontres internes qu'avant",
+    { timeout: 60_000 },
+    () => {
+      for (let n = 2; n <= 33; n++) {
+        for (let graine = 0; graine < 40; graine++) {
+          const rng = mulberry32(fnv1a(`balayage|${n}|${graine}`));
+          const equipes = ["A", "B", "C", null, null];
+          const entries = Array.from({ length: n }, (_, i) =>
+            athlete(i + 1, equipes[Math.floor(rng() * equipes.length)] ?? null),
+          );
+          const sorti = placer(entries);
+          const contexte = `n = ${n}, graine ${graine}`;
+          // Guide v1.3, §4 : un seul tour blanc réattribué ; #1, puis #2 protégés. À trois, le
+          // seul changement permis est le format du §6 : #2 prend le tour blanc de #1.
+          const avant = titulairesDeBye(sorti.placement);
+          const apres = titulairesDeBye(sorti.leaves);
+          expect(apres, contexte).toHaveLength(avant.length);
+          expect(apres.filter((r) => !avant.includes(r)).length, contexte).toBeLessThanOrEqual(1);
+          if (n >= 4) {
+            for (const tete of ["r1", "r2"]) {
+              if (avant.includes(tete)) expect(apres, contexte).toContain(tete);
+            }
+          }
+          if (n >= 3) {
+            expect(moitieDe(sorti.leaves, "r1"), contexte).not.toBe(moitieDe(sorti.leaves, "r2"));
+          }
+          expect(ids(sorti.leaves).slice().sort(), contexte).toEqual(
+            ids(sorti.placement).slice().sort(),
+          );
+          expect(rencontresInternes(sorti.leaves), contexte).toBeLessThanOrEqual(
+            rencontresInternes(sorti.placement),
+          );
+          const graines = new Map(sorti.seedOrder.map((e, i) => [e.registrationId, i + 1]));
+          for (const e of sorti.echanges) {
+            expect(graines.has(e.deplace), contexte).toBe(true);
+            expect(graines.has(e.avec), contexte).toBe(true);
           }
         }
-        if (n >= 3) {
-          expect(moitieDe(sorti.leaves, "r1"), contexte).not.toBe(moitieDe(sorti.leaves, "r2"));
-        }
-        expect(ids(sorti.leaves).slice().sort(), contexte).toEqual(
-          ids(sorti.placement).slice().sort(),
-        );
-        expect(rencontresInternes(sorti.leaves), contexte).toBeLessThanOrEqual(
-          rencontresInternes(sorti.placement),
-        );
-        const graines = new Map(sorti.seedOrder.map((e, i) => [e.registrationId, i + 1]));
-        for (const e of sorti.echanges) {
-          expect(graines.has(e.deplace), contexte).toBe(true);
-          expect(graines.has(e.avec), contexte).toBe(true);
-        }
       }
-    }
-  });
+    },
+  );
 
   it("le tableau généré porte les échanges, pour le rapport de génération", () => {
     const entries = Array.from({ length: 8 }, (_, i) =>

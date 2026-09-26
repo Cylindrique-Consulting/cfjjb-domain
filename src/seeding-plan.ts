@@ -648,41 +648,92 @@ function repliExact(
     return leaves;
   };
 
-  let meilleure: { leaves: Leaf[]; evaluation: Evaluation } | null = null;
+  // CHAQUE RÉPARTITION S'ÉVALUE SANS CONSTRUIRE LE TABLEAU : paires de coéquipiers par
+  // moitié, tours blancs réattribués, rang de celui qui cède le sien, athlètes changés de
+  // moitié. Seule la meilleure est construite. On n'énumère que les répartitions de la
+  // bonne taille (C(17, 8) = 24 310 au plus).
   const toursBlancs = places[0]!.exemptees.length + places[1]!.exemptees.length;
-  for (let masque = 0; masque < 1 << n; masque++) {
+  const parPalier = trierParPalier(contraintesDeMoitie);
+  const indices = parPalier.map((c) => {
+    const ids = new Map<string, number>();
+    return athletes.map((a) => {
+      const cle = separationKeyOf(a, c.key);
+      if (cle === null) return -1;
+      const connu = ids.get(cle);
+      if (connu !== undefined) return connu;
+      ids.set(cle, ids.size);
+      return ids.size - 1;
+    });
+  });
+  const comptes = indices.map((ix) => new Int32Array(2 * (Math.max(0, ...ix) + 1)));
+  let masqueStandard = 0;
+  athletes.forEach((a, i) => {
+    if (moitieStandard.get(a.registrationId) === 1) masqueStandard |= 1 << i;
+  });
+  const bits = (x: number): number => {
+    let c = 0;
+    for (let y = x; y !== 0; y &= y - 1) c += 1;
+    return c;
+  };
+  const vaut = (masque: number): Evaluation | null => {
     // #1 et #2 dans deux moitiés.
-    if ((masque & 1) === ((masque >> 1) & 1)) continue;
-    let dansLaPremiere = 0;
-    for (let i = 0; i < n; i++) if (((masque >> i) & 1) === 0) dansLaPremiere += 1;
-    if (dansLaPremiere !== places[0]!.effectif) continue;
-    // Les tours blancs aux mieux classés de chaque moitié : #1 et #2 protégés, au plus
-    // un réattribué.
+    if ((masque & 1) === ((masque >> 1) & 1)) return null;
+    // Les tours blancs aux mieux classés de chaque moitié : #1 et #2 protégés, au plus un
+    // réattribué, et le rang de celui qui cède le sien.
+    const aDonner = [places[0]!.exemptees.length, places[1]!.exemptees.length];
     let reattribues = 0;
-    let protegees = true;
-    for (const m of [0, 1]) {
-      let aDonner = places[m]!.exemptees.length;
-      for (let i = 0; i < n && aDonner > 0; i++) {
-        if (((masque >> i) & 1) !== m) continue;
-        aDonner -= 1;
+    let cedant = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < n; i++) {
+      const m = (masque >> i) & 1;
+      const exempte = aDonner[m]! > 0;
+      if (exempte) {
+        aDonner[m]! -= 1;
         if (i >= toursBlancs) reattribues += 1;
+      } else if (i < toursBlancs) {
+        if (i < 2) return null;
+        cedant = Math.min(cedant, i + 1);
       }
     }
-    for (let i = 0; i < Math.min(2, toursBlancs); i++) {
-      const m = (masque >> i) & 1;
-      let rang = 0;
-      for (let j = 0; j <= i; j++) if (((masque >> j) & 1) === m) rang += 1;
-      if (rang > places[m]!.exemptees.length) protegees = false;
-    }
-    if (!protegees || reattribues > 1) continue;
-    const leaves = construire(masque);
-    if (leaves === null) continue;
-    const evaluation = evaluer(leaves);
-    if (meilleure === null || meilleureEvaluation(evaluation, meilleure.evaluation)) {
-      meilleure = { leaves, evaluation };
+    if (reattribues > 1) return null;
+    const score = parPalier.map((_, k) => {
+      const c = comptes[k]!;
+      c.fill(0);
+      let paires = 0;
+      indices[k]!.forEach((cle, i) => {
+        if (cle < 0) return;
+        const case_ = 2 * cle + ((masque >> i) & 1);
+        paires += c[case_]!;
+        c[case_]! += 1;
+      });
+      return paires;
+    });
+    return { score, reattribues, cedant, deplaces: bits(masque ^ masqueStandard) };
+  };
+
+  let meilleurMasque = -1;
+  let meilleureValeur: Evaluation | null = null;
+  const dansLaSeconde = n - places[0]!.effectif;
+  if (dansLaSeconde > 0 && dansLaSeconde < n) {
+    for (let masque = (1 << dansLaSeconde) - 1; masque < 1 << n;) {
+      const valeur = vaut(masque);
+      if (
+        valeur !== null &&
+        (meilleureValeur === null || meilleureEvaluation(valeur, meilleureValeur))
+      ) {
+        meilleureValeur = valeur;
+        meilleurMasque = masque;
+      }
+      // La combinaison suivante de même taille (Gosper).
+      const bas = masque & -masque;
+      const haut = masque + bas;
+      masque = (((haut ^ masque) >>> 2) / bas) | haut;
     }
   }
-  if (meilleure === null || !meilleureEvaluation(meilleure.evaluation, actuelle)) return;
+  if (meilleurMasque < 0) return;
+  const construites = construire(meilleurMasque);
+  if (construites === null) return;
+  const meilleure = { leaves: construites, evaluation: evaluer(construites) };
+  if (!meilleureEvaluation(meilleure.evaluation, actuelle)) return;
 
   // #1 EN HAUT DU TABLEAU. La répartition retenue peut placer #1 dans la moitié du bas :
   // les deux moitiés se retournent alors d'un bloc, sans qu'aucune rencontre change.

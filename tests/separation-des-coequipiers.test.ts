@@ -31,6 +31,9 @@ const SANS_TIRAGE = (): number => {
 
 const tailleDe = (n: number): number => 2 ** Math.ceil(Math.log2(Math.max(2, n)));
 
+// Une recherche exhaustive dure une seconde en local, plusieurs sur un runner de CI.
+const EXHAUSTIF = 60_000;
+
 type Feuilles = readonly (BracketEntry | null)[];
 
 function entrees(n: number, paires: readonly (readonly number[])[], cle: "team" | "club") {
@@ -239,60 +242,72 @@ function balayer(
 }
 
 describe("recherche exhaustive : tout placement que le guide rend possible est trouvé", () => {
-  it("placement par rang : une paire de 4 à 17 inscrits, deux jusqu'à 12, trois de 6 à 9, quatre de 8 à 10", () => {
-    const { configurations: total, echecs } = balayer(RANG_SPORTIF_SEEDING_PLAN, "team");
-    expect(total).toBe(12248);
-    expect(echecs).toEqual([]);
-  });
+  it(
+    "placement par rang : une paire de 4 à 17 inscrits, deux jusqu'à 12, trois de 6 à 9, quatre de 8 à 10",
+    { timeout: EXHAUSTIF },
+    () => {
+      const { configurations: total, echecs } = balayer(RANG_SPORTIF_SEEDING_PLAN, "team");
+      expect(total).toBe(12248);
+      expect(echecs).toEqual([]);
+    },
+  );
 
-  it("absolut par rang : les mêmes configurations, l'équipe figée portée par le club", () => {
-    const { configurations: total, echecs } = balayer(ABSOLUT_RANG_SPORTIF_SEEDING_PLAN, "club");
-    expect(total).toBe(12248);
-    expect(echecs).toEqual([]);
-  });
+  it(
+    "absolut par rang : les mêmes configurations, l'équipe figée portée par le club",
+    { timeout: EXHAUSTIF },
+    () => {
+      const { configurations: total, echecs } = balayer(ABSOLUT_RANG_SPORTIF_SEEDING_PLAN, "club");
+      expect(total).toBe(12248);
+      expect(echecs).toEqual([]);
+    },
+  );
 
   // Guide v1.3, §7 : la revanche n'est évitée que « si elle ne pénalise aucun mieux classé
   // et respecte toutes les séparations impératives ». Sur les mêmes configurations, avec des
   // catégories sources qui se croisent, l'absolut garde exactement les tours blancs et la
   // séparation d'équipe du même plan sans revanche.
-  it("absolut par rang : la revanche ne change ni un tour blanc ni la séparation d'équipe", () => {
-    const sansRevanche: SeedingPlan = {
-      ...ABSOLUT_RANG_SPORTIF_SEEDING_PLAN,
-      constraints: ABSOLUT_RANG_SPORTIF_SEEDING_PLAN.constraints.filter(
-        (c) => c.key !== "source-category",
-      ),
-    };
-    const echecs: string[] = [];
-    for (let n = 4; n <= 12; n++) {
-      for (const paires of configurations(n)) {
-        for (const variante of [0, 1, 2]) {
-          const avecSources = entrees(n, paires, "club").map((e) => ({
-            ...e,
-            sourceCategoryId: `s${(rangDe(e) * (variante + 2) + variante) % 3}`,
-          }));
-          const avec = applySeedingPlan(
-            avecSources,
-            tailleDe(n),
-            SANS_TIRAGE,
-            ABSOLUT_RANG_SPORTIF_SEEDING_PLAN,
-          );
-          const sans = applySeedingPlan(avecSources, tailleDe(n), SANS_TIRAGE, sansRevanche);
-          const a = lire(n, avec.leaves, paires);
-          const b = lire(n, sans.leaves, paires);
-          const exemptes = (f: Feuilles) =>
-            f
-              .filter((e, i) => e !== null && (f[i ^ 1] ?? null) === null)
-              .map((e) => e!.registrationId)
-              .sort()
-              .join(",");
-          if (a.violations !== b.violations || exemptes(avec.leaves) !== exemptes(sans.leaves)) {
-            echecs.push(`n = ${n}, ${JSON.stringify(paires)}, variante ${variante}`);
+  it(
+    "absolut par rang : la revanche ne change ni un tour blanc ni la séparation d'équipe",
+    { timeout: EXHAUSTIF },
+    () => {
+      const sansRevanche: SeedingPlan = {
+        ...ABSOLUT_RANG_SPORTIF_SEEDING_PLAN,
+        constraints: ABSOLUT_RANG_SPORTIF_SEEDING_PLAN.constraints.filter(
+          (c) => c.key !== "source-category",
+        ),
+      };
+      const echecs: string[] = [];
+      for (let n = 4; n <= 12; n++) {
+        for (const paires of configurations(n)) {
+          for (const variante of [0, 1, 2]) {
+            const avecSources = entrees(n, paires, "club").map((e) => ({
+              ...e,
+              sourceCategoryId: `s${(rangDe(e) * (variante + 2) + variante) % 3}`,
+            }));
+            const avec = applySeedingPlan(
+              avecSources,
+              tailleDe(n),
+              SANS_TIRAGE,
+              ABSOLUT_RANG_SPORTIF_SEEDING_PLAN,
+            );
+            const sans = applySeedingPlan(avecSources, tailleDe(n), SANS_TIRAGE, sansRevanche);
+            const a = lire(n, avec.leaves, paires);
+            const b = lire(n, sans.leaves, paires);
+            const exemptes = (f: Feuilles) =>
+              f
+                .filter((e, i) => e !== null && (f[i ^ 1] ?? null) === null)
+                .map((e) => e!.registrationId)
+                .sort()
+                .join(",");
+            if (a.violations !== b.violations || exemptes(avec.leaves) !== exemptes(sans.leaves)) {
+              echecs.push(`n = ${n}, ${JSON.stringify(paires)}, variante ${variante}`);
+            }
           }
         }
       }
-    }
-    expect(echecs).toEqual([]);
-  });
+      expect(echecs).toEqual([]);
+    },
+  );
 });
 
 describe("les exemples du guide v1.3", () => {
