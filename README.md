@@ -162,11 +162,11 @@ Quatre points valent d'être connus avant d'y toucher :
   aucune règle qui consomme le tirage : deux graines de compétition différentes rendent
   le même absolut. C'est ce qui rend le tirage contestable sur les places plutôt que sur
   une graine.
-- **La séparation coûte des places, et le prix est mesuré.** Elle est au palier 0, donc
-  plus forte que l'anti-club : sur le cas à trois catégories sources, la réparation
-  déplace la tête de série n° 1 et lui retire son bye pour défaire l'appariement
-  interdit. La consigne classe la séparation comme une exigence, pas comme une
-  préférence ; le test l'affirme au lieu de le taire.
+- **La séparation coûte des places, et le prix est mesuré.** Depuis v0.35.0, elle passe
+  après l'équipe (dernier palier, guide v1.3 §7), mais reste active : sans coéquipiers en
+  jeu, sur le cas à trois catégories sources placé par médaille, la réparation déplace la
+  tête de série n° 1 et lui retire son bye pour défaire l'appariement interdit. Le test
+  l'affirme au lieu de le taire.
 - **Une source unique reste un rejeu.** Un absolut alimenté par une seule catégorie
   _est_ le podium de cette catégorie : ses finalistes doivent se rencontrer. La sortie le
   montre plutôt que de laisser croire à une séparation.
@@ -1209,6 +1209,63 @@ ou après la moyenne des autres.
   de cardinalité 1, 2, 4 ou 8 côté base.
 - Une confirmation déjà donnée à un `repos_insuffisant` reste enregistrée mais ne lève plus rien :
   le constat passe dans `bloquants`, et seul un planning corrigé le fait disparaître.
+
+## Release v0.35.0 : les coéquipiers ne se rencontrent qu'en finale, en placement par rang
+
+Guide de génération des tableaux v1.3, §4 à §7. La règle impérative : « À partir de quatre
+combattants, deux athlètes auxquels la même équipe a été attribuée doivent être placés dans des
+moitiés opposées. Ils ne doivent pouvoir se rencontrer qu'en finale. » Jusqu'ici, le placement
+par rang ne séparait les coéquipiers d'une catégorie qu'au premier tour, et ses tours blancs ne
+changeaient jamais de main : ni le format à trois, ni l'exception à cinq du guide n'étaient
+possibles (mesure du 26/09/2026, 4 à 32 inscrits : 2 499 paires sur 5 452 restaient dans une même
+moitié). En absolut, la revanche de catégorie source passait avant l'équipe.
+
+| Ce qui change                                                                  | Rôle                                                                                                                                       |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `RANG_SPORTIF_SEEDING_PLAN`                                                    | `meme-equipe-meme-moitie` : l'équipe par moitié, palier 1, après le premier tour                                                           |
+| `reparation: "rang-voisin"`                                                    | un seul tour blanc réattribué par catégorie, au premier tour ou entre les moitiés ; à écart de rang égal, l'échange qui sépare les moitiés |
+| `ABSOLUT_SEEDING_PLAN`, `ABSOLUT_RANG_SPORTIF_SEEDING_PLAN`                    | l'équipe au premier tour (0), par moitié (1), l'anti-club au quart (2, sans rang), la revanche de catégorie source en dernier (3)          |
+| `verifierSeparationDEquipe(…, { parRang })`, `verifierSeparationAvantLaFinale` | `avantLaFinale` : les paires d'une entité dans une même moitié (à trois, la 1re demi-finale), et combien aucun placement ne peut éviter    |
+
+- **Un seul tour blanc change de main** (§4 : « Il protège d'abord #1, puis #2, puis les rangs
+  suivants »). Quand aucun échange entre combats pleins ne sépare deux coéquipiers, le mieux
+  classé des deux prend le tour blanc du moins bien classé des exemptés qui peut le céder. À
+  cinq, #4 et #5 coéquipiers : tours blancs #1, #2 et #4, combat #3/#5. À cinq, #1 et #4 d'une
+  équipe, #2 et #5 d'une autre : le même tableau, les deux paires séparées. À partir de quatre,
+  #1 et #2 gardent toujours le leur ; le compteur est commun au premier tour et aux moitiés.
+- **Le tableau de trois** (§6) : #2 et #3 coéquipiers, la 1re demi-finale devient #1 contre #3
+  et #2 attend la deuxième ; #1 coéquipier de #2 ou de #3, le format normal est conservé. Les
+  moitiés ne sont réparées qu'à partir de quatre inscrits.
+- **À écart de rang égal, l'échange qui sépare aussi les moitiés** : #3 et #6 coéquipiers sur
+  huit, #6 échange avec #5 plutôt qu'avec #7, qui le laisserait dans la moitié de #3. Un seul
+  échange au lieu de deux, comme l'exemple du guide (§5 : #16 avec #15).
+- **L'équipe avant la revanche** (§7) : un échange n'est refusé que par un conflit au moins
+  aussi important que celui qu'il répare, et la revanche ne déplace jamais un tour blanc (« si
+  elle ne pénalise aucun mieux classé »). #1 et #4 coéquipiers, #3 venu de la catégorie de #1 :
+  le premier tour devient #1/#3 et #2/#4. Un tirage d'absolut est déterministe (sa graine est
+  l'identifiant de la catégorie) : annuler puis refaire le tableau ne changerait rien.
+- **Mesuré par recherche exhaustive** : 6 473 configurations (une paire de 4 à 17 inscrits, deux
+  jusqu'à 12, trois de 6 à 9), au plan des catégories comme à celui de l'absolut. Aucune
+  configuration que le guide rend séparable n'est laissée en violation (le prototype du 26/09
+  en laissait 24), jamais deux tours blancs réattribués, #1 et #2 toujours opposés et exemptés.
+  Les 15 configurations restantes sont impossibles sous ces règles : sept inscrits, trois paires
+  parmi #2 à #7, et #1 perdrait son tour blanc.
+- **Le rang affiché ne change pas** : un échange déplace une position, jamais un rang (§2, §5).
+- **Le contrôle** : en placement par rang, une paire n'est « inévitable » qu'après une recherche
+  exhaustive des moitiés conformes (au plus 17 inscrits) ; au-delà, et sans rang, seul l'effectif
+  l'impose (k athlètes d'une entité en réunissent au moins C(⌈k/2⌉, 2) + C(⌊k/2⌋, 2)).
+
+### Pour les consommateurs
+
+- `BracketResult.echanges` peut porter la réattribution d'un tour blanc : `deplace` est le
+  coéquipier qui prend le tour blanc, `avec` l'exempté qui le cède.
+- `VerdictSeparation.avantLaFinale` est toujours présent ; `rencontres` et `surchargees` sont
+  inchangés.
+- Rien ne change sans placement par rang pour les catégories : `DEFAULT_SEEDING_PLAN` et
+  `SQUAD_SEEDING_PLAN` sont inchangés. L'absolut placé par médaille suit le nouvel ordre des
+  paliers.
+- Limite connue, inchangée depuis v0.31.0 : quand un combat entier change de moitié avec un
+  combat exempté, seul l'athlète du combat plein est nommé dans `echanges`.
 
 ## Pureté, vérifiée et non recommandée
 
