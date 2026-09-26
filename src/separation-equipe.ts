@@ -112,6 +112,8 @@ export function verifierSeparationAvantLaFinale(
   if (n < 3) return { paires: [], inevitables: 0 };
 
   const profondeur = Math.max(0, ...fights.map((f) => f.division));
+  // Une poule (division 0) : tout le monde s'y rencontre, il n'y a ni moitié ni finale.
+  if (profondeur < 1) return { paires: [], inevitables: 0 };
   const duPremierTour = fights
     .filter((f) => f.division === profondeur && f.type === "BraketFight")
     .sort((x, y) => x.indexInDivision - y.indexInDivision);

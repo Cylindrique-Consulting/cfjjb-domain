@@ -220,6 +220,27 @@ describe("verifierSeparationAvantLaFinale (guide v1.3, §5 et §6)", () => {
     expect(verdict.inevitables).toBe(1);
   });
 
+  it("une poule : ni moitié ni finale, rien n'est signalé", () => {
+    const entrees = auRang(5, { 1: "T", 2: "T", 3: "U", 4: "U" });
+    const poule: GeneratedFight[] = [
+      ["r1", "r2"],
+      ["r3", "r4"],
+      ["r1", "r3"],
+      ["r2", "r4"],
+    ].map(([a, b], i) => ({
+      division: 0,
+      indexInDivision: i,
+      type: "BraketFight" as const,
+      slotA: a!,
+      slotB: b!,
+      isBye: false,
+    }));
+    expect(verifierSeparationAvantLaFinale(poule, entrees, { parRang: true })).toEqual({
+      paires: [],
+      inevitables: 0,
+    });
+  });
+
   it("deux inscrits : la finale directe est maintenue, rien n'est signalé", () => {
     const entrees = auRang(2, { 1: "T", 2: "T" });
     expect(verifierSeparationAvantLaFinale(premierTour(["r1", "r2"]), entrees)).toEqual({

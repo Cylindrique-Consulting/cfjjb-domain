@@ -61,9 +61,11 @@ function lire(n: number, feuilles: Feuilles, paires: readonly (readonly number[]
     if ((feuilles[i ^ 1] ?? null) === null) exemptes.push(rang);
   });
   const tb = feuilles.length - n;
+  const cedants = Array.from({ length: tb }, (_, i) => i + 1).filter((r) => !exemptes.includes(r));
   return {
     violations: paires.filter(([x, y]) => moitie.get(x!) === moitie.get(y!)).length,
     reattribues: exemptes.filter((r) => r > tb).length,
+    cedant: cedants.length > 0 ? Math.min(...cedants) : Number.POSITIVE_INFINITY,
     teteDeSerie: n < 2 || moitie.get(1) !== moitie.get(2),
     protegees: (tb < 1 || exemptes.includes(1)) && (tb < 2 || exemptes.includes(2)),
     complet:
@@ -94,6 +96,52 @@ function realisable(n: number, paires: readonly (readonly number[])[]): boolean 
     if (protegees && exemptes.filter((r) => r > tb).length <= 1) return true;
   }
   return false;
+}
+
+/**
+ * Le meilleur que le guide permette : le moins de paires dans une même moitié, puis le
+ * moins de tours blancs réattribués (« conservés chaque fois que la séparation … le
+ * permet »), puis le tour blanc cédé par le moins bien classé possible (§4).
+ */
+function optimum(
+  n: number,
+  paires: readonly (readonly number[])[],
+): { violations: number; reattribues: number; cedant: number } {
+  const combatsParMoitie = tailleDe(n) / 4;
+  const tb = tailleDe(n) - n;
+  const rangs = Array.from({ length: n }, (_, i) => i + 1);
+  let meilleur = {
+    violations: Number.POSITIVE_INFINITY,
+    reattribues: Number.POSITIVE_INFINITY,
+    cedant: -1,
+  };
+  for (let masque = 0; masque < 1 << n; masque++) {
+    const cote = (r: number) => (masque >> (r - 1)) & 1;
+    const effectifs = [0, 1].map((m) => rangs.filter((r) => cote(r) === m).length);
+    if (effectifs.some((e) => e < combatsParMoitie || e > 2 * combatsParMoitie)) continue;
+    if (cote(1) === cote(2)) continue;
+    const exemptes = [0, 1].flatMap((m) =>
+      rangs.filter((r) => cote(r) === m).slice(0, 2 * combatsParMoitie - effectifs[m]!),
+    );
+    if ((tb >= 1 && !exemptes.includes(1)) || (tb >= 2 && !exemptes.includes(2))) continue;
+    const reattribues = exemptes.filter((r) => r > tb).length;
+    if (reattribues > 1) continue;
+    const perdus = rangs.filter((r) => r <= tb && !exemptes.includes(r));
+    const candidat = {
+      violations: paires.filter(([x, y]) => cote(x!) === cote(y!)).length,
+      reattribues,
+      cedant: perdus.length > 0 ? Math.min(...perdus) : Number.POSITIVE_INFINITY,
+    };
+    if (
+      candidat.violations < meilleur.violations ||
+      (candidat.violations === meilleur.violations &&
+        (candidat.reattribues < meilleur.reattribues ||
+          (candidat.reattribues === meilleur.reattribues && candidat.cedant > meilleur.cedant)))
+    ) {
+      meilleur = candidat;
+    }
+  }
+  return meilleur;
 }
 
 function configurations(n: number): number[][][] {
@@ -131,6 +179,26 @@ function configurations(n: number): number[][][] {
       [],
     );
   }
+  if (n >= 8 && n <= 10) {
+    const quatre = (restants: number[], acc: number[][]): void => {
+      if (acc.length === 4) {
+        out.push(acc);
+        return;
+      }
+      for (let i = 0; i < restants.length; i++)
+        for (let j = i + 1; j < restants.length; j++) {
+          if (acc.length > 0 && restants[i]! < acc[acc.length - 1]![0]!) continue;
+          quatre(
+            restants.filter((_, k) => k !== i && k !== j),
+            [...acc, [restants[i]!, restants[j]!]],
+          );
+        }
+    };
+    quatre(
+      Array.from({ length: n }, (_, i) => i + 1),
+      [],
+    );
+  }
   return out;
 }
 
@@ -153,21 +221,76 @@ function balayer(
       if (lu.violations > 0 && realisable(n, paires)) {
         echecs.push(`${nom} : ${lu.violations} paire(s) dans une même moitié, séparable(s)`);
       }
+      if (lu.violations > 0 || lu.reattribues > 0) {
+        const mieux = optimum(n, paires);
+        if (lu.violations > mieux.violations) {
+          echecs.push(
+            `${nom} : ${lu.violations} paire(s) réunie(s), ${mieux.violations} possible(s)`,
+          );
+        } else if (lu.reattribues > mieux.reattribues) {
+          echecs.push(`${nom} : un tour blanc réattribué sans nécessité`);
+        } else if (lu.reattribues === 1 && lu.cedant < mieux.cedant) {
+          echecs.push(`${nom} : #${lu.cedant} cède son tour blanc, #${mieux.cedant} le pouvait`);
+        }
+      }
     }
   }
   return { configurations: total, echecs };
 }
 
 describe("recherche exhaustive : tout placement que le guide rend possible est trouvé", () => {
-  it("placement par rang : une paire de 4 à 17 inscrits, deux jusqu'à 12, trois de 6 à 9", () => {
+  it("placement par rang : une paire de 4 à 17 inscrits, deux jusqu'à 12, trois de 6 à 9, quatre de 8 à 10", () => {
     const { configurations: total, echecs } = balayer(RANG_SPORTIF_SEEDING_PLAN, "team");
-    expect(total).toBe(6473);
+    expect(total).toBe(12248);
     expect(echecs).toEqual([]);
   });
 
   it("absolut par rang : les mêmes configurations, l'équipe figée portée par le club", () => {
     const { configurations: total, echecs } = balayer(ABSOLUT_RANG_SPORTIF_SEEDING_PLAN, "club");
-    expect(total).toBe(6473);
+    expect(total).toBe(12248);
+    expect(echecs).toEqual([]);
+  });
+
+  // Guide v1.3, §7 : la revanche n'est évitée que « si elle ne pénalise aucun mieux classé
+  // et respecte toutes les séparations impératives ». Sur les mêmes configurations, avec des
+  // catégories sources qui se croisent, l'absolut garde exactement les tours blancs et la
+  // séparation d'équipe du même plan sans revanche.
+  it("absolut par rang : la revanche ne change ni un tour blanc ni la séparation d'équipe", () => {
+    const sansRevanche: SeedingPlan = {
+      ...ABSOLUT_RANG_SPORTIF_SEEDING_PLAN,
+      constraints: ABSOLUT_RANG_SPORTIF_SEEDING_PLAN.constraints.filter(
+        (c) => c.key !== "source-category",
+      ),
+    };
+    const echecs: string[] = [];
+    for (let n = 4; n <= 12; n++) {
+      for (const paires of configurations(n)) {
+        for (const variante of [0, 1, 2]) {
+          const avecSources = entrees(n, paires, "club").map((e) => ({
+            ...e,
+            sourceCategoryId: `s${(rangDe(e) * (variante + 2) + variante) % 3}`,
+          }));
+          const avec = applySeedingPlan(
+            avecSources,
+            tailleDe(n),
+            SANS_TIRAGE,
+            ABSOLUT_RANG_SPORTIF_SEEDING_PLAN,
+          );
+          const sans = applySeedingPlan(avecSources, tailleDe(n), SANS_TIRAGE, sansRevanche);
+          const a = lire(n, avec.leaves, paires);
+          const b = lire(n, sans.leaves, paires);
+          const exemptes = (f: Feuilles) =>
+            f
+              .filter((e, i) => e !== null && (f[i ^ 1] ?? null) === null)
+              .map((e) => e!.registrationId)
+              .sort()
+              .join(",");
+          if (a.violations !== b.violations || exemptes(avec.leaves) !== exemptes(sans.leaves)) {
+            echecs.push(`n = ${n}, ${JSON.stringify(paires)}, variante ${variante}`);
+          }
+        }
+      }
+    }
     expect(echecs).toEqual([]);
   });
 });
@@ -255,6 +378,58 @@ describe("absolut : l'équipe avant la revanche (guide v1.3, §7)", () => {
     expect(tableau.kind === "bracket" && tableau.echanges).toEqual([
       { deplace: "a4", avec: "a3", contrainte: "meme-club-premier-tour" },
     ]);
+  });
+
+  // Relevé en revue le 26/09 : réparée avant les moitiés, la revanche laissait deux
+  // coéquipiers dans une même moitié, ou faisait perdre un tour blanc pour rien.
+  const dix = (clubs: readonly string[], sources: readonly string[]): AbsolutRegistration[] =>
+    clubs.map((clubId, i) => ({
+      registrationId: `r${i + 1}`,
+      clubId,
+      sourceCategoryId: sources[i]!,
+      rank: i + 1,
+    }));
+  const exemptesEtMoities = (regs: AbsolutRegistration[]) => {
+    const t = generateAbsolutBracket(regs, "absolut", PAR_RANG);
+    if (t.kind !== "bracket") throw new Error("tableau attendu");
+    const profondeur = Math.max(...t.fights.map((f) => f.division));
+    const feuilles = t.fights
+      .filter((f) => f.division === profondeur && f.type === "BraketFight")
+      .sort((a, b) => a.indexInDivision - b.indexInDivision)
+      .flatMap((f) => [f.slotA, f.slotB]);
+
+    const moitie = (id: string) => (feuilles.indexOf(id) < feuilles.length / 2 ? 0 : 1);
+    const reunies = [...new Set(regs.map((r) => r.clubId))].filter((c) => {
+      const ids = regs.filter((r) => r.clubId === c).map((r) => r.registrationId);
+      return ids.length === 2 && moitie(ids[0]!) === moitie(ids[1]!);
+    });
+    const exemptes = feuilles
+      .filter((id, i) => id !== null && feuilles[i ^ 1] === null)
+      .map((id) => id as string)
+      .sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
+    return { reunies, exemptes };
+  };
+
+  it("dix inscrits, cinq paires : la revanche ne garde aucune paire de coéquipiers dans une même moitié", () => {
+    const { reunies, exemptes } = exemptesEtMoities(
+      dix(
+        ["T1", "T2", "T0", "T3", "T4", "T2", "T3", "T0", "T4", "T1"],
+        ["S1", "S2", "S2", "S1", "S0", "S0", "S1", "S0", "S0", "S1"],
+      ),
+    );
+    expect(reunies).toEqual([]);
+    expect(exemptes).toEqual(["r1", "r2", "r3", "r4", "r5", "r6"]);
+  });
+
+  it("dix inscrits : la revanche ne fait perdre aucun tour blanc", () => {
+    const { reunies, exemptes } = exemptesEtMoities(
+      dix(
+        ["T1", "T0", "solo3", "T2", "T3", "solo6", "T3", "T1", "T2", "T0"],
+        ["S2", "S2", "S1", "S2", "S1", "S0", "S3", "S0", "S0", "S3"],
+      ),
+    );
+    expect(reunies).toEqual([]);
+    expect(exemptes).toEqual(["r1", "r2", "r3", "r4", "r5", "r6"]);
   });
 
   it("à trois, #2 et #3 de la même équipe : la 1re demi-finale est #1 contre #3", () => {
