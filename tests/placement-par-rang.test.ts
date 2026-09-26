@@ -140,18 +140,20 @@ describe("placement par rang : la disposition standard", () => {
 });
 
 describe("placement par rang : deux coéquipiers au premier tour (BR3.6, proposition B)", () => {
-  it("le moins bien classé des deux est échangé avec le rang le plus proche, le moins bien classé d'abord", () => {
-    // #3 contre #6 au premier tour : #6 part, #7 (même écart que #5, moins bien classé) prend sa place.
+  it("le moins bien classé des deux est échangé avec le rang le plus proche ; à écart égal, celui qui les sépare aussi de moitié", () => {
+    // #3 contre #6 au premier tour : #6 part. #5 et #7 sont à un rang ; #7 laisserait #6 dans la
+    // moitié de #3, que le guide v1.3 (§5) interdit : #5 prend sa place, en un seul échange.
     const entries = Array.from({ length: 8 }, (_, i) =>
       athlete(i + 1, i + 1 === 3 || i + 1 === 6 ? "T" : null),
     );
     const sorti = placer(entries);
     expect(ids(sorti.placement)).toEqual(["r1", "r8", "r4", "r5", "r2", "r7", "r3", "r6"]);
-    expect(ids(sorti.leaves)).toEqual(["r1", "r8", "r4", "r5", "r2", "r6", "r3", "r7"]);
+    expect(ids(sorti.leaves)).toEqual(["r1", "r8", "r4", "r6", "r2", "r7", "r3", "r5"]);
     expect(sorti.echanges).toEqual([
-      { deplace: "r6", avec: "r7", contrainte: "meme-equipe-premier-tour" },
+      { deplace: "r6", avec: "r5", contrainte: "meme-equipe-premier-tour" },
     ]);
     expect(rencontresInternes(sorti.leaves)).toBe(0);
+    expect(moitieDe(sorti.leaves, "r3")).not.toBe(moitieDe(sorti.leaves, "r6"));
   });
 
   it("à défaut du voisin moins bien classé, le voisin mieux classé", () => {
@@ -181,12 +183,29 @@ describe("placement par rang : deux coéquipiers au premier tour (BR3.6, proposi
     expect(rencontresInternes(sorti.leaves)).toBe(0);
   });
 
-  it("une rencontre impossible à éviter reste en place, et le bye de #1 aussi", () => {
-    // Tableau de trois : #2 et #3 coéquipiers, #1 exempté. Personne ne peut les séparer.
+  it("à trois, #2 et #3 coéquipiers : #1 affronte #3 et #2 attend la deuxième demi-finale", () => {
+    // Guide v1.3, §6 : « Si #2 et #3 appartiennent à la même équipe attribuée, la première
+    // demi-finale devient #1 contre #3 et #2 attend la deuxième demi-finale. »
     const sorti = placer([athlete(1), athlete(2, "T"), athlete(3, "T")]);
-    expect(sorti.echanges).toEqual([]);
-    expect(sorti.leaves).toEqual(sorti.placement);
-    expect(titulairesDeBye(sorti.leaves)).toEqual(["r1"]);
+    expect(ids(sorti.leaves)).toEqual(["r2", null, "r1", "r3"]);
+    expect(sorti.echanges).toEqual([
+      { deplace: "r2", avec: "r1", contrainte: "meme-equipe-premier-tour" },
+    ]);
+    expect(titulairesDeBye(sorti.leaves)).toEqual(["r2"]);
+  });
+
+  it("à trois, #1 coéquipier de #2 ou de #3 : le format normal #2/#3 est conservé", () => {
+    // Guide v1.3, §6 : « Si #1 est coéquipier de #2 ou de #3, le format normal #2/#3 est
+    // conservé. » Les trois d'une même équipe aussi : #1 ne peut pas affronter #3.
+    for (const equipes of [
+      ["T", "T", null],
+      ["T", null, "T"],
+      ["T", "T", "T"],
+    ] as const) {
+      const sorti = placer(equipes.map((e, i) => athlete(i + 1, e)));
+      expect(sorti.leaves, equipes.join(",")).toEqual(sorti.placement);
+      expect(sorti.echanges, equipes.join(",")).toEqual([]);
+    }
   });
 
   it("#1 et #2 restent dans deux moitiés même quand #2 serait le seul voisin possible", () => {
@@ -213,34 +232,48 @@ describe("placement par rang : deux coéquipiers au premier tour (BR3.6, proposi
     expect(moitieDe(sorti.leaves, "r1")).not.toBe(moitieDe(sorti.leaves, "r2"));
   });
 
-  it("balayage : aucun bye ne change de main, #1 / #2 opposés, personne ne disparaît, jamais plus de rencontres internes qu'avant", () => {
-    for (let n = 2; n <= 33; n++) {
-      for (let graine = 0; graine < 40; graine++) {
-        const rng = mulberry32(fnv1a(`balayage|${n}|${graine}`));
-        const equipes = ["A", "B", "C", null, null];
-        const entries = Array.from({ length: n }, (_, i) =>
-          athlete(i + 1, equipes[Math.floor(rng() * equipes.length)] ?? null),
-        );
-        const sorti = placer(entries);
-        const contexte = `n = ${n}, graine ${graine}`;
-        expect(titulairesDeBye(sorti.leaves), contexte).toEqual(titulairesDeBye(sorti.placement));
-        if (n >= 3) {
-          expect(moitieDe(sorti.leaves, "r1"), contexte).not.toBe(moitieDe(sorti.leaves, "r2"));
-        }
-        expect(ids(sorti.leaves).slice().sort(), contexte).toEqual(
-          ids(sorti.placement).slice().sort(),
-        );
-        expect(rencontresInternes(sorti.leaves), contexte).toBeLessThanOrEqual(
-          rencontresInternes(sorti.placement),
-        );
-        const graines = new Map(sorti.seedOrder.map((e, i) => [e.registrationId, i + 1]));
-        for (const e of sorti.echanges) {
-          expect(graines.has(e.deplace), contexte).toBe(true);
-          expect(graines.has(e.avec), contexte).toBe(true);
+  it(
+    "balayage : au plus un tour blanc change de main, jamais celui de #1 ni de #2, #1 / #2 opposés, personne ne disparaît, jamais plus de rencontres internes qu'avant",
+    { timeout: 60_000 },
+    () => {
+      for (let n = 2; n <= 33; n++) {
+        for (let graine = 0; graine < 40; graine++) {
+          const rng = mulberry32(fnv1a(`balayage|${n}|${graine}`));
+          const equipes = ["A", "B", "C", null, null];
+          const entries = Array.from({ length: n }, (_, i) =>
+            athlete(i + 1, equipes[Math.floor(rng() * equipes.length)] ?? null),
+          );
+          const sorti = placer(entries);
+          const contexte = `n = ${n}, graine ${graine}`;
+          // Guide v1.3, §4 : un seul tour blanc réattribué ; #1, puis #2 protégés. À trois, le
+          // seul changement permis est le format du §6 : #2 prend le tour blanc de #1.
+          const avant = titulairesDeBye(sorti.placement);
+          const apres = titulairesDeBye(sorti.leaves);
+          expect(apres, contexte).toHaveLength(avant.length);
+          expect(apres.filter((r) => !avant.includes(r)).length, contexte).toBeLessThanOrEqual(1);
+          if (n >= 4) {
+            for (const tete of ["r1", "r2"]) {
+              if (avant.includes(tete)) expect(apres, contexte).toContain(tete);
+            }
+          }
+          if (n >= 3) {
+            expect(moitieDe(sorti.leaves, "r1"), contexte).not.toBe(moitieDe(sorti.leaves, "r2"));
+          }
+          expect(ids(sorti.leaves).slice().sort(), contexte).toEqual(
+            ids(sorti.placement).slice().sort(),
+          );
+          expect(rencontresInternes(sorti.leaves), contexte).toBeLessThanOrEqual(
+            rencontresInternes(sorti.placement),
+          );
+          const graines = new Map(sorti.seedOrder.map((e, i) => [e.registrationId, i + 1]));
+          for (const e of sorti.echanges) {
+            expect(graines.has(e.deplace), contexte).toBe(true);
+            expect(graines.has(e.avec), contexte).toBe(true);
+          }
         }
       }
-    }
-  });
+    },
+  );
 
   it("le tableau généré porte les échanges, pour le rapport de génération", () => {
     const entries = Array.from({ length: 8 }, (_, i) =>
@@ -252,12 +285,13 @@ describe("placement par rang : deux coéquipiers au premier tour (BR3.6, proposi
     });
     if (tableau.kind !== "bracket") throw new Error("tableau attendu");
     expect(tableau.echanges).toEqual([
-      { deplace: "r6", avec: "r7", contrainte: "meme-equipe-premier-tour" },
+      { deplace: "r6", avec: "r5", contrainte: "meme-equipe-premier-tour" },
     ]);
     const premierTour = tableau.fights
       .filter((f: GeneratedFight) => f.division === 3)
       .sort((a, b) => a.indexInDivision - b.indexInDivision);
-    expect(premierTour[3]).toMatchObject({ slotA: "r3", slotB: "r7" });
+    expect(premierTour[1]).toMatchObject({ slotA: "r4", slotB: "r6" });
+    expect(premierTour[3]).toMatchObject({ slotA: "r3", slotB: "r5" });
   });
 
   it("le tirage actuel ne porte aucun échange : le plan des sous-équipes n'a pas changé", () => {
@@ -429,9 +463,10 @@ describe("placement par rang : deux coéquipiers d'un absolut ne se rencontrent 
     ]);
   });
 
-  it("à défaut de la moins bien classée, la mieux classée change de moitié", () => {
-    // Onze inscrits, trois paires (B : #2 et #6, F : #7 et #10, C : #3 et #11). La dernière
-    // paire ne se sépare qu'en déplaçant #3, exemptée, avec #4, exempté lui aussi.
+  it("trois paires dans une même moitié : toutes séparées, sans qu'aucun tour blanc change de main", () => {
+    // Onze inscrits, trois paires (B : #2 et #6, F : #7 et #10, C : #3 et #11). Au premier tour,
+    // #10 quitte #7 pour #9, à un rang, qui le laisse aussi hors de la moitié de #7 ; #6 passe
+    // dans l'autre moitié avec #8 ; la paire de #11 change de moitié avec le tour blanc de #5.
     const entites = ["A", "B", "C", "D", "E", "B", "F", "G", "H", "F", "C"];
     const onze = entites.map((entite, i) => ({
       registrationId: `r${i + 1}`,
@@ -446,20 +481,37 @@ describe("placement par rang : deux coéquipiers d'un absolut ne se rencontrent 
     ] as const) {
       expect(moitieDe(sorti.leaves, x), `${x} et ${y}`).not.toBe(moitieDe(sorti.leaves, y));
     }
-    expect(sorti.echanges).toContainEqual({
-      deplace: "r3",
-      avec: "r4",
-      contrainte: "meme-club-meme-moitie",
-    });
+    expect(sorti.echanges).toEqual([
+      { deplace: "r10", avec: "r9", contrainte: "meme-club-premier-tour" },
+      { deplace: "r6", avec: "r8", contrainte: "meme-club-meme-moitie" },
+      { deplace: "r8", avec: "r5", contrainte: "meme-club-meme-moitie" },
+    ]);
     expect(titulairesDeBye(sorti.leaves)).toEqual(titulairesDeBye(sorti.placement));
   });
 
-  it("deux coéquipières qui se rencontrent au premier tour faute d'autre combat restent en place", () => {
-    // Cinq inscrites, #4 et #5 coéquipières : les trois autres sont exemptées, et retirer une
-    // exemption n'est pas permis. Le combat reste, rien d'autre ne bouge.
+  it("à cinq, #4 et #5 coéquipières : un seul tour blanc change de main, #1 et #2 gardent le leur", () => {
+    // Guide v1.3, §4, repris par l'absolut au §7 : « Tours blancs : #1, #2, #4. Combat : #3/#5. »
     const cinq = [1, 2, 3, 4, 5].map((rang) => ({
       registrationId: `r${rang}`,
       clubId: rang >= 4 ? "X" : `club-${rang}`,
+      rank: rang,
+    }));
+    const sorti = placerLAbsolut(cinq);
+    expect(ids(sorti.placement)).toEqual(["r1", null, "r4", "r5", "r2", null, "r3", null]);
+    expect(ids(sorti.leaves)).toEqual(["r1", null, "r3", "r5", "r2", null, "r4", null]);
+    expect(titulairesDeBye(sorti.leaves)).toEqual(["r1", "r2", "r4"]);
+    expect(sorti.echanges).toEqual([
+      { deplace: "r4", avec: "r3", contrainte: "meme-club-premier-tour" },
+    ]);
+  });
+
+  it("à cinq, #4 et #5 de la même catégorie source : la revanche ne déplace aucun tour blanc", () => {
+    // Guide v1.3, §7 : la revanche n'est évitée que « si elle ne pénalise aucun mieux classé » ;
+    // prendre son tour blanc à #3 le pénaliserait.
+    const cinq = [1, 2, 3, 4, 5].map((rang) => ({
+      registrationId: `r${rang}`,
+      clubId: `club-${rang}`,
+      sourceCategoryId: rang >= 4 ? "S" : `s${rang}`,
       rank: rang,
     }));
     const sorti = placerLAbsolut(cinq);
@@ -467,7 +519,7 @@ describe("placement par rang : deux coéquipiers d'un absolut ne se rencontrent 
     expect(sorti.echanges).toEqual([]);
   });
 
-  it("balayage : exemptions intactes, #1 / #2 opposés, personne ne disparaît, et jamais pire qu'avant au premier tour", () => {
+  it("balayage : au plus un tour blanc réattribué, #1 / #2 opposés et exemptés, personne ne disparaît, l'équipe avant la revanche", () => {
     const sansMoitie = {
       ...ABSOLUT_RANG_SPORTIF_SEEDING_PLAN,
       constraints: ABSOLUT_RANG_SPORTIF_SEEDING_PLAN.constraints.filter(
@@ -523,7 +575,19 @@ describe("placement par rang : deux coéquipiers d'un absolut ne se rencontrent 
         );
         const avant = applySeedingPlan(entries, taille, SANS_TIRAGE, sansMoitie);
         const contexte = `n = ${n}, graine ${graine}`;
-        expect(titulairesDeBye(sorti.leaves), contexte).toEqual(titulairesDeBye(sorti.placement));
+        // Guide v1.3, §4 et §7 : un seul tour blanc réattribué, jamais celui de #1 ni de #2 à
+        // partir de quatre.
+        const byesAvant = titulairesDeBye(sorti.placement);
+        const byesApres = titulairesDeBye(sorti.leaves);
+        expect(
+          byesApres.filter((r) => !byesAvant.includes(r)).length,
+          contexte,
+        ).toBeLessThanOrEqual(1);
+        if (n >= 4) {
+          for (const tete of ["r1", "r2"]) {
+            if (byesAvant.includes(tete)) expect(byesApres, contexte).toContain(tete);
+          }
+        }
         if (n >= 3) {
           expect(moitieDe(sorti.leaves, "r1"), contexte).not.toBe(moitieDe(sorti.leaves, "r2"));
         }
@@ -538,13 +602,14 @@ describe("placement par rang : deux coéquipiers d'un absolut ne se rencontrent 
         ];
         const [sourceApres, entiteApres] = premierTour(sorti.leaves) as [number, number];
         const [sourceAvant, entiteAvant] = premierTour(avant.leaves) as [number, number];
-        expect(sourceApres, contexte).toBeLessThanOrEqual(sourceAvant);
-        if (sourceApres === sourceAvant) {
-          expect(entiteApres, contexte).toBeLessThanOrEqual(entiteAvant);
+        // L'équipe d'abord (premier tour, puis moitiés), la revanche ensuite (§7).
+        expect(entiteApres, contexte).toBeLessThanOrEqual(entiteAvant);
+        const moitiesApres = paires(sorti.leaves, taille / 2, entite);
+        const moitiesAvant = paires(avant.leaves, taille / 2, entite);
+        expect(moitiesApres, contexte).toBeLessThanOrEqual(moitiesAvant);
+        if (entiteApres === entiteAvant && moitiesApres === moitiesAvant) {
+          expect(sourceApres, contexte).toBeLessThanOrEqual(sourceAvant);
         }
-        expect(paires(sorti.leaves, taille / 2, entite), contexte).toBeLessThanOrEqual(
-          paires(avant.leaves, taille / 2, entite),
-        );
         if (paires(avant.leaves, taille / 2, entite) > 0) {
           separables += 1;
           if (paires(sorti.leaves, taille / 2, entite) === 0) separees += 1;
@@ -557,16 +622,20 @@ describe("placement par rang : deux coéquipiers d'un absolut ne se rencontrent 
     ).toBeGreaterThan(0.95);
   });
 
-  it("la règle est dans le plan de l'absolut, après le premier tour", () => {
+  it("la règle est dans les deux plans par rang : l'équipe au premier tour, puis par moitié, puis la revanche", () => {
+    // Guide v1.3, §5 : « À partir de quatre combattants, deux athlètes auxquels la même équipe a
+    // été attribuée doivent être placés dans des moitiés opposées. » §7 : la revanche en dernier.
     const moitie = ABSOLUT_RANG_SPORTIF_SEEDING_PLAN.constraints.find(
       (c) => c.scope.kind === "half",
     );
     expect(moitie).toMatchObject({ name: "meme-club-meme-moitie", key: "club", enabled: true });
-    const premierTour = ABSOLUT_RANG_SPORTIF_SEEDING_PLAN.constraints.filter(
-      (c) => c.scope.kind === "round",
-    );
-    expect(Math.max(...premierTour.map((c) => c.tier))).toBeLessThan(moitie?.tier ?? -1);
-    expect(RANG_SPORTIF_SEEDING_PLAN.constraints.some((c) => c.scope.kind === "half")).toBe(false);
+    const palier = (name: string) =>
+      ABSOLUT_RANG_SPORTIF_SEEDING_PLAN.constraints.find((c) => c.name === name)?.tier ?? -1;
+    expect(palier("meme-club-premier-tour")).toBeLessThan(moitie?.tier ?? -1);
+    expect(moitie?.tier ?? -1).toBeLessThan(palier("meme-categorie-source-premier-tour"));
+    expect(
+      RANG_SPORTIF_SEEDING_PLAN.constraints.find((c) => c.scope.kind === "half"),
+    ).toMatchObject({ name: "meme-equipe-meme-moitie", key: "team", enabled: true, tier: 1 });
     const lignes = describeSeedingPlan(ABSOLUT_RANG_SPORTIF_SEEDING_PLAN);
     expect(
       lignes.some((l) => l.includes("meme-club-meme-moitie : club par moitié de tableau")),

@@ -473,6 +473,292 @@ function parVoisinage(cible: number): (gx: number, gy: number) => number {
   };
 }
 
+/**
+ * LE TOUR BLANC QU'UNE CATÉGORIE PEUT RÉATTRIBUER, UNE SEULE FOIS (guide v1.3, §4).
+ *
+ * Quand aucun échange entre combats pleins ne sépare deux coéquipiers, un tour
+ * blanc change de main : « Le générateur ne réattribue qu'un seul tour blanc. Il
+ * protège d'abord #1, puis #2, puis les rangs suivants. » Le même compteur sert au
+ * premier tour et aux moitiés : jamais deux tours blancs réattribués dans une
+ * catégorie.
+ */
+type BudgetDeTourBlanc = { reattribue: boolean };
+
+/**
+ * La revanche (même catégorie source, absolut) ne déplace jamais un tour blanc :
+ * « Cette règle n'est appliquée que si elle ne pénalise aucun mieux classé »
+ * (guide v1.3, §7), et céder son tour blanc pénalise celui qui le perd.
+ */
+function peutReattribuerUnTourBlanc(contrainte: SeparationConstraint): boolean {
+  return contrainte.key !== "source-category";
+}
+
+const EFFECTIF_MAX_DU_REPLI_EXACT = 17;
+
+type Evaluation = {
+  readonly score: readonly number[];
+  readonly reattribues: number;
+  readonly cedant: number;
+  readonly deplaces: number;
+};
+
+function meilleureEvaluation(a: Evaluation, b: Evaluation): boolean {
+  const len = Math.max(a.score.length, b.score.length);
+  for (let i = 0; i < len; i++) {
+    const x = a.score[i] ?? 0;
+    const y = b.score[i] ?? 0;
+    if (x !== y) return x < y;
+  }
+  if (a.reattribues !== b.reattribues) return a.reattribues < b.reattribues;
+  // Le tour blanc cédé est pris au moins bien classé possible (guide §4).
+  if (a.cedant !== b.cedant) return a.cedant > b.cedant;
+  return a.deplaces < b.deplaces;
+}
+
+/**
+ * LE REPLI EXACT DES PETITES CATÉGORIES (au plus 17 inscrits ; guide v1.3, §4 et §5).
+ *
+ * La réparation au rang voisin est une recherche locale : un échange à la fois, retenu
+ * s'il améliore. Il arrive, rarement, qu'il en faille deux pour séparer une paire, qu'elle
+ * réattribue un tour blanc qu'un autre placement aurait gardé, ou qu'elle le prenne à un
+ * mieux classé que nécessaire. Pour une petite catégorie, on énumère donc toutes les
+ * répartitions entre les moitiés : #1 et #2 opposés, dans chaque moitié les tours blancs
+ * aux mieux classés présents, au plus un tour blanc réattribué, jamais celui de #1 ni de
+ * #2. La meilleure (paires de coéquipiers dans une même moitié, puis tours blancs
+ * réattribués, puis le rang de celui qui cède le sien, le plus bas possible, puis le
+ * moins d'athlètes changés de moitié) ne remplace le résultat de la recherche locale que
+ * si elle fait strictement mieux. Les positions vides restent celles du placement
+ * standard ; chaque athlète qui ne change ni de moitié ni de statut garde sa place.
+ */
+function repliExact(
+  out: Leaf[],
+  placement: readonly Leaf[],
+  graineDe: (l: Leaf) => number,
+  aNoter: readonly SeparationConstraint[],
+  contraintesDeMoitie: readonly SeparationConstraint[],
+  echanges: EchangeDeSeparation[],
+): void {
+  const size = placement.length;
+  const moitie = (feuille: number): number => (feuille < size / 2 ? 0 : 1);
+  const partenaire = (feuille: number): number => feuille ^ 1;
+  const athletes = placement
+    .filter((l): l is BracketEntry => l !== null)
+    .sort((x, y) => graineDe(x) - graineDe(y));
+  const n = athletes.length;
+  if (n < 4 || n > EFFECTIF_MAX_DU_REPLI_EXACT || contraintesDeMoitie.length === 0) return;
+
+  const estExempte = (leaves: readonly Leaf[], feuille: number): boolean =>
+    (leaves[feuille] ?? null) !== null && (leaves[partenaire(feuille)] ?? null) === null;
+  const moitieStandard = new Map<string, number>();
+  const exemptesStandard = new Set<string>();
+  placement.forEach((l, f) => {
+    if (l === null) return;
+    moitieStandard.set(l.registrationId, moitie(f));
+    if (estExempte(placement, f)) exemptesStandard.add(l.registrationId);
+  });
+
+  const evaluer = (leaves: readonly Leaf[]): Evaluation => {
+    let reattribues = 0;
+    let deplaces = 0;
+    const exemptes = new Set<string>();
+    leaves.forEach((l, f) => {
+      if (l === null) return;
+      if (moitie(f) !== moitieStandard.get(l.registrationId)) deplaces += 1;
+      if (estExempte(leaves, f)) {
+        exemptes.add(l.registrationId);
+        if (!exemptesStandard.has(l.registrationId)) reattribues += 1;
+      }
+    });
+    let cedant = Number.POSITIVE_INFINITY;
+    for (const id of exemptesStandard) {
+      if (!exemptes.has(id)) {
+        cedant = Math.min(cedant, graineDe(athletes.find((a) => a.registrationId === id) ?? null));
+      }
+    }
+    return { score: scoreOf(leaves, aNoter), reattribues, cedant, deplaces };
+  };
+
+  const actuelle = evaluer(out);
+  if (actuelle.score.every((v) => v === 0) && actuelle.reattribues === 0) return;
+
+  // Les places du placement standard, par moitié et par statut.
+  const places = [0, 1].map((m) => {
+    const exemptees: number[] = [];
+    const combattues: number[] = [];
+    placement.forEach((l, f) => {
+      if (l === null || moitie(f) !== m) return;
+      (estExempte(placement, f) ? exemptees : combattues).push(f);
+    });
+    return { exemptees, combattues, effectif: exemptees.length + combattues.length };
+  });
+  const rangDeLaPlace = new Map(seedPositions(size).map((graine, f) => [f, graine] as const));
+  const parRangDePlace = (x: number, y: number): number =>
+    (rangDeLaPlace.get(x) ?? 0) - (rangDeLaPlace.get(y) ?? 0);
+
+  const construire = (masque: number): Leaf[] | null => {
+    const membres = [0, 1].map((m) => athletes.filter((_, i) => ((masque >> i) & 1) === m));
+    const leaves: Leaf[] = new Array<Leaf>(size).fill(null);
+    for (const m of [0, 1]) {
+      const { exemptees, combattues } = places[m]!;
+      const exemptesVises = new Set(membres[m]!.slice(0, exemptees.length));
+      const libresExemptees = new Set(exemptees);
+      const libresCombattues = new Set(combattues);
+      const aPlacer: BracketEntry[] = [];
+      for (const a of membres[m]!) {
+        const f = placement.indexOf(a);
+        const exempteVise = exemptesVises.has(a);
+        if (moitie(f) === m && estExempte(placement, f) === exempteVise) {
+          leaves[f] = a;
+          (exempteVise ? libresExemptees : libresCombattues).delete(f);
+        } else aPlacer.push(a);
+      }
+      const exempteesRestantes = [...libresExemptees].sort(parRangDePlace);
+      const combattuesRestantes = [...libresCombattues].sort(parRangDePlace);
+      for (const a of aPlacer) {
+        const f = (exemptesVises.has(a) ? exempteesRestantes : combattuesRestantes).shift();
+        if (f === undefined) return null;
+        leaves[f] = a;
+      }
+    }
+    // Deux coéquipiers qu'aucune répartition ne sépare peuvent encore s'éviter au
+    // premier tour : on échange un combattant avec un autre de la même moitié.
+    const duTour = aNoter.filter((c) => c.scope.kind === "round" && c.scope.round === 1);
+    for (let garde = 0; garde < size; garde++) {
+      let change = false;
+      for (let f = 0; f < size && !change; f += 2) {
+        if (conflitSelon(duTour, leaves[f] ?? null, leaves[f + 1] ?? null) === null) continue;
+        for (let g = 0; g < size && !change; g++) {
+          if (moitie(g) !== moitie(f) || g === f || g === f + 1) continue;
+          if (estExempte(leaves, g) || (leaves[g] ?? null) === null) continue;
+          const x = leaves[f + 1] ?? null;
+          const y = leaves[g] ?? null;
+          leaves[f + 1] = y;
+          leaves[g] = x;
+          const avant = conflitSelon(duTour, leaves[g] ?? null, leaves[partenaire(g)] ?? null);
+          const ici = conflitSelon(duTour, leaves[f] ?? null, leaves[f + 1] ?? null);
+          if (avant === null && ici === null) change = true;
+          else {
+            leaves[f + 1] = x;
+            leaves[g] = y;
+          }
+        }
+      }
+      if (!change) break;
+    }
+    return leaves;
+  };
+
+  // CHAQUE RÉPARTITION S'ÉVALUE SANS CONSTRUIRE LE TABLEAU : paires de coéquipiers par
+  // moitié, tours blancs réattribués, rang de celui qui cède le sien, athlètes changés de
+  // moitié. Seule la meilleure est construite. On n'énumère que les répartitions de la
+  // bonne taille (C(17, 8) = 24 310 au plus).
+  const toursBlancs = places[0]!.exemptees.length + places[1]!.exemptees.length;
+  const parPalier = trierParPalier(contraintesDeMoitie);
+  const indices = parPalier.map((c) => {
+    const ids = new Map<string, number>();
+    return athletes.map((a) => {
+      const cle = separationKeyOf(a, c.key);
+      if (cle === null) return -1;
+      const connu = ids.get(cle);
+      if (connu !== undefined) return connu;
+      ids.set(cle, ids.size);
+      return ids.size - 1;
+    });
+  });
+  const comptes = indices.map((ix) => new Int32Array(2 * (Math.max(0, ...ix) + 1)));
+  let masqueStandard = 0;
+  athletes.forEach((a, i) => {
+    if (moitieStandard.get(a.registrationId) === 1) masqueStandard |= 1 << i;
+  });
+  const bits = (x: number): number => {
+    let c = 0;
+    for (let y = x; y !== 0; y &= y - 1) c += 1;
+    return c;
+  };
+  const vaut = (masque: number): Evaluation | null => {
+    // #1 et #2 dans deux moitiés.
+    if ((masque & 1) === ((masque >> 1) & 1)) return null;
+    // Les tours blancs aux mieux classés de chaque moitié : #1 et #2 protégés, au plus un
+    // réattribué, et le rang de celui qui cède le sien.
+    const aDonner = [places[0]!.exemptees.length, places[1]!.exemptees.length];
+    let reattribues = 0;
+    let cedant = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < n; i++) {
+      const m = (masque >> i) & 1;
+      const exempte = aDonner[m]! > 0;
+      if (exempte) {
+        aDonner[m]! -= 1;
+        if (i >= toursBlancs) reattribues += 1;
+      } else if (i < toursBlancs) {
+        if (i < 2) return null;
+        cedant = Math.min(cedant, i + 1);
+      }
+    }
+    if (reattribues > 1) return null;
+    const score = parPalier.map((_, k) => {
+      const c = comptes[k]!;
+      c.fill(0);
+      let paires = 0;
+      indices[k]!.forEach((cle, i) => {
+        if (cle < 0) return;
+        const case_ = 2 * cle + ((masque >> i) & 1);
+        paires += c[case_]!;
+        c[case_]! += 1;
+      });
+      return paires;
+    });
+    return { score, reattribues, cedant, deplaces: bits(masque ^ masqueStandard) };
+  };
+
+  let meilleurMasque = -1;
+  let meilleureValeur: Evaluation | null = null;
+  const dansLaSeconde = n - places[0]!.effectif;
+  if (dansLaSeconde > 0 && dansLaSeconde < n) {
+    for (let masque = (1 << dansLaSeconde) - 1; masque < 1 << n;) {
+      const valeur = vaut(masque);
+      if (
+        valeur !== null &&
+        (meilleureValeur === null || meilleureEvaluation(valeur, meilleureValeur))
+      ) {
+        meilleureValeur = valeur;
+        meilleurMasque = masque;
+      }
+      // La combinaison suivante de même taille (Gosper).
+      const bas = masque & -masque;
+      const haut = masque + bas;
+      masque = (((haut ^ masque) >>> 2) / bas) | haut;
+    }
+  }
+  if (meilleurMasque < 0) return;
+  const construites = construire(meilleurMasque);
+  if (construites === null) return;
+  const meilleure = { leaves: construites, evaluation: evaluer(construites) };
+  if (!meilleureEvaluation(meilleure.evaluation, actuelle)) return;
+
+  // #1 EN HAUT DU TABLEAU. La répartition retenue peut placer #1 dans la moitié du bas :
+  // les deux moitiés se retournent alors d'un bloc, sans qu'aucune rencontre change.
+  const premier = meilleure.leaves.findIndex((l) => graineDe(l) === 1);
+  const retenues =
+    premier >= size / 2
+      ? [...meilleure.leaves.slice(size / 2), ...meilleure.leaves.slice(0, size / 2)]
+      : meilleure.leaves;
+
+  // Le tableau retenu, et les échanges qui y mènent depuis le placement standard.
+  const nom = contraintesDeMoitie[0]!.name;
+  const courant = [...placement];
+  echanges.length = 0;
+  for (let f = 0; f < size; f++) {
+    const vise = retenues[f] ?? null;
+    const ici = courant[f] ?? null;
+    if (vise === null || ici === null || vise.registrationId === ici.registrationId) continue;
+    const g = courant.findIndex((l) => l?.registrationId === vise.registrationId);
+    courant[g] = ici;
+    courant[f] = vise;
+    echanges.push({ deplace: vise.registrationId, avec: ici.registrationId, contrainte: nom });
+  }
+  for (let f = 0; f < size; f++) out[f] = retenues[f] ?? null;
+}
+
 function reparerAuRangVoisin(
   placement: readonly Leaf[],
   seedOrder: readonly BracketEntry[],
@@ -491,6 +777,7 @@ function reparerAuRangVoisin(
     return { leaves: out, echanges };
   }
 
+  const effectif = out.filter((l) => l !== null).length;
   const graines = new Map(seedOrder.map((e, i) => [e.registrationId, i + 1] as const));
   const graineDe = (l: Leaf): number =>
     l === null
@@ -498,6 +785,13 @@ function reparerAuRangVoisin(
       : (graines.get(l.registrationId) ?? Number.POSITIVE_INFINITY);
   const conflit = (a: Leaf, b: Leaf): SeparationConstraint | null =>
     conflitSelon(contraintes, a, b);
+  // UN ÉCHANGE N'EST REFUSÉ QUE PAR UN CONFLIT AU MOINS AUSSI IMPORTANT que celui
+  // qu'il répare : séparer deux coéquipiers peut créer une revanche de catégorie
+  // source (absolut, palier plus bas), jamais l'inverse.
+  const bloque = (x: Leaf, y: Leaf, palier: number): boolean => {
+    const c = conflit(x, y);
+    return c !== null && c.tier <= palier;
+  };
   const moitie = (feuille: number): number => (feuille < size / 2 ? 0 : 1);
   const partenaire = (feuille: number): number => feuille ^ 1;
   const tetesDeSerieOpposees = (): boolean => {
@@ -506,64 +800,188 @@ function reparerAuRangVoisin(
     if (premier < 0 || second < 0) return true;
     return moitie(premier) !== moitie(second);
   };
+  // À partir de quatre, #1 et #2 gardent leur tour blanc. À trois, le format du
+  // guide (§6) : #2 et #3 coéquipiers, #1 affronte #3 et #2 attend la 2e demi.
+  const peutCederSonTourBlanc = (l: Leaf): boolean => effectif === 3 || graineDe(l) > 2;
+  const budget: BudgetDeTourBlanc = { reattribue: false };
 
-  const irreparables = new Set<number>();
-  for (let garde = 0; garde <= size; garde++) {
-    let choisi: { combat: number; feuilleA: number; feuilleB: number } | null = null;
-    for (let combat = 0; combat < size / 2; combat++) {
-      if (irreparables.has(combat)) continue;
-      const haut = out[2 * combat] ?? null;
-      const bas = out[2 * combat + 1] ?? null;
-      if (conflit(haut, bas) === null) continue;
-      const feuilleB = graineDe(haut) > graineDe(bas) ? 2 * combat : 2 * combat + 1;
-      if (
-        choisi === null ||
-        graineDe(out[feuilleB] ?? null) < graineDe(out[choisi.feuilleB] ?? null)
-      ) {
-        choisi = { combat, feuilleA: partenaire(feuilleB), feuilleB };
+  /**
+   * UNE PASSE SUR LE PREMIER TOUR, pour les contraintes `aReparer`. Avec
+   * `sansDegrader`, un échange n'est retenu que s'il améliore le score du plan sur
+   * ces contraintes, palier par palier : la revanche (absolut) se répare APRÈS les
+   * moitiés, sans jamais défaire une séparation d'équipe ni toucher un tour blanc.
+   */
+  const reparerLePremierTour = (
+    aReparer: readonly SeparationConstraint[],
+    sansDegrader: readonly SeparationConstraint[] | null,
+  ): void => {
+    const ameliore = (avant: readonly number[] | null): boolean =>
+      avant === null || sansDegrader === null || isBetter(scoreOf(out, sansDegrader), avant);
+    const irreparables = new Set<number>();
+    for (let garde = 0; garde <= size; garde++) {
+      let choisi: {
+        combat: number;
+        feuilleA: number;
+        feuilleB: number;
+        contrainte: SeparationConstraint;
+      } | null = null;
+      for (let combat = 0; combat < size / 2; combat++) {
+        if (irreparables.has(combat)) continue;
+        const haut = out[2 * combat] ?? null;
+        const bas = out[2 * combat + 1] ?? null;
+        const contrainte = conflitSelon(aReparer, haut, bas);
+        if (contrainte === null) continue;
+        const feuilleB = graineDe(haut) > graineDe(bas) ? 2 * combat : 2 * combat + 1;
+        if (
+          choisi === null ||
+          contrainte.tier < choisi.contrainte.tier ||
+          (contrainte.tier === choisi.contrainte.tier &&
+            graineDe(out[feuilleB] ?? null) < graineDe(out[choisi.feuilleB] ?? null))
+        ) {
+          choisi = { combat, feuilleA: partenaire(feuilleB), feuilleB, contrainte };
+        }
       }
-    }
-    if (choisi === null) break;
+      if (choisi === null) break;
 
-    const a = out[choisi.feuilleA] as BracketEntry;
-    const b = out[choisi.feuilleB] as BracketEntry;
-    const contrainte = conflit(a, b) as SeparationConstraint;
-    const graineB = graineDe(b);
+      const a = out[choisi.feuilleA] as BracketEntry;
+      const b = out[choisi.feuilleB] as BracketEntry;
+      const { contrainte } = choisi;
+      const graineB = graineDe(b);
 
-    const candidats: number[] = [];
-    for (let feuille = 0; feuille < size; feuille++) {
-      if (feuille === choisi.feuilleA || feuille === choisi.feuilleB) continue;
-      if ((out[feuille] ?? null) === null) continue;
-      if ((out[partenaire(feuille)] ?? null) === null) continue;
-      candidats.push(feuille);
-    }
-    const auVoisinage = parVoisinage(graineB);
-    candidats.sort((x, y) => auVoisinage(graineDe(out[x] ?? null), graineDe(out[y] ?? null)));
-
-    let tenu = false;
-    for (const feuille of candidats) {
-      const c = out[feuille] as BracketEntry;
-      const d = out[partenaire(feuille)] as BracketEntry;
-      if (conflit(a, c) !== null || conflit(b, d) !== null) continue;
-      out[choisi.feuilleB] = c;
-      out[feuille] = b;
-      if (!tetesDeSerieOpposees()) {
-        out[choisi.feuilleB] = b;
-        out[feuille] = c;
-        continue;
+      const candidats: number[] = [];
+      for (let feuille = 0; feuille < size; feuille++) {
+        if (feuille === choisi.feuilleA || feuille === choisi.feuilleB) continue;
+        if ((out[feuille] ?? null) === null) continue;
+        if ((out[partenaire(feuille)] ?? null) === null) continue;
+        candidats.push(feuille);
       }
-      echanges.push({
-        deplace: b.registrationId,
-        avec: c.registrationId,
-        contrainte: contrainte.name,
+      // AU RANG LE PLUS PROCHE ; à distance égale, celui qui laisse les deux
+      // coéquipiers dans deux moitiés (un seul échange au lieu de deux, comme
+      // l'exemple du guide §5, #16 avec #15), puis le moins bien classé.
+      const moitiesApres = new Map<number, number>();
+      if (contraintesDeMoitie.length > 0) {
+        for (const feuille of candidats) {
+          const c = out[feuille] ?? null;
+          out[choisi.feuilleB] = c;
+          out[feuille] = b;
+          moitiesApres.set(
+            feuille,
+            contraintesDeMoitie.reduce((somme, cm) => somme + penaltyOf(out, cm), 0),
+          );
+          out[choisi.feuilleB] = b;
+          out[feuille] = c;
+        }
+      }
+      const auVoisinage = parVoisinage(graineB);
+      candidats.sort((x, y) => {
+        const gx = graineDe(out[x] ?? null);
+        const gy = graineDe(out[y] ?? null);
+        const ecart = Math.abs(gx - graineB) - Math.abs(gy - graineB);
+        if (ecart !== 0) return ecart;
+        const moities = (moitiesApres.get(x) ?? 0) - (moitiesApres.get(y) ?? 0);
+        return moities !== 0 ? moities : auVoisinage(gx, gy);
       });
-      tenu = true;
-      break;
+
+      let tenu = false;
+      const scoreAvant = sansDegrader === null ? null : scoreOf(out, sansDegrader);
+      for (const feuille of candidats) {
+        const c = out[feuille] as BracketEntry;
+        const d = out[partenaire(feuille)] as BracketEntry;
+        if (bloque(a, c, contrainte.tier) || bloque(b, d, contrainte.tier)) continue;
+        out[choisi.feuilleB] = c;
+        out[feuille] = b;
+        if (!tetesDeSerieOpposees() || (sansDegrader !== null && !ameliore(scoreAvant))) {
+          out[choisi.feuilleB] = b;
+          out[feuille] = c;
+          continue;
+        }
+        echanges.push({
+          deplace: b.registrationId,
+          avec: c.registrationId,
+          contrainte: contrainte.name,
+        });
+        tenu = true;
+        break;
+      }
+      // PLUS AUCUN COMBAT PLEIN NE LES SÉPARE : le mieux classé des deux prend le
+      // tour blanc du moins bien classé des exemptés qui peut le céder, et celui-ci
+      // affronte l'autre coéquipier (guide §4 : à cinq, #4 et #5 coéquipiers
+      // donnent les tours blancs #1, #2 et #4 et le combat #3/#5).
+      if (
+        !tenu &&
+        sansDegrader === null &&
+        !budget.reattribue &&
+        peutReattribuerUnTourBlanc(contrainte)
+      ) {
+        const exemptes: number[] = [];
+        for (let feuille = 0; feuille < size; feuille++) {
+          if (feuille === choisi.feuilleA || feuille === choisi.feuilleB) continue;
+          const l = out[feuille] ?? null;
+          if (l === null || (out[partenaire(feuille)] ?? null) !== null) continue;
+          if (peutCederSonTourBlanc(l)) exemptes.push(feuille);
+        }
+        exemptes.sort((x, y) => graineDe(out[y] ?? null) - graineDe(out[x] ?? null));
+        for (const feuille of exemptes) {
+          const c = out[feuille] as BracketEntry;
+          if (bloque(c, b, contrainte.tier)) continue;
+          out[choisi.feuilleA] = c;
+          out[feuille] = a;
+          if (!tetesDeSerieOpposees()) {
+            out[choisi.feuilleA] = a;
+            out[feuille] = c;
+            continue;
+          }
+          echanges.push({
+            deplace: a.registrationId,
+            avec: c.registrationId,
+            contrainte: contrainte.name,
+          });
+          budget.reattribue = true;
+          tenu = true;
+          break;
+        }
+      }
+      if (!tenu) irreparables.add(choisi.combat);
     }
-    if (!tenu) irreparables.add(choisi.combat);
+  };
+
+  // L'ORDRE DES PALIERS, PHASE PAR PHASE (guide v1.3, §5 et §7) : l'équipe au premier
+  // tour, puis l'équipe par moitié, puis seulement la revanche de catégorie source.
+  // Réparer la revanche avant les moitiés lui donnait de fait le pas sur l'équipe.
+  const palierDesMoities =
+    contraintesDeMoitie.length > 0
+      ? Math.min(...contraintesDeMoitie.map((c) => c.tier))
+      : Number.POSITIVE_INFINITY;
+  const avantLesMoities = contraintes.filter((c) => c.tier < palierDesMoities);
+  const apresLesMoities = contraintes.filter((c) => c.tier >= palierDesMoities);
+
+  reparerLePremierTour(avantLesMoities, null);
+  // Les moitiés, à partir de quatre combattants seulement (guide §5) : à trois,
+  // le format de la 1re demi-finale suffit, et il est conservé tel quel. Elles sont
+  // jugées sans la revanche, qui ne peut donc ni motiver un échange ni y faire
+  // céder un tour blanc.
+  if (contraintesDeMoitie.length > 0 && effectif >= 4) {
+    separerLesMoities(
+      out,
+      graineDe,
+      [...avantLesMoities, ...contraintesDeMoitie],
+      echanges,
+      budget,
+      peutCederSonTourBlanc,
+    );
   }
-  if (contraintesDeMoitie.length > 0) {
-    separerLesMoities(out, graineDe, [...contraintes, ...contraintesDeMoitie], echanges);
+  if (contraintesDeMoitie.length > 0 && effectif >= 4) {
+    repliExact(
+      out,
+      placement,
+      graineDe,
+      [...avantLesMoities, ...contraintesDeMoitie],
+      contraintesDeMoitie,
+      echanges,
+    );
+  }
+  if (apresLesMoities.length > 0) {
+    reparerLePremierTour(apresLesMoities, [...contraintes, ...contraintesDeMoitie]);
   }
   return { leaves: out, echanges };
 }
@@ -573,6 +991,8 @@ function separerLesMoities(
   graineDe: (l: Leaf) => number,
   contraintes: readonly SeparationConstraint[],
   echanges: EchangeDeSeparation[],
+  budget: BudgetDeTourBlanc,
+  peutCederSonTourBlanc: (l: Leaf) => boolean,
 ): void {
   const size = out.length;
   const contraintesDeMoitie = contraintes.filter((c) => c.scope.kind === "half");
@@ -667,6 +1087,51 @@ function separerLesMoities(
     return false;
   };
 
+  // LE DERNIER RECOURS, UNE FOIS PAR CATÉGORIE (guide §4) : l'athlète passe dans
+  // l'autre moitié en échangeant sa place avec un athlète de statut contraire, et
+  // un tour blanc change de main. Il est pris au moins bien classé des exemptés
+  // qui peuvent le céder : à cinq, #1+#4 et #2+#5 coéquipiers, #4 prend le tour
+  // blanc de #3, qui affronte #5.
+  const reattribuerUnTourBlanc = (feuille: number, contrainte: SeparationConstraint): boolean => {
+    if (budget.reattribue || !peutReattribuerUnTourBlanc(contrainte)) return false;
+    const x = out[feuille] as BracketEntry;
+    const exempte = (out[partenaire(feuille)] ?? null) === null;
+    if (exempte && !peutCederSonTourBlanc(x)) return false;
+    const candidats: number[] = [];
+    for (let f = 0; f < size; f++) {
+      if (moitie(f) === moitie(feuille)) continue;
+      const y = out[f] ?? null;
+      if (y === null) continue;
+      const yExempte = (out[partenaire(f)] ?? null) === null;
+      if (yExempte === exempte) continue;
+      if (yExempte && !peutCederSonTourBlanc(y)) continue;
+      candidats.push(f);
+    }
+    const cedant = (f: number): number => (exempte ? graineDe(x) : graineDe(out[f] ?? null));
+    const auVoisinage = parVoisinage(graineDe(x));
+    candidats.sort(
+      (p, q) =>
+        cedant(q) - cedant(p) || auVoisinage(graineDe(out[p] ?? null), graineDe(out[q] ?? null)),
+    );
+    for (const f of candidats) {
+      const y = out[f] as BracketEntry;
+      out[feuille] = y;
+      out[f] = x;
+      if (retenir()) {
+        budget.reattribue = true;
+        echanges.push({
+          deplace: x.registrationId,
+          avec: y.registrationId,
+          contrainte: contrainte.name,
+        });
+        return true;
+      }
+      out[feuille] = x;
+      out[f] = y;
+    }
+    return false;
+  };
+
   const irreparables = new Set<string>();
   for (let garde = 0; garde <= 2 * size; garde++) {
     let choisi: { feuilleA: number; feuilleB: number; contrainte: SeparationConstraint } | null =
@@ -695,7 +1160,9 @@ function separerLesMoities(
       !echangerLAthlete(feuilleB, contrainte) &&
       !echangerLeCombat(feuilleB, contrainte) &&
       !echangerLAthlete(feuilleA, contrainte) &&
-      !echangerLeCombat(feuilleA, contrainte)
+      !echangerLeCombat(feuilleA, contrainte) &&
+      !reattribuerUnTourBlanc(feuilleB, contrainte) &&
+      !reattribuerUnTourBlanc(feuilleA, contrainte)
     ) {
       irreparables.add(b.registrationId);
     }
