@@ -1289,6 +1289,64 @@ moitié). En absolut, la revanche de catégorie source passait avant l'équipe.
   successifs peuvent nommer le même couple. `echanges` dit ce que la réparation a fait, pas le
   plus court chemin.
 
+## Release v0.36.0 : la même équipe d'origine, séparée entre ex æquo
+
+Guide de génération des tableaux v1.3, §1 et §5, le second niveau de séparation : « Équipes
+attribuées différentes mais même équipe d'origine : séparation recherchée seulement si elle ne
+pénalise aucun athlète mieux classé. » Jusqu'ici, le placement par rang ne connaissait que
+l'équipe attribuée : une équipe et sa sous-équipe (TEAM CTG et TEAM CTG Jiu-Jitsu), ou les
+lettres A et B d'un club sans équipe, étaient des équipes sans lien. Sur l'Open Île-de-France Gi
+(ticket du 27/09/2026), #20 a été échangé avec #19 pour être séparé de son coéquipier de
+sous-équipe, et s'est retrouvé face à #14, de l'équipe principale, au premier tour, alors que #4
+à #29 étaient ex æquo.
+
+| Ce qui change                                     | Rôle                                                                                           |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `BracketEntry.originTeamId`, clé `origin-team`    | l'équipe d'origine : l'équipe qui regroupe le club à la clôture, le club lui-même sans équipe  |
+| `BracketEntry.tieGroup`, `groupesDExAequo(rangs)` | le groupe d'ex æquo : les rangs que seul le tirage au sort a départagés (`critere` « tirage ») |
+| `SeedingPlan.separationRecherchee`                | une séparation recherchée, jamais imposée, appliquée après la réparation au rang voisin        |
+| `RANG_SPORTIF_SEEDING_PLAN`                       | `meme-equipe-d-origine` : la même équipe d'origine, clé `origin-team`, active                  |
+
+- **Entre ex æquo seulement.** Un échange de position ne se fait qu'entre deux athlètes de même
+  `tieGroup` : même score de placement, ordre tiré au sort. Il ne change le parcours de personne
+  d'autre (dans chaque bloc de chaque tour, les scores présents sont exactement ceux d'avant), et
+  entre deux ex æquo aucun n'est mieux classé que l'autre. C'est la lecture vérifiable de « ne
+  pénalise aucun athlète mieux classé », et celle du §8 : le tirage n'intervient qu'entre des
+  tableaux qui respectent les mêmes priorités.
+- **Rien de ce que le plan a décidé ne change.** #1 et #2 ne bougent jamais ; aucun tour blanc ne
+  change de main (deux athlètes de même statut au premier tour) ; aucune position figée ne bouge ;
+  aucune paire en défaut d'une contrainte du plan n'apparaît, ne disparaît ni ne change d'athlètes
+  (quand une séparation impérative est impossible, la paire que la réparation a laissée ensemble
+  reste celle-là) ; aucun échange de la réparation n'est défait. Le rang affiché ne change pas.
+- **Au plus tard possible.** Les rencontres de même origine avant la finale reculent, dans cet
+  ordre : moins au premier tour, puis moins au deuxième, jusqu'aux demi-finales. La paire qui se
+  rencontrerait le plus tôt passe d'abord ; le moins bien classé des deux est déplacé en premier,
+  vers la position qui éloigne le plus, à égalité au rang le plus proche. Sur le tableau du ticket,
+  #14 et #20 ne peuvent plus se rencontrer qu'en demi-finale.
+- **Mesuré sur les inscrits de l'Open Île-de-France** (quatre compétitions, 101 catégories de
+  quatre et plus, 30 tirages chacune, scores de placement réels) : rencontres de même origine au
+  premier tour par génération complète, 6,87 avant, 1,03 après ; avant les demi-finales, 30,83
+  puis 13,13 ; aucune séparation d'équipe attribuée dégradée ; 2,6 ms au plus pour un tableau. Les
+  deux catégories qui gardent une rencontre possible au premier tour n'ont qu'un combat au premier
+  tour : elles ne l'éviteraient qu'en déplaçant un tour blanc. Au pire, 128 inscrits tous de la même
+  origine, la recherche prend 170 ms : chaque échange s'évalue par différence.
+- **Verrou** (`tests/equipe-d-origine.test.ts`) : le tableau du ticket et son témoin, #1 et #2 ex
+  æquo et exemptés qui ne bougent pas, puis 3 000 tableaux au hasard de 4 à 40 inscrits et 3 000
+  petites catégories dominées par une équipe (des paires impératives inévitables) : aucune paire en
+  défaut ne change, aucun tour blanc ne change de main, #1 et #2 restent en place, aucun échange de
+  la réparation n'est défait, chaque bloc garde ses scores, et les rencontres de même origine ne
+  font que reculer. Une recherche locale : sur de petits tableaux tirés au hasard, elle manque
+  parfois un placement meilleur qui demanderait deux échanges à la fois.
+
+### Pour les consommateurs
+
+- Rien ne change tant que les entrées ne portent ni `originTeamId` ni `tieGroup` : la séparation
+  recherchée ne voit alors aucune paire, et le placement est celui de v0.35.0.
+- `BracketResult.echanges` peut nommer `meme-equipe-d-origine` : `deplace` et `avec` sont deux ex
+  æquo, après les échanges des séparations impératives.
+- `DEFAULT_SEEDING_PLAN`, `SQUAD_SEEDING_PLAN` et les plans de l'absolut sont inchangés : le tirage
+  sans rang sépare déjà un même club au premier tour et au quart.
+
 ## Pureté, vérifiée et non recommandée
 
 `eslint.config.mjs` interdit `node:*`, `fs`, `path`, `crypto`, `react`, `react-dom`,

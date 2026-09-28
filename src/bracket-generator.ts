@@ -18,6 +18,18 @@ export type BracketEntry = {
   sourcePlace?: number | null;
   sourceWeightRank?: number | null;
   sourceCategoryId?: string | null;
+  /**
+   * L'équipe d'origine (guide v1.3, §1) : l'équipe qui regroupe le club à la clôture
+   * des inscriptions, le club lui-même quand il n'a pas d'équipe. Deux sous-équipes
+   * d'une même équipe ont des `teamId` différents et la même origine.
+   */
+  originTeamId?: string | null;
+  /**
+   * Le groupe d'ex æquo (guide v1.3, glossaire) : deux entrées de même valeur ont
+   * exactement le même score de placement, et seul le tirage au sort les a ordonnées.
+   * Absent, l'entrée n'est l'ex æquo de personne.
+   */
+  tieGroup?: number | null;
 };
 
 export type BracketFightType = "BraketFight" | "BraketFightPool3" | "BraketFightRepechage3";
