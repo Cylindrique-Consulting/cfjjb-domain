@@ -115,6 +115,12 @@ export function critereAMentionner(critere: CritereDeDepartage | null): boolean 
  * départagés (`critere` « tirage », que `critereQuiDepartage` ne rend qu'entre deux
  * athlètes égaux sur le score et sur les critères du classement national). Un athlète
  * seul à son score forme son propre groupe.
+ *
+ * Le critère « tirage » ne dit l'égalité qu'avec le rang PRÉCÉDENT. Quand ce rang manque à
+ * la liste (liste filtrée, relue après un désistement), rien ne relie plus l'athlète à ceux
+ * d'avant : il ouvre son propre groupe. Un groupe coupé à tort ne fait que priver la
+ * recherche d'un échange ; un groupe réuni à tort ferait échanger deux athlètes qui ne sont
+ * pas ex æquo (relecture du 28/09).
  */
 export function groupesDExAequo(
   rangs: readonly {
@@ -125,9 +131,11 @@ export function groupesDExAequo(
 ): Map<string, number> {
   const groupes = new Map<string, number>();
   let tete = 0;
+  let precedent: number | null = null;
   for (const r of [...rangs].sort((a, b) => a.rang - b.rang)) {
-    if (r.critere !== "tirage") tete = r.rang;
+    if (r.critere !== "tirage" || precedent === null || r.rang !== precedent + 1) tete = r.rang;
     groupes.set(r.registrationId, tete);
+    precedent = r.rang;
   }
   return groupes;
 }

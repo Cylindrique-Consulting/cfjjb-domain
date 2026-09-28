@@ -1347,6 +1347,75 @@ sous-équipe, et s'est retrouvé face à #14, de l'équipe principale, au premie
 - `DEFAULT_SEEDING_PLAN`, `SQUAD_SEEDING_PLAN` et les plans de l'absolut sont inchangés : le tirage
   sans rang sépare déjà un même club au premier tour et au quart.
 
+## Release v0.37.0 : la même équipe d'origine, au meilleur placement que les règles permettent
+
+Les suites de la relecture de v0.36.0 (28/09/2026). Les garanties de la séparation recherchée ne
+changent pas ; elle atteint désormais le meilleur tableau permis dans les catégories de 17 inscrits
+au plus, et `groupesDExAequo` ne réunit plus deux scores différents quand la liste de rangs est
+incomplète.
+
+| Ce qui change                              | Rôle                                                                                                                       |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| séparation recherchée, jusqu'à 17 inscrits | une recherche exacte prend le relais de la recherche locale quand le meilleur tableau demande plusieurs échanges à la fois |
+| `groupesDExAequo(rangs)`                   | un rang qui ne suit pas le rang précédent ouvre son propre groupe                                                          |
+| `tests/equipe-d-origine.test.ts`           | énumération exhaustive, rejeu des échanges, tableaux de 64 et 128, grosse équipe d'origine, rencontre en finale            |
+
+- **Plusieurs échanges à la fois.** La recherche de v0.36.0 est locale : un échange à la fois,
+  retenu s'il fait reculer les rencontres. Quand la séparation impérative tient déjà chaque
+  coéquipier dans sa moitié, il en faut parfois deux ensemble. À dix inscrits, #4 à #10 ex æquo,
+  #8 et #9 de même origine s'affrontaient au premier tour : les éloigner mettait #8 dans la moitié
+  de son coéquipier #6. Désormais #8 prend la place de #7 et #6 celle de #4, les deux équipes
+  attribuées changent de moitié ensemble, et #8 et #9 ne peuvent plus se rencontrer qu'en finale.
+- **La recherche exacte** (jusqu'à 17 inscrits, comme le repli exact des moitiés) : après la
+  recherche locale, une programmation dynamique sur l'arbre du tableau cherche le meilleur tableau
+  sous les mêmes règles. Les athlètes mobiles (ex æquo, ni #1 ni #2, hors des positions figées) ne
+  changent de place qu'entre eux, à groupe d'ex æquo et statut au premier tour égaux ; aucun ne prend
+  la place d'un athlète que la réparation a échangé avec lui ; les paires en défaut de chaque
+  contrainte du plan restent exactement les mêmes. Le meilleur : le moins de rencontres de même
+  origine au premier tour, puis au deuxième, jusqu'aux demi-finales ; puis le moins d'athlètes
+  déplacés ; puis les moins bien classés déplacés d'abord. Il ne remplace le tableau de la
+  recherche locale que s'il fait strictement mieux : un tableau que v0.36.0 plaçait déjà au mieux
+  ne change pas.
+- **Mesuré contre une énumération exhaustive** (toutes les permutations permises, sous les mêmes
+  règles ; 3 000 tableaux par distribution, Node 20) : sur une distribution à grands groupes d'ex
+  æquo (5 à 16 inscrits, une à trois équipes d'origine), v0.36.0 laissait 85 tableaux sur 2 660
+  sous le meilleur (3,2 %), dont 23 avec une rencontre au premier tour évitable ; sur celle du
+  verrou (4 à 17 inscrits, séries d'ex æquo), 184 sur 2 921 (6,3 %), dont 46 ; sur les petites
+  catégories dominées par une équipe, 66 sur 3 000 (2,2 %), dont 14. v0.37.0 : aucun. En moyenne
+  0,05 à 0,12 ms par tableau ; au pire mesuré, 23 ms (16 inscrits, 14 ex æquo, tous d'une origine
+  partagée, sans équipe attribuée).
+- **Au-delà de 17 inscrits, la recherche locale seule**, inchangée (128 inscrits d'une même
+  origine : 95 ms, comme v0.36.0). Sur 1 500 tableaux de 18 à 32 inscrits, elle laisse un tableau
+  meilleur dans 7,7 % des cas (séries d'ex æquo) et 2,7 % (grands groupes), dont 1,1 % et 0,2 %
+  avec une rencontre au premier tour évitable ; la recherche exacte y coûterait jusqu'à 330 ms.
+  Limite connue.
+- **`groupesDExAequo`** : le critère « tirage » ne dit l'égalité qu'avec le rang précédent. Quand ce
+  rang manque à la liste (liste filtrée, relue après un désistement), l'athlète ouvre son propre
+  groupe au lieu de rejoindre celui d'avant, d'un autre score : `[#1, #2 score général, #4 tirage]`
+  donnait #4 dans le groupe de #2. Un groupe coupé à tort ne fait que priver la recherche d'un
+  échange ; un groupe réuni à tort faisait échanger deux athlètes qui ne sont pas ex æquo. Pour une
+  liste complète, les groupes sont inchangés.
+- **Le verrou** (`tests/equipe-d-origine.test.ts`) : l'exemple des deux échanges ; 3 000 petites
+  catégories comparées à l'énumération exhaustive ; une rencontre en finale ne compte pas (à vingt,
+  #3 et #7 de même origine passent dans deux moitiés), ce qu'aucun test ne tenait directement ; une
+  contrainte du plan que la réparation ne traite pas garde sa paire en défaut ; les échanges de la
+  recherche, rejoués sur le tableau de la réparation, donnent le tableau final, et depuis le
+  placement standard partout où ceux de la réparation se rejouent ; 300 tableaux de 41 à 128
+  inscrits, dont une grosse équipe d'origine. Les verrous exhaustifs gardent leur délai explicite
+  de 60 s. Treize mutants de la recherche (la finale comptée comme une demi-finale, les
+  contraintes ignorées, les échanges rapportés à rebours, les grosses origines tronquées...) sont
+  tous tués ; neuf survivaient à la suite de v0.36.0.
+
+### Pour les consommateurs
+
+- Aucune signature ne change. Un tableau de 17 inscrits au plus peut changer quand v0.36.0 ne l'y
+  plaçait pas au mieux ; au-delà, rien ne change.
+- `BracketResult.echanges` : quand la recherche exacte remplace la recherche locale, les échanges
+  `meme-equipe-d-origine` sont ceux qui mènent du tableau de la réparation au tableau retenu, cycle
+  par cycle ; `deplace` prend la place de `avec`, jamais un couple échangé par la réparation.
+- `groupesDExAequo` rend les mêmes groupes pour une liste de rangs complète, comme celle que la
+  plateforme lui passe.
+
 ## Pureté, vérifiée et non recommandée
 
 `eslint.config.mjs` interdit `node:*`, `fs`, `path`, `crypto`, `react`, `react-dom`,

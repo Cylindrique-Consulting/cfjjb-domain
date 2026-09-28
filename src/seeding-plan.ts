@@ -1188,6 +1188,327 @@ function separerLesMoities(
   }
 }
 
+const paireDe = (x: string, y: string): string => (x < y ? `${x}|${y}` : `${y}|${x}`);
+
+// Le coût d'un tableau en un seul nombre, chiffre par chiffre en base 256 : les rencontres
+// de même origine du premier tour (le chiffre le plus fort) jusqu'aux demi-finales, puis
+// le nombre d'athlètes déplacés, puis la somme de leurs rangs pris à rebours. À 17 inscrits
+// au plus, aucun chiffre n'atteint 256 (C(17, 2) = 136 paires) et le tout reste sous 2^48 :
+// comparer deux coûts, c'est comparer les vecteurs dans l'ordre.
+const BASE_DU_COUT = 256;
+
+/**
+ * LA RECHERCHE EXACTE DES PETITES CATÉGORIES (au plus 17 inscrits, comme le repli exact des
+ * moitiés ; relecture du 28/09).
+ *
+ * La recherche de `eloignerEntreExAequo` est locale : un échange à la fois, retenu s'il
+ * fait reculer les rencontres. Quand la séparation impérative tient déjà chaque coéquipier
+ * dans sa moitié, il faut parfois deux échanges à la fois (deux équipes attribuées qui
+ * changent de moitié ensemble), et chacun seul défait une séparation : elle s'arrête avant.
+ * Pour une petite catégorie, on cherche donc le meilleur tableau que les mêmes règles
+ * permettent, à partir du tableau de la réparation :
+ * - les athlètes mobiles (ex æquo, ni #1 ni #2, hors des positions figées) ne changent de
+ *   place qu'entre eux, à groupe d'ex æquo et statut au premier tour égaux ;
+ * - aucun ne prend la place d'un athlète que la réparation a échangé avec lui ;
+ * - les paires en défaut de chaque contrainte du plan restent exactement les mêmes.
+ * Le meilleur : le moins de rencontres de même origine au premier tour, puis au deuxième,
+ * jusqu'aux demi-finales ; puis le moins d'athlètes déplacés ; puis les moins bien classés
+ * déplacés d'abord. Il ne remplace le tableau de la recherche locale que s'il fait
+ * strictement reculer les rencontres : sinon, rien ne change.
+ *
+ * Une programmation dynamique sur l'arbre du tableau. Seuls comptent les athlètes mobiles
+ * d'une origine ou d'une équipe partagée, ou nommés par un échange de la réparation : les
+ * autres mobiles sont interchangeables dans leur classe. Pour chaque nœud et chaque
+ * ensemble de ces athlètes qu'il peut recevoir, le meilleur coût : les rencontres entre
+ * ses deux moitiés, plus le meilleur coût de chacune ; chaque contrainte du plan se vérifie
+ * aux nœuds de son bloc.
+ *
+ * Les échanges qui mènent du tableau de la réparation au tableau retenu : chaque cycle de la
+ * permutation se défait en chaîne à partir de son athlète le moins bien classé, qui prend
+ * la place du suivant, qui prend la place du suivant... Chaque échange réunit un athlète et
+ * celui dont il prend la place : jamais une paire que la réparation a échangée.
+ */
+function eloignerExactement(
+  out: Leaf[],
+  depart: readonly Leaf[],
+  graineDe: (l: Leaf) => number,
+  origineDe: (l: Leaf) => string | null,
+  mobile: (l: Leaf, feuille: number) => boolean,
+  contraintes: readonly SeparationConstraint[],
+  echangesDeLaReparation: readonly EchangeDeSeparation[],
+  obtenu: readonly number[],
+  echanges: EchangeDeSeparation[],
+  nom: string,
+): void {
+  const size = depart.length;
+  const finale = Math.round(Math.log2(size));
+  const athletes = depart.filter((l): l is BracketEntry => l !== null);
+  const n = athletes.length;
+  if (n < 4 || n > EFFECTIF_MAX_DU_REPLI_EXACT || obtenu.every((v) => v === 0)) return;
+
+  // Une clé seule ne forme aucune paire : seules comptent les clés partagées.
+  const partagee = (cle: (l: Leaf) => string | null): ((l: Leaf) => string | null) => {
+    const effectifs = new Map<string, number>();
+    for (const a of athletes) {
+      const k = cle(a);
+      if (k !== null) effectifs.set(k, (effectifs.get(k) ?? 0) + 1);
+    }
+    return (l) => {
+      const k = cle(l);
+      return k !== null && (effectifs.get(k) ?? 0) >= 2 ? k : null;
+    };
+  };
+  // Le niveau d'une contrainte : son bloc est un nœud de ce niveau. Un bloc d'une feuille ne
+  // réunit personne, un bloc du tableau entier réunit tout le monde quel que soit le placement.
+  const niveauDe = (c: SeparationConstraint): number =>
+    Math.round(Math.log2(blockSizeOf(c.scope, size)));
+  const aVerifier = contraintes.filter((c) => niveauDe(c) >= 1 && niveauDe(c) < finale);
+  const origineVue = partagee(origineDe);
+  const clesVues = aVerifier.map((c) => partagee((l) => separationKeyOf(l, c.key)));
+  const interdites = new Set(echangesDeLaReparation.map((e) => paireDe(e.deplace, e.avec)));
+  const lies = new Set(echangesDeLaReparation.flatMap((e) => [e.deplace, e.avec]));
+
+  // Les classes (groupe d'ex æquo, statut au premier tour) et les athlètes qui comptent.
+  const exempte = (f: number): boolean => (depart[f ^ 1] ?? null) === null;
+  const classes = new Map<string, number>();
+  const classeDe = new Array<number>(size).fill(-1);
+  const indiceDe = new Array<number>(size).fill(-1);
+  const concernes: { athlete: BracketEntry; feuille: number; classe: number }[] = [];
+  for (let f = 0; f < size; f++) {
+    const l = depart[f] ?? null;
+    if (l === null || !mobile(l, f)) continue;
+    const cle = `${l.tieGroup}|${exempte(f)}`;
+    const classe = classes.get(cle) ?? classes.size;
+    classes.set(cle, classe);
+    classeDe[f] = classe;
+    if (
+      origineVue(l) !== null ||
+      clesVues.some((cleVue) => cleVue(l) !== null) ||
+      lies.has(l.registrationId)
+    ) {
+      indiceDe[f] = concernes.length;
+      concernes.push({ athlete: l, feuille: f, classe });
+    }
+  }
+  // Au plus quinze (ni #1 ni #2) : un ensemble d'athlètes concernés tient dans un masque.
+  const r = concernes.length;
+  if (r === 0) return;
+  const fixe = (f: number): boolean => (depart[f] ?? null) !== null && classeDe[f]! < 0;
+  const unsDe = new Uint8Array(1 << r);
+  for (let m = 1; m < 1 << r; m++) unsDe[m] = unsDe[m >> 1]! + (m & 1);
+  const bitDe = (masque: number): number => 31 - Math.clz32(masque);
+
+  // Les places de chaque classe dans chaque nœud.
+  const masqueDeClasse = new Array<number>(classes.size).fill(0);
+  concernes.forEach((c, i) => (masqueDeClasse[c.classe]! |= 1 << i));
+  const classesConcernees = [...new Set(concernes.map((c) => c.classe))];
+  const noeuds = <T>(parNoeud: (debut: number, fin: number) => T): T[][] =>
+    Array.from({ length: finale + 1 }, (_, niveau) =>
+      Array.from({ length: size >> niveau }, (_, v) => parNoeud(v << niveau, (v + 1) << niveau)),
+    );
+  const places = noeuds((debut, fin) => {
+    const parClasse = new Array<number>(classes.size).fill(0);
+    for (let f = debut; f < fin; f++) if (classeDe[f]! >= 0) parClasse[classeDe[f]!]! += 1;
+    return parClasse;
+  });
+  const tient = (niveau: number, v: number, S: number): boolean =>
+    classesConcernees.every((k) => unsDe[S & masqueDeClasse[k]!]! <= places[niveau]![v]![k]!);
+
+  // Les origines partagées : les athlètes concernés de chacune, et les fixes de chaque nœud.
+  const origines = new Map<string, number>();
+  for (const a of athletes) {
+    const o = origineVue(a);
+    if (o !== null && !origines.has(o)) origines.set(o, origines.size);
+  }
+  const masqueDOrigine = new Array<number>(origines.size).fill(0);
+  concernes.forEach((c, i) => {
+    const o = origineVue(c.athlete);
+    if (o !== null) masqueDOrigine[origines.get(o)!]! |= 1 << i;
+  });
+  const fixesDOrigine = noeuds((debut, fin) => {
+    const parOrigine = new Array<number>(origines.size).fill(0);
+    for (let f = debut; f < fin; f++) {
+      const o = fixe(f) ? origineVue(depart[f] ?? null) : null;
+      if (o !== null) parOrigine[origines.get(o)!]! += 1;
+    }
+    return parOrigine;
+  });
+  // Les rencontres de même origine entre les deux moitiés d'un nœud.
+  const croisees = (niveau: number, v: number, A: number, B: number): number => {
+    const gauche = fixesDOrigine[niveau - 1]![2 * v]!;
+    const droite = fixesDOrigine[niveau - 1]![2 * v + 1]!;
+    let total = 0;
+    for (let o = 0; o < masqueDOrigine.length; o++) {
+      const m = masqueDOrigine[o]!;
+      total += (gauche[o]! + unsDe[A & m]!) * (droite[o]! + unsDe[B & m]!);
+    }
+    return total;
+  };
+
+  // Chaque contrainte, aux nœuds de son bloc : les athlètes concernés de même clé qu'un
+  // athlète, ceux qui formaient une paire avec lui dans le tableau de la réparation, ceux
+  // qu'un bloc ne peut pas recevoir (un fixe de même clé qui n'était pas son partenaire, ou
+  // un partenaire fixe resté ailleurs) et ceux qu'il doit recevoir (partenaires d'un fixe).
+  const verifications = Array.from(
+    { length: finale },
+    (): { memeCle: number[]; partenaires: number[]; exclus: number[]; requis: number[] }[] => [],
+  );
+  aVerifier.forEach((c, ci) => {
+    const niveau = niveauDe(c);
+    const cle = clesVues[ci]!;
+    const memeCle = new Array<number>(r).fill(0);
+    const partenaires = new Array<number>(r).fill(0);
+    concernes.forEach((p, i) => {
+      const k = cle(p.athlete);
+      if (k === null) return;
+      concernes.forEach((q, j) => {
+        if (j === i || cle(q.athlete) !== k) return;
+        memeCle[i]! |= 1 << j;
+        if (q.feuille >> niveau === p.feuille >> niveau) partenaires[i]! |= 1 << j;
+      });
+    });
+    const blocs = size >> niveau;
+    const clesFixes = Array.from({ length: blocs }, () => new Set<string>());
+    for (let f = 0; f < size; f++) {
+      const k = fixe(f) ? cle(depart[f] ?? null) : null;
+      if (k !== null) clesFixes[f >> niveau]!.add(k);
+    }
+    const exclus = new Array<number>(blocs).fill(0);
+    const requis = new Array<number>(blocs).fill(0);
+    concernes.forEach((p, i) => {
+      const k = cle(p.athlete);
+      if (k === null) return;
+      const sien = p.feuille >> niveau;
+      const partenaireFixe = clesFixes[sien]!.has(k);
+      if (partenaireFixe) requis[sien]! |= 1 << i;
+      for (let v = 0; v < blocs; v++) {
+        if (v !== sien && (partenaireFixe || clesFixes[v]!.has(k))) exclus[v]! |= 1 << i;
+      }
+    });
+    verifications[niveau]!.push({ memeCle, partenaires, exclus, requis });
+  });
+  const respecte = (niveau: number, v: number, S: number): boolean => {
+    for (const w of verifications[niveau] ?? []) {
+      if ((S & w.exclus[v]!) !== 0 || (w.requis[v]! & ~S) !== 0) return false;
+      for (let reste = S; reste !== 0; reste &= reste - 1) {
+        const i = bitDe(reste & -reste);
+        if ((w.memeCle[i]! & S & ~w.partenaires[i]!) !== 0) return false;
+        if ((w.partenaires[i]! & ~S) !== 0) return false;
+      }
+    }
+    return true;
+  };
+
+  // Le coût d'une feuille : l'athlète qui la quitte compte comme déplacé. Les places
+  // (`tient`) n'y laissent arriver qu'un athlète au plus, et de sa classe.
+  const poids = new Array<number>(finale + 1).fill(0);
+  for (let tour = 1; tour < finale; tour++) poids[tour] = BASE_DU_COUT ** (finale - tour + 1);
+  const deplacement = (l: Leaf): number => BASE_DU_COUT + (n + 1 - graineDe(l));
+  const coutDeLaFeuille = (f: number, S: number): number => {
+    const occupant = depart[f] ?? null;
+    if (S === 0) return indiceDe[f]! >= 0 ? deplacement(occupant) : 0;
+    const { athlete, feuille } = concernes[bitDe(S)]!;
+    if (feuille === f) return 0;
+    const cedee = (occupant as BracketEntry).registrationId;
+    return interdites.has(paireDe(athlete.registrationId, cedee))
+      ? Number.POSITIVE_INFINITY
+      : deplacement(occupant);
+  };
+
+  const couts = noeuds(() => new Map<number, number>());
+  const gauches = noeuds(() => new Map<number, number>());
+  const cout = (niveau: number, v: number, S: number): number => {
+    if (niveau === 0) return coutDeLaFeuille(v, S);
+    const connu = couts[niveau]![v]!.get(S);
+    if (connu !== undefined) return connu;
+    let meilleur = Number.POSITIVE_INFINITY;
+    let gauche = 0;
+    if (respecte(niveau, v, S)) {
+      for (let A = S; ; A = (A - 1) & S) {
+        const B = S ^ A;
+        if (tient(niveau - 1, 2 * v, A) && tient(niveau - 1, 2 * v + 1, B)) {
+          const g = cout(niveau - 1, 2 * v, A);
+          const d = g < meilleur ? cout(niveau - 1, 2 * v + 1, B) : Number.POSITIVE_INFINITY;
+          if (g + d < meilleur) {
+            const total = g + d + croisees(niveau, v, A, B) * poids[niveau]!;
+            if (total < meilleur) {
+              meilleur = total;
+              gauche = A;
+            }
+          }
+        }
+        if (A === 0) break;
+      }
+    }
+    couts[niveau]![v]!.set(S, meilleur);
+    gauches[niveau]![v]!.set(S, gauche);
+    return meilleur;
+  };
+
+  const tous = (1 << r) - 1;
+  const optimum = cout(finale, 0, tous);
+  if (optimum === Number.POSITIVE_INFINITY) return;
+  const vecteur = obtenu.map((_, t) => Math.floor(optimum / poids[t + 1]!) % BASE_DU_COUT);
+  if (!isBetter(vecteur, obtenu)) return;
+
+  // Le tableau retenu : chaque athlète concerné à sa feuille, les autres mobiles à leur
+  // place quand elle est libre, sinon à une place libérée de leur classe, la mieux classée
+  // au placement standard pour le mieux classé.
+  const retenues: Leaf[] = depart.map((l, f) => (classeDe[f]! < 0 ? (l ?? null) : null));
+  const placer = (niveau: number, v: number, S: number): void => {
+    if (niveau === 0) {
+      if (S !== 0) retenues[v] = concernes[bitDe(S)]!.athlete;
+      return;
+    }
+    const A = gauches[niveau]![v]!.get(S)!;
+    placer(niveau - 1, 2 * v, A);
+    placer(niveau - 1, 2 * v + 1, S ^ A);
+  };
+  placer(finale, 0, tous);
+  const deplaces: { athlete: BracketEntry; classe: number }[] = [];
+  for (let f = 0; f < size; f++) {
+    const l = depart[f] ?? null;
+    if (l === null || classeDe[f]! < 0 || indiceDe[f]! >= 0) continue;
+    if (retenues[f] === null) retenues[f] = l;
+    else deplaces.push({ athlete: l, classe: classeDe[f]! });
+  }
+  const rangDeLaPlace = seedPositions(size);
+  deplaces.sort((x, y) => graineDe(x.athlete) - graineDe(y.athlete));
+  for (const { athlete, classe } of deplaces) {
+    let place = -1;
+    for (let f = 0; f < size; f++) {
+      if (retenues[f] !== null || classeDe[f] !== classe) continue;
+      if (place < 0 || rangDeLaPlace[f]! < rangDeLaPlace[place]!) place = f;
+    }
+    retenues[place] = athlete;
+  }
+
+  // Les échanges, cycle par cycle, en chaîne depuis le moins bien classé du cycle.
+  const feuilleRetenue = new Map<string, number>();
+  retenues.forEach((l, f) => {
+    if (l !== null) feuilleRetenue.set(l.registrationId, f);
+  });
+  const remplace = (a: BracketEntry): BracketEntry =>
+    depart[feuilleRetenue.get(a.registrationId)!] as BracketEntry;
+  const nouveaux: EchangeDeSeparation[] = [];
+  const vus = new Set<string>();
+  for (const l of athletes) {
+    if (vus.has(l.registrationId) || remplace(l) === l) continue;
+    let tete = l;
+    for (let a = remplace(l); a !== l; a = remplace(a)) {
+      if (graineDe(a) > graineDe(tete)) tete = a;
+    }
+    for (let a = tete, b = remplace(tete); ; a = b, b = remplace(b)) {
+      vus.add(a.registrationId);
+      if (b === tete) break;
+      nouveaux.push({ deplace: a.registrationId, avec: b.registrationId, contrainte: nom });
+    }
+  }
+  echanges.length = echangesDeLaReparation.length;
+  echanges.push(...nouveaux);
+  for (let f = 0; f < size; f++) out[f] = retenues[f] ?? null;
+}
+
 /**
  * LA SÉPARATION RECHERCHÉE : L'ÉQUIPE D'ORIGINE, ENTRE EX ÆQUO SEULEMENT (guide v1.3, §1
  * et §5).
@@ -1216,7 +1537,9 @@ function separerLesMoities(
  * rencontrerait le plus tôt passe d'abord ; le moins bien classé des deux est déplacé en
  * premier, vers la position qui éloigne le plus, à égalité au rang le plus proche. Le
  * rang affiché ne change pas (§2). Une recherche locale : un échange à la fois, chacun
- * évalué par différence, en temps quadratique par échange.
+ * évalué par différence, en temps quadratique par échange. Jusqu'à 17 inscrits, la
+ * recherche exacte (`eloignerExactement`) la remplace quand un meilleur tableau demande
+ * plusieurs échanges à la fois.
  */
 function eloignerEntreExAequo(
   out: Leaf[],
@@ -1239,12 +1562,12 @@ function eloignerEntreExAequo(
   const exempte = (feuille: number): boolean => (out[feuille ^ 1] ?? null) === null;
   // Le tour où deux positions peuvent se rencontrer : 1 au premier tour, `finale` en finale.
   const tourDeRencontre = (f: number, g: number): number => 32 - Math.clz32(f ^ g);
-  const paire = (x: string, y: string): string => (x < y ? `${x}|${y}` : `${y}|${x}`);
-  const dejaEchangees = new Set(echanges.map((e) => paire(e.deplace, e.avec)));
-  const mobile = (feuille: number): boolean => {
-    const l = out[feuille] ?? null;
-    return l !== null && (l.tieGroup ?? null) !== null && graineDe(l) > 2 && !figees.has(feuille);
-  };
+  const dejaEchangees = new Set(echanges.map((e) => paireDe(e.deplace, e.avec)));
+  const reparation = [...echanges];
+  const depart = [...out];
+  const estMobile = (l: Leaf, feuille: number): boolean =>
+    l !== null && (l.tieGroup ?? null) !== null && graineDe(l) > 2 && !figees.has(feuille);
+  const mobile = (feuille: number): boolean => estMobile(out[feuille] ?? null, feuille);
 
   // Les positions de chaque équipe d'origine, tenues à jour à chaque échange retenu.
   const membres = new Map<string, number[]>();
@@ -1345,7 +1668,7 @@ function eloignerEntreExAequo(
       const c = out[f] as BracketEntry;
       if (c.tieGroup !== b.tieGroup) continue;
       if (exempte(f) !== exempte(feuille)) continue;
-      if (dejaEchangees.has(paire(b.registrationId, c.registrationId))) continue;
+      if (dejaEchangees.has(paireDe(b.registrationId, c.registrationId))) continue;
       candidats.push(f);
     }
     const auVoisinage = parVoisinage(graineDe(b));
@@ -1375,7 +1698,7 @@ function eloignerEntreExAequo(
             graineDe(out[liste[i]!] ?? null) > graineDe(out[liste[j]!] ?? null)
               ? [liste[j]!, liste[i]!]
               : [liste[i]!, liste[j]!];
-          const cle = paire(
+          const cle = paireDe(
             (out[feuilleA] as BracketEntry).registrationId,
             (out[feuilleB] as BracketEntry).registrationId,
           );
@@ -1396,6 +1719,19 @@ function eloignerEntreExAequo(
     if (echange === null) irreparables.add(choisi.cle);
     else echanges.push(echange);
   }
+
+  eloignerExactement(
+    out,
+    depart,
+    graineDe,
+    origineDe,
+    estMobile,
+    contraintes,
+    reparation,
+    eloignement,
+    echanges,
+    recherche.name,
+  );
 }
 
 export function applySeedingPlan(
