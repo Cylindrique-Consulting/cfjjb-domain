@@ -35,6 +35,8 @@ export const RANG_SPORTIF_SEEDING_PLAN: SeedingPlan = {
   ],
   pins: [{ kind: "empty-leaves" }],
   reparation: "rang-voisin",
+  // Guide v1.3, §1 et §5 : la même équipe d'origine, séparée entre ex æquo seulement.
+  separationRecherchee: { name: "meme-equipe-d-origine", enabled: true, key: "origin-team" },
 };
 
 export const CRITERES_DE_DEPARTAGE = [
@@ -104,6 +106,30 @@ const CRITERES_MENTIONNES: ReadonlyArray<CritereDeDepartage> = [
 
 export function critereAMentionner(critere: CritereDeDepartage | null): boolean {
   return critere !== null && CRITERES_MENTIONNES.includes(critere);
+}
+
+/**
+ * LES EX ÆQUO D'UN TABLEAU (guide v1.3, glossaire : « Athlètes ayant exactement le même
+ * score de placement »), pour `BracketEntry.tieGroup`. Chaque inscription reçoit le rang
+ * du premier athlète de son groupe : la suite de rangs que seul le tirage au sort a
+ * départagés (`critere` « tirage », que `critereQuiDepartage` ne rend qu'entre deux
+ * athlètes égaux sur le score et sur les critères du classement national). Un athlète
+ * seul à son score forme son propre groupe.
+ */
+export function groupesDExAequo(
+  rangs: readonly {
+    readonly registrationId: string;
+    readonly rang: number;
+    readonly critere: CritereDeDepartage | null;
+  }[],
+): Map<string, number> {
+  const groupes = new Map<string, number>();
+  let tete = 0;
+  for (const r of [...rangs].sort((a, b) => a.rang - b.rang)) {
+    if (r.critere !== "tirage") tete = r.rang;
+    groupes.set(r.registrationId, tete);
+  }
+  return groupes;
 }
 
 export type ContributionFigee = {

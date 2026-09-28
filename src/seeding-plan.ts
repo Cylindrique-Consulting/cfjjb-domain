@@ -3,7 +3,7 @@ import { shuffle } from "./prng";
 
 export class SeedingPlanError extends Error {}
 
-export type SeparationKey = "club" | "team" | "national-team" | "source-category";
+export type SeparationKey = "club" | "team" | "origin-team" | "national-team" | "source-category";
 
 export function separationKeyOf(entry: BracketEntry | null, key: SeparationKey): string | null {
   if (entry === null) return null;
@@ -12,6 +12,8 @@ export function separationKeyOf(entry: BracketEntry | null, key: SeparationKey):
       return entry.clubId ?? null;
     case "team":
       return entry.teamId ?? null;
+    case "origin-team":
+      return entry.originTeamId ?? null;
     case "national-team":
       return entry.nationalTeam === true ? "national-team" : null;
     case "source-category":
@@ -54,11 +56,23 @@ export type PinRule =
 
 export type ReparationDuPlacement = "libre" | "rang-voisin";
 
+/**
+ * Une séparation RECHERCHÉE, jamais imposée (guide v1.3, §1 et §5) : elle n'échange que
+ * des ex æquo (`BracketEntry.tieGroup`), après toutes les séparations du plan, sans en
+ * dégrader aucune. Seule la réparation au rang voisin l'applique.
+ */
+export type SeparationRecherchee = {
+  readonly name: string;
+  readonly enabled: boolean;
+  readonly key: SeparationKey;
+};
+
 export type SeedingPlan = {
   readonly order: readonly SeedOrderStep[];
   readonly constraints: readonly SeparationConstraint[];
   readonly pins: readonly PinRule[];
   readonly reparation?: ReparationDuPlacement;
+  readonly separationRecherchee?: SeparationRecherchee;
 };
 
 export type SeedingWarning =
@@ -182,6 +196,11 @@ export function describeSeedingPlan(plan: SeedingPlan = DEFAULT_SEEDING_PLAN): s
         ? `3. réparation / figé : positions ${p.leaves.join(", ")}`
         : `3. réparation / figé : ${p.kind}`,
     ),
+    ...(plan.separationRecherchee !== undefined
+      ? [
+          `4. séparation recherchée / ${plan.separationRecherchee.name} : ${plan.separationRecherchee.key}, rencontre la plus tardive possible, échanges entre ex æquo de même statut seulement, sans dégrader aucune séparation du plan (${state(plan.separationRecherchee.enabled)})`,
+        ]
+      : []),
   ];
 }
 
@@ -1169,6 +1188,157 @@ function separerLesMoities(
   }
 }
 
+/**
+ * LA SÉPARATION RECHERCHÉE : L'ÉQUIPE D'ORIGINE, ENTRE EX ÆQUO SEULEMENT (guide v1.3, §1
+ * et §5).
+ *
+ * « Équipes attribuées différentes mais même équipe d'origine : séparation recherchée
+ * seulement si elle ne pénalise aucun athlète mieux classé. » Deux athlètes d'une même
+ * équipe d'origine qui peuvent se rencontrer avant la finale sont éloignés par un échange
+ * de position avec un ex æquo (`BracketEntry.tieGroup` : même score de placement, ordre
+ * tiré au sort). Un tel échange ne change le parcours de personne d'autre : à chaque
+ * tour, les adversaires possibles de tout autre athlète ont les mêmes scores qu'avant.
+ * Entre deux ex æquo, aucun n'est mieux classé que l'autre : le tirage seul les a
+ * ordonnés, « uniquement parce que plusieurs athlètes avaient le même score et que
+ * plusieurs tableaux respectaient exactement les mêmes priorités » (§8).
+ *
+ * Un échange ne touche jamais un tour blanc (les deux athlètes ont le même statut au
+ * premier tour) ni une position figée, garde #1 et #2 dans deux moitiés, et n'est retenu
+ * que s'il ne dégrade aucune contrainte du plan, palier par palier, et fait reculer les
+ * rencontres de même origine : moins au premier tour, puis moins au deuxième, et ainsi
+ * de suite jusqu'aux demi-finales. La paire qui se rencontrerait le plus tôt passe
+ * d'abord ; le moins bien classé des deux est déplacé en premier, vers la position qui
+ * éloigne le plus, à égalité au rang le plus proche. Le rang affiché ne change pas (§2).
+ */
+function eloignerEntreExAequo(
+  out: Leaf[],
+  seedOrder: readonly BracketEntry[],
+  plan: SeedingPlan,
+  echanges: EchangeDeSeparation[],
+): void {
+  const recherche = plan.separationRecherchee;
+  const size = out.length;
+  if (recherche === undefined || !recherche.enabled || size < 4) return;
+  const finale = Math.round(Math.log2(size));
+  const contraintes = plan.constraints.filter((c) => c.enabled);
+  const figees = pinnedLeaves(out, plan.pins);
+  const graines = new Map(seedOrder.map((e, i) => [e.registrationId, i + 1] as const));
+  const graineDe = (l: Leaf): number =>
+    l === null
+      ? Number.POSITIVE_INFINITY
+      : (graines.get(l.registrationId) ?? Number.POSITIVE_INFINITY);
+  const origineDe = (l: Leaf): string | null => separationKeyOf(l, recherche.key);
+  const groupeDe = (l: Leaf): number | null => l?.tieGroup ?? null;
+  const exempte = (feuille: number): boolean => (out[feuille ^ 1] ?? null) === null;
+  // Le tour où deux positions peuvent se rencontrer : 1 au premier tour, `finale` en finale.
+  const tourDeRencontre = (f: number, g: number): number => 32 - Math.clz32(f ^ g);
+  const moitie = (feuille: number): number => (feuille < size / 2 ? 0 : 1);
+  const tetesDeSerieOpposees = (): boolean => {
+    const premier = out.findIndex((l) => graineDe(l) === 1);
+    const second = out.findIndex((l) => graineDe(l) === 2);
+    if (premier < 0 || second < 0) return true;
+    return moitie(premier) !== moitie(second);
+  };
+  // Les rencontres de même origine possibles avant la finale, par tour : premier tour
+  // d'abord, puis le deuxième, jusqu'aux demi-finales.
+  const rencontres = (): number[] => {
+    const parTour = new Array<number>(finale - 1).fill(0);
+    const positions = new Map<string, number[]>();
+    out.forEach((l, feuille) => {
+      const origine = origineDe(l);
+      if (origine === null) return;
+      const liste = positions.get(origine);
+      if (liste === undefined) positions.set(origine, [feuille]);
+      else liste.push(feuille);
+    });
+    for (const liste of positions.values()) {
+      for (let i = 0; i < liste.length; i++) {
+        for (let j = i + 1; j < liste.length; j++) {
+          const tour = tourDeRencontre(liste[i]!, liste[j]!);
+          if (tour < finale) parTour[tour - 1]! += 1;
+        }
+      }
+    }
+    return parTour;
+  };
+
+  let score = scoreOf(out, contraintes);
+  let eloignement = rencontres();
+  if (eloignement.every((v) => v === 0)) return;
+
+  const deplacer = (feuille: number): EchangeDeSeparation | null => {
+    const b = out[feuille] ?? null;
+    const groupe = groupeDe(b);
+    if (b === null || groupe === null || figees.has(feuille)) return null;
+    const candidats: number[] = [];
+    for (let f = 0; f < size; f++) {
+      if (f === feuille || figees.has(f)) continue;
+      const c = out[f] ?? null;
+      if (c === null || groupeDe(c) !== groupe) continue;
+      if (exempte(f) !== exempte(feuille)) continue;
+      candidats.push(f);
+    }
+    const auVoisinage = parVoisinage(graineDe(b));
+    candidats.sort((x, y) => auVoisinage(graineDe(out[x] ?? null), graineDe(out[y] ?? null)));
+    let retenu: { feuille: number; score: number[]; eloignement: number[] } | null = null;
+    for (const f of candidats) {
+      const c = out[f] as BracketEntry;
+      out[feuille] = c;
+      out[f] = b;
+      if (tetesDeSerieOpposees()) {
+        const s = scoreOf(out, contraintes);
+        const e = rencontres();
+        if (
+          !isBetter(score, s) &&
+          isBetter(e, eloignement) &&
+          (retenu === null || isBetter(e, retenu.eloignement))
+        ) {
+          retenu = { feuille: f, score: s, eloignement: e };
+        }
+      }
+      out[feuille] = b;
+      out[f] = c;
+    }
+    if (retenu === null) return null;
+    const c = out[retenu.feuille] as BracketEntry;
+    out[feuille] = c;
+    out[retenu.feuille] = b;
+    score = retenu.score;
+    eloignement = retenu.eloignement;
+    return { deplace: b.registrationId, avec: c.registrationId, contrainte: recherche.name };
+  };
+
+  const irreparables = new Set<string>();
+  for (let garde = 0; garde <= 2 * size; garde++) {
+    let choisi: { feuilleA: number; feuilleB: number; tour: number; cle: string } | null = null;
+    for (let f = 0; f < size; f++) {
+      const origine = origineDe(out[f] ?? null);
+      if (origine === null) continue;
+      for (let g = f + 1; g < size; g++) {
+        if (origineDe(out[g] ?? null) !== origine) continue;
+        const tour = tourDeRencontre(f, g);
+        if (tour >= finale) continue;
+        const [feuilleA, feuilleB] =
+          graineDe(out[f] ?? null) > graineDe(out[g] ?? null) ? [g, f] : [f, g];
+        const cle = `${(out[feuilleA] as BracketEntry).registrationId}|${(out[feuilleB] as BracketEntry).registrationId}`;
+        if (irreparables.has(cle)) continue;
+        if (
+          choisi === null ||
+          tour < choisi.tour ||
+          (tour === choisi.tour &&
+            graineDe(out[feuilleB] ?? null) < graineDe(out[choisi.feuilleB] ?? null))
+        ) {
+          choisi = { feuilleA, feuilleB, tour, cle };
+        }
+      }
+    }
+    if (choisi === null) break;
+    const echange = deplacer(choisi.feuilleB) ?? deplacer(choisi.feuilleA);
+    if (echange === null) irreparables.add(choisi.cle);
+    else echanges.push(echange);
+  }
+}
+
 export function applySeedingPlan(
   entries: readonly BracketEntry[],
   size: number,
@@ -1203,6 +1373,7 @@ export function applySeedingPlan(
 
   if (plan.reparation === "rang-voisin") {
     const { leaves, echanges } = reparerAuRangVoisin(placement, order, plan);
+    eloignerEntreExAequo(leaves, order, plan, echanges);
     return { seedOrder: order, placement, leaves, warnings, echanges };
   }
 
