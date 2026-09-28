@@ -33,9 +33,113 @@ describe("la gravité des contrôles", () => {
     expect(GRAVITE_PAR_TYPE.source_apres_dependant).toBe("refus");
     expect(GRAVITE_PAR_TYPE.double_convocation).toBe("bloquant");
     expect(GRAVITE_PAR_TYPE.repos_insuffisant).toBe("bloquant");
+    expect(GRAVITE_PAR_TYPE.attente_excessive).toBe("avertissement");
     expect(GRAVITE_PAR_TYPE.depassement_de_journee).toBe("avertissement");
     expect(GRAVITE_PAR_TYPE.desequilibre_de_tatami).toBe("avertissement");
     expect(GRAVITE_PAR_TYPE.repartition_non_examinee).toBe("avertissement");
+  });
+});
+
+describe("l'attente maximale d'un athlète dans son tableau (retour du 28/09/2026)", () => {
+  // Une demi-finale qui part `apres` minutes après la fin de sa source. Le
+  // repos minimum (une durée de combat) est tenu dans tous les cas : seul le
+  // plafond est en jeu.
+  const tableauAttendant = (apres: string): CombatControle[] => [
+    combat({
+      fightId: "demie",
+      division: 2,
+      rang: 1,
+      debutMs: heure("09:00"),
+      finMs: heure("09:05"),
+    }),
+    combat({
+      fightId: "finale",
+      division: 1,
+      rang: 40,
+      debutMs: heure(apres),
+      finMs: heure(apres) + 5 * 60_000,
+      sources: ["demie", null],
+    }),
+  ];
+
+  it("signale sans bloquer une finale lancée plus de 30 minutes après sa demie", () => {
+    const constats = controlerLePlanning({ combats: tableauAttendant("11:22") });
+    expect(constats.map((c) => c.type)).toEqual(["attente_excessive"]);
+    expect(constats[0]?.gravite).toBe("avertissement");
+    expect(constats[0]?.combatId).toBe("finale");
+    expect(constats[0]?.autreCombatId).toBe("demie");
+    // L'écart porte l'attente RÉELLE (09:05 → 11:22), pas ce qui dépasse.
+    expect(constats[0]?.ecartMinutes).toBe(137);
+  });
+
+  it("se tait à 30 minutes pile : c'est un plafond, pas une borne stricte", () => {
+    expect(controlerLePlanning({ combats: tableauAttendant("09:35") })).toEqual([]);
+    expect(controlerLePlanning({ combats: tableauAttendant("09:36") }).map((c) => c.type)).toEqual([
+      "attente_excessive",
+    ]);
+  });
+
+  it("obéit au plafond que l'appelant donne, et se retire avec null", () => {
+    const combats = tableauAttendant("09:50");
+    expect(controlerLePlanning({ combats, attenteMaximaleMinutes: 60 })).toEqual([]);
+    expect(controlerLePlanning({ combats, attenteMaximaleMinutes: 20 }).map((c) => c.type)).toEqual(
+      ["attente_excessive"],
+    );
+    expect(controlerLePlanning({ combats, attenteMaximaleMinutes: null })).toEqual([]);
+  });
+
+  it("ne cumule pas avec le repos insuffisant : trop tôt et trop tard s'excluent", () => {
+    const tropTot = controlerLePlanning({
+      combats: [
+        combat({ fightId: "demie", division: 2, rang: 1, finMs: heure("09:05") }),
+        combat({
+          fightId: "finale",
+          division: 1,
+          rang: 2,
+          debutMs: heure("09:06"),
+          finMs: heure("09:11"),
+          sources: ["demie", null],
+        }),
+      ],
+    });
+    expect(tropTot.map((c) => c.type)).toEqual(["repos_insuffisant"]);
+  });
+
+  it("ne dit rien de deux CATÉGORIES du même athlète : sa classe de poids et l'absolut ne se lient pas", () => {
+    // Aucune source ne relie les deux combats : le contrôle ne les rapproche
+    // pas, et le plafond ne s'applique qu'à l'intérieur d'un tableau.
+    const constats = controlerLePlanning({
+      combats: [
+        combat({ fightId: "poids:finale", categorieId: "poids", division: 1, rang: 1 }),
+        combat({
+          fightId: "absolut:tour1",
+          categorieId: "absolut",
+          division: 3,
+          rang: 60,
+          debutMs: heure("14:00"),
+          finMs: heure("14:05"),
+        }),
+      ],
+      engagements: [
+        {
+          athleteId: "athlete",
+          categorieId: "poids",
+          jour: 0,
+          debutMs: heure("09:00"),
+          finMs: heure("09:05"),
+          dureeSecondes: 300,
+        },
+        {
+          athleteId: "athlete",
+          categorieId: "absolut",
+          jour: 0,
+          debutMs: heure("14:00"),
+          finMs: heure("14:05"),
+          dureeSecondes: 300,
+        },
+      ],
+    });
+    expect(constats).toEqual([]);
   });
 });
 

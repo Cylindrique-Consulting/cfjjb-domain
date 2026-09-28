@@ -134,7 +134,18 @@ describe("l'ordonnanceur au combat", () => {
       const constats = controlerLePlanning({
         combats: versControle(montage, resultat, { c: 300 }),
       });
-      expect(constats, `tableau de ${inscrits}`).toEqual([]);
+      expect(
+        constats.filter((c) => c.type !== "attente_excessive"),
+        `tableau de ${inscrits}`,
+      ).toEqual([]);
+      // LE PREMIER TOUR EST LA LIMITE : sur un seul tapis, il dure 7 minutes
+      // par combat, et le tour suivant attend qu'il soit joué. Jusqu'à onze
+      // inscrits (les byes allègent le tour) il tient dans les trente minutes ;
+      // à seize il ne tient plus, et aucun ordre n'y changerait rien : seule la
+      // répartition sur plusieurs tapis raccourcit un tour.
+      const excessives = constats.filter((c) => c.type === "attente_excessive");
+      if (inscrits <= 11) expect(excessives, `tableau de ${inscrits}`).toEqual([]);
+      else expect(excessives.length, `tableau de ${inscrits}`).toBeGreaterThan(0);
     }
   });
 
@@ -158,10 +169,23 @@ describe("l'ordonnanceur au combat", () => {
         combats: versControle(montage, resultat, { c: 300 }),
       });
       expect(
-        constats.filter((c) => c.type !== "desequilibre_de_tatami"),
+        constats.filter(
+          (c) => c.type !== "desequilibre_de_tatami" && c.type !== "attente_excessive",
+        ),
         `${parties} parties`,
       ).toEqual([]);
-      if ([2, 4, 8].includes(parties)) expect(constats, `${parties} parties`).toEqual([]);
+      if ([2, 4, 8].includes(parties)) {
+        expect(
+          constats.filter((c) => c.type !== "attente_excessive"),
+          `${parties} parties`,
+        ).toEqual([]);
+      }
+      // RÉPARTIR RACCOURCIT LES TOURS, donc l'attente : les 32 combats du
+      // premier tour d'un tableau de 64 tiennent en 4 par tapis sur huit
+      // tatamis, et le plafond de 30 minutes est alors tenu sans rien signaler.
+      const excessives = constats.filter((c) => c.type === "attente_excessive");
+      if (parties === 8) expect(excessives, `${parties} parties`).toEqual([]);
+      else expect(excessives.length, `${parties} parties`).toBeGreaterThan(0);
     }
   });
 
@@ -395,12 +419,140 @@ describe("l'ordonnanceur au combat", () => {
       "A:3:0:BraketFight 09:36",
       "A:3:1:BraketFight 09:42",
       "A:3:2:BraketFight 09:48",
-      "A:3:3:BraketFight 09:54",
-      "A:2:0:BraketFight 10:00",
-      "A:2:1:BraketFight 10:06",
-      "B:1:0:BraketFight 10:12 intercalé",
-      "A:1:0:BraketFight 10:21",
+      // La finale de B se glisse entre deux quarts de A : son premier
+      // demi-finaliste a gagné à 09:29, et la laisser en fin de file le ferait
+      // attendre 43 minutes (ATTENTE_MAXIMALE_PAR_DEFAUT_SECONDES). Elle coûte
+      // une rotation à la finale de A, dont les demi-finalistes attendent dix
+      // minutes.
+      "B:1:0:BraketFight 09:54 intercalé",
+      "A:3:3:BraketFight 10:00",
+      "A:2:0:BraketFight 10:06",
+      "A:2:1:BraketFight 10:12",
+      "A:1:0:BraketFight 10:27",
     ]);
+  });
+
+  // L'ATTENTE MAXIMALE D'UN ATHLÈTE DANS SON TABLEAU (retour du client du
+  // 28/09/2026). L'ordonnanceur la tient en priorité : un combat qui la
+  // dépasserait passe devant la catégorie mieux classée qui occupe le tapis.
+  // Ce qu'il ne peut pas tenir, `controlerLePlanning` le signale.
+  it("fait passer devant un tableau qui attendrait plus de 30 minutes, sans retarder la journée", () => {
+    const montage = monter([
+      {
+        id: "A",
+        fights: tableau(8, "L"),
+        tatamis: tatamis(1),
+        dureeSecondes: 300,
+        rangDePlanning: 0,
+      },
+      {
+        id: "B",
+        fights: tableau(8, "B"),
+        tatamis: tatamis(1),
+        dureeSecondes: 300,
+        rangDePlanning: 1,
+      },
+    ]);
+    const occupe = montage.combats.find((c) => c.id === "A:3:0:BraketFight")?.athletes?.[0];
+    if (occupe === undefined || occupe === null) throw new Error("premier tour incomplet");
+    const planifier = (attenteMaximaleSecondes: number | null | undefined) =>
+      planifierCombats({
+        espacementSecondes: UNE_MINUTE,
+        ...(attenteMaximaleSecondes === undefined ? {} : { attenteMaximaleSecondes }),
+        tatamis: unTatami(),
+        categories: montage.categories,
+        combats: montage.combats,
+        occupations: [{ athleteId: occupe, debutMs: heure("08:00"), finMs: heure("09:30") }],
+      });
+    const durees = { A: 300, B: 300 };
+    const constats = (resultat: ResultatDePlanification, type: string, categorie?: string) =>
+      controlerLePlanning({ combats: versControle(montage, resultat, durees) }).filter(
+        (c) => c.type === type && (categorie === undefined || c.categorieId === categorie),
+      );
+    const fin = (resultat: ResultatDePlanification) =>
+      Math.max(...[...resultat.combats.values()].map((p) => p.finMs));
+
+    const sansBorne = planifier(null);
+    const avecBorne = planifier(undefined);
+
+    // Sans elle, la finale de B attend la fin du tableau de A. Un constat par
+    // demi-finaliste : celui de 09:29 attend 43 minutes, celui de 09:35 en
+    // attend 37.
+    expect(constats(sansBorne, "attente_excessive", "B").map((c) => c.ecartMinutes)).toEqual([
+      43, 37,
+    ]);
+    // Avec elle, B ne dépasse plus, et la journée finit à la même heure. Ce qui
+    // reste appartient à A, dont le premier tour dure à lui seul plus que le
+    // plafond : l'ordre ne peut rien pour lui, et le contrôle le dit.
+    expect(constats(avecBorne, "attente_excessive", "B")).toEqual([]);
+    // Ce que le plafond coûte à la fin de journée : une rotation, sur deux
+    // catégories et un seul tapis, parce que la finale de A part un cran plus
+    // tard et garde ses deux durées de repos. Sur une compétition entière il
+    // ne déplace pas la fin : il ne laisse jamais un tapis vide, il change
+    // seulement l'ordre dans lequel le tapis prend ses combats.
+    expect(fin(avecBorne) - fin(sansBorne)).toBeLessThanOrEqual(6 * MINUTE);
+    // Le plafond ne se paie NI en repos sacrifié, NI en dépendance cassée.
+    expect(constats(avecBorne, "repos_insuffisant")).toEqual([]);
+    expect(constats(avecBorne, "source_apres_dependant")).toEqual([]);
+  });
+
+  it("ne dérange pas l'ordre des catégories tant que personne n'attend trop", () => {
+    const montage = monter([
+      {
+        id: "A",
+        fights: tableau(8, "L"),
+        tatamis: tatamis(1),
+        dureeSecondes: 300,
+        rangDePlanning: 0,
+      },
+      {
+        id: "B",
+        fights: tableau(4, "B"),
+        tatamis: tatamis(1),
+        dureeSecondes: 300,
+        rangDePlanning: 1,
+      },
+    ]);
+    const parBorne = ([null, undefined] as (number | null | undefined)[]).map((borne) =>
+      parRang(
+        planifierCombats({
+          espacementSecondes: UNE_MINUTE,
+          ...(borne === undefined ? {} : { attenteMaximaleSecondes: borne }),
+          tatamis: unTatami(),
+          categories: montage.categories,
+          combats: montage.combats,
+        }).combats,
+      ).map((p) => `${p.fightId} ${hhmm(p.debutMs)}`),
+    );
+    expect(parBorne[1]).toEqual(parBorne[0]);
+  });
+
+  // UN GRAND TABLEAU SUR UN SEUL TAPIS NE PEUT PAS TENIR LE PLAFOND, et aucun
+  // ordre ne l'y aiderait : son premier tour dure à lui seul plus de trente
+  // minutes, et le tour suivant attend qu'il soit joué. C'est la RÉPARTITION
+  // (REP.1 A) qui raccourcit les tours, pas l'ordonnanceur ; le contrôle le
+  // dit à la fédération plutôt que de laisser croire que c'est tenu.
+  it("signale, sans pouvoir l'éviter, l'attente structurelle d'un tableau de 16 sur un tapis", () => {
+    const montage = monter([
+      {
+        id: "A",
+        fights: tableau(16, "a"),
+        tatamis: tatamis(1),
+        dureeSecondes: 300,
+        rangDePlanning: 0,
+      },
+    ]);
+    const resultat = planifierCombats({
+      espacementSecondes: UNE_MINUTE,
+      tatamis: unTatami(),
+      categories: montage.categories,
+      combats: montage.combats,
+    });
+    const excessives = controlerLePlanning({
+      combats: versControle(montage, resultat, { A: 300 }),
+    }).filter((c) => c.type === "attente_excessive");
+    expect(excessives.length).toBeGreaterThan(0);
+    expect(excessives.every((c) => c.gravite === "avertissement")).toBe(true);
   });
 
   it("répartit une catégorie de 128 sur 8 tatamis et la ramène de 21:50 à 11:08", () => {

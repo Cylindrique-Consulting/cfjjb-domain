@@ -27,6 +27,46 @@ export function valeursAdmisesDeRepartition(tatamisDeLaCompetition: number): num
   return NOMBRES_DE_TATAMIS_ADMIS.filter((nombre) => nombre <= plafond);
 }
 
+/**
+ * LA DURÉE MAXIMALE D'UN TOUR SUR UN TAPIS : 30 minutes (retour du client du
+ * 28/09/2026, validé le même jour).
+ *
+ * Un tour entier se joue avant que le suivant commence : sa durée est donc le
+ * plancher de l'attente d'un athlète entre deux de ses combats, et aucun ordre
+ * de passage ne peut la réduire. Répartir la catégorie divise cette durée, et
+ * c'est le seul levier qui agisse dessus : c'est pourquoi le dimensionnement
+ * d'un tableau se calcule ici, et pas seulement sur son effectif.
+ */
+export const DUREE_MAXIMALE_D_UN_TOUR_SECONDES = 30 * 60;
+
+/** Les répartitions qui ne coûtent rien au §18 : 3, 5, 6 et 7 y comptent comme un déséquilibre. */
+const REPARTITIONS_EQUILIBREES: readonly number[] = [1, 2, 4, 8];
+
+/**
+ * Le nombre de tatamis qu'il faut pour qu'un tour tienne dans la durée
+ * maximale. Les combats du PREMIER tour font foi (le plus long), byes exclus
+ * puisqu'ils ne s'y jouent pas, et le cycle d'un combat comprend la rotation
+ * du tapis. Seules les répartitions équilibrées sont proposées.
+ */
+export function tatamisSelonLaDureeDuTour(entree: {
+  combatsDuPremierTour: number;
+  dureeSecondes: number;
+  espacementSecondes: number;
+  dureeMaximaleDuTourSecondes?: number;
+}): number {
+  const combats = Math.max(0, Math.floor(entree.combatsDuPremierTour));
+  const cycle = Math.max(0, entree.dureeSecondes) + Math.max(0, entree.espacementSecondes);
+  const borne = Math.max(
+    1,
+    entree.dureeMaximaleDuTourSecondes ?? DUREE_MAXIMALE_D_UN_TOUR_SECONDES,
+  );
+  if (combats <= 0 || cycle <= 0) return 1;
+  const tourSurUnTapis = combats * cycle;
+  return (
+    REPARTITIONS_EQUILIBREES.find((n) => tourSurUnTapis / n <= borne) ?? PLAFOND_DE_REPARTITION
+  );
+}
+
 const SEUILS_D_EFFECTIF: readonly { jusqua: number; tatamis: number }[] = [
   { jusqua: 16, tatamis: 1 },
   { jusqua: 32, tatamis: 2 },
@@ -40,12 +80,25 @@ export function tatamisSelonLEffectif(inscrits: number): number {
   return 8;
 }
 
-export type MotifDeProposition = "format_non_reparti" | "effectif" | "plafonne_par_la_competition";
+export type MotifDeProposition =
+  "format_non_reparti" | "effectif" | "duree_du_tour" | "plafonne_par_la_competition";
 
 export type EntreeDeProposition = {
   inscrits: number;
   tatamisDeLaCompetition: number;
   format?: DrawFormat;
+  /**
+   * La durée du premier tour, quand l'appelant la connaît : elle ne fait
+   * qu'AJOUTER des tatamis à ce que l'effectif propose, jamais en retirer.
+   * Absente, la proposition reste celle des seuils d'effectif, exactement
+   * comme avant le 28/09/2026.
+   */
+  premierTour?: {
+    combats: number;
+    dureeSecondes: number;
+    espacementSecondes: number;
+    dureeMaximaleSecondes?: number;
+  };
 };
 
 export type PropositionDeRepartition = {
@@ -67,13 +120,30 @@ export function proposerLaRepartition(entree: EntreeDeProposition): PropositionD
     };
   }
   const selonEffectif = tatamisSelonLEffectif(entree.inscrits);
-  const proposition = Math.min(selonEffectif, plafond);
+  const selonLaDuree =
+    entree.premierTour === undefined
+      ? 0
+      : tatamisSelonLaDureeDuTour({
+          combatsDuPremierTour: entree.premierTour.combats,
+          dureeSecondes: entree.premierTour.dureeSecondes,
+          espacementSecondes: entree.premierTour.espacementSecondes,
+          ...(entree.premierTour.dureeMaximaleSecondes === undefined
+            ? {}
+            : { dureeMaximaleDuTourSecondes: entree.premierTour.dureeMaximaleSecondes }),
+        });
+  const voulu = Math.max(selonEffectif, selonLaDuree);
+  const proposition = Math.min(voulu, plafond);
   const alternative = entree.inscrits <= 32 ? Math.min(proposition * 2, plafond) : null;
   return {
     proposition,
     valeursAdmises,
     alternativeSuggeree: alternative !== null && alternative > proposition ? alternative : null,
-    motif: proposition < selonEffectif ? "plafonne_par_la_competition" : "effectif",
+    motif:
+      proposition < voulu
+        ? "plafonne_par_la_competition"
+        : selonLaDuree > selonEffectif
+          ? "duree_du_tour"
+          : "effectif",
   };
 }
 

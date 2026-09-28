@@ -1,5 +1,5 @@
 import type { BracketFightType } from "./bracket-generator";
-import { multiplicateurDeRepos } from "./fight-rest";
+import { ATTENTE_MAXIMALE_PAR_DEFAUT_SECONDES, multiplicateurDeRepos } from "./fight-rest";
 import type { EtatDeProposition } from "./repartition-tatamis";
 
 export type GraviteDeControle = "refus" | "bloquant" | "avertissement";
@@ -8,6 +8,7 @@ export type TypeDeConstat =
   | "source_apres_dependant"
   | "double_convocation"
   | "repos_insuffisant"
+  | "attente_excessive"
   | "depassement_de_journee"
   | "desequilibre_de_tatami"
   | "chevauchement_de_competitions"
@@ -16,10 +17,16 @@ export type TypeDeConstat =
 // Un repos insuffisant est accepté dans le brouillon mais bloque la publication
 // tant qu'il n'est pas corrigé, comme une double convocation (RPS.3 B, réponse
 // du client du 25/09/2026) : aucune confirmation ne le lève.
+//
+// Une attente excessive, elle, AVERTIT sans bloquer (réponse du client du
+// 28/09/2026) : il a préféré « signaler plutôt que retarder » le jour où la
+// tenir demanderait de laisser un tapis vide. Elle se lit sur le planning, et
+// la fédération arbitre.
 export const GRAVITE_PAR_TYPE: Readonly<Record<TypeDeConstat, GraviteDeControle>> = {
   source_apres_dependant: "refus",
   double_convocation: "bloquant",
   repos_insuffisant: "bloquant",
+  attente_excessive: "avertissement",
   depassement_de_journee: "avertissement",
   desequilibre_de_tatami: "avertissement",
   chevauchement_de_competitions: "avertissement",
@@ -84,6 +91,12 @@ export type CategorieControlee = {
 };
 
 export type EntreeDeControle = {
+  /**
+   * Attente maximale d'un athlète entre deux combats de SON tableau, en minutes
+   * (30 par défaut, `ATTENTE_MAXIMALE_PAR_DEFAUT_SECONDES`). `null` retire le
+   * contrôle.
+   */
+  attenteMaximaleMinutes?: number | null;
   combats?: readonly CombatControle[];
   engagements?: readonly EngagementControle[];
   journees?: readonly JourneeControlee[];
@@ -121,7 +134,10 @@ function reposDuCombatControle(combat: CombatControle): number {
   );
 }
 
-function controlerLesDependances(combats: readonly CombatControle[]): Constat[] {
+function controlerLesDependances(
+  combats: readonly CombatControle[],
+  attenteMaximaleMs: number | null,
+): Constat[] {
   const parId = new Map(combats.map((c) => [c.fightId, c]));
   const constats: Constat[] = [];
   for (const combat of combats) {
@@ -161,6 +177,24 @@ function controlerLesDependances(combats: readonly CombatControle[]): Constat[] 
             tatamiId: combat.tatamiId,
             jour: combat.jour,
             ecartMinutes: minutes(source.finMs + reposMs - combat.debutMs),
+          }),
+        );
+        continue;
+      }
+      // TROP TARD plutôt que trop tôt : les deux s'excluent, et `ecartMinutes`
+      // porte ici l'attente RÉELLE, pas le manque. Le vainqueur de la source
+      // est celui qui attend ; le perdant a fini sa journée.
+      if (attenteMaximaleMs !== null && combat.debutMs - source.finMs > attenteMaximaleMs) {
+        constats.push(
+          construireConstat({
+            type: "attente_excessive",
+            combatId: combat.fightId,
+            autreCombatId: source.fightId,
+            categorieId: combat.categorieId,
+            competitionId: combat.competitionId,
+            tatamiId: combat.tatamiId,
+            jour: combat.jour,
+            ecartMinutes: minutes(combat.debutMs - source.finMs),
           }),
         );
       }
@@ -310,8 +344,14 @@ function controlerLesRepartitions(categories: readonly CategorieControlee[]): Co
 
 export function controlerLePlanning(entree: EntreeDeControle): Constat[] {
   const combats = entree.combats ?? [];
+  const attenteMaximaleMs =
+    entree.attenteMaximaleMinutes === null
+      ? null
+      : entree.attenteMaximaleMinutes === undefined
+        ? ATTENTE_MAXIMALE_PAR_DEFAUT_SECONDES * 1000
+        : Math.max(0, entree.attenteMaximaleMinutes) * MINUTE_MS;
   return [
-    ...controlerLesDependances(combats),
+    ...controlerLesDependances(combats, attenteMaximaleMs),
     ...controlerLesEngagements(entree.engagements ?? []),
     ...controlerLesHorairesDeJournee(combats, entree.journees ?? []),
     ...controlerLesRepartitions(entree.categories ?? []),
