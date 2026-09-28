@@ -2,7 +2,7 @@ import type { BracketFightType } from "./bracket-generator";
 import { findFeederFight, type PropagationFight, type Slot } from "./bracket-propagation";
 import { DEFAULT_BUFFER_SECONDS } from "./capacity";
 import type { DrawFormat } from "./competition-format";
-import { multiplicateurDeRepos } from "./fight-rest";
+import { ATTENTE_MAXIMALE_PAR_DEFAUT_SECONDES, multiplicateurDeRepos } from "./fight-rest";
 import { categoryRunningOrder } from "./planning-generator";
 
 /** Temps de rotation entre deux combats d'un tatami : 2 minutes par défaut (DUR.1 A). */
@@ -55,6 +55,13 @@ export type CreneauOccupe = {
 
 export type EntreeDePlanification = {
   espacementSecondes?: number;
+  /**
+   * Attente maximale d'un athlète entre deux combats de SON tableau, en
+   * secondes (`ATTENTE_MAXIMALE_PAR_DEFAUT_SECONDES` par défaut). `null` la
+   * retire : l'ordonnanceur retrouve alors l'ordre d'avant le 28/09/2026, ce
+   * dont les mesures comparatives ont besoin.
+   */
+  attenteMaximaleSecondes?: number | null;
   debutAuPlusTotMs?: number;
   /**
    * Repos de confort (RPS.4 A) : deux durées de combat avant TOUT combat, au
@@ -195,6 +202,10 @@ function versPropagation(combat: CombatAPlanifier): PropagationFight {
 export function planifierCombats(entree: EntreeDePlanification): ResultatDePlanification {
   const espacementMs =
     Math.max(0, entree.espacementSecondes ?? ESPACEMENT_PAR_DEFAUT_SECONDES) * 1000;
+  const attenteMaximaleMs =
+    entree.attenteMaximaleSecondes === null
+      ? null
+      : Math.max(0, entree.attenteMaximaleSecondes ?? ATTENTE_MAXIMALE_PAR_DEFAUT_SECONDES) * 1000;
   const categories = new Map(entree.categories.map((c) => [c.id, c]));
   const tatamis = new Map(entree.tatamis.map((t) => [t.id, t]));
 
@@ -377,19 +388,73 @@ export function planifierCombats(entree: EntreeDePlanification): ResultatDePlani
     };
   };
 
+  /**
+   * L'HEURE À PARTIR DE LAQUELLE UN COMBAT A TROP ATTENDU : la fin du PREMIER
+   * de ses combats sources, plus l'attente maximale.
+   *
+   * Le premier, et non le dernier : les deux athlètes d'une demi-finale sortent
+   * de deux quarts différents, et celui qui a gagné le plus tôt est celui qui
+   * attend le plus longtemps. C'est son attente à lui que le plafond vise, et
+   * c'est elle que `controlerLePlanning` mesure, source par source.
+   *
+   * Les sources sont les combats de son propre tableau : c'est ce qui borne la
+   * règle à un tableau, et ce qui laisse un premier tour (personne n'a encore
+   * combattu) sans échéance.
+   */
+  const echeanceDe = (combat: CombatAPlanifier): number | null => {
+    if (attenteMaximaleMs === null) return null;
+    const sourcesDuCombat = sources.get(combat.id);
+    if (sourcesDuCombat === undefined) return null;
+    let fin: number | null = null;
+    for (const source of sourcesDuCombat) {
+      if (source === null) continue;
+      const place = places.get(source);
+      if (place === undefined) continue;
+      fin = fin === null || place.finMs < fin ? place.finMs : fin;
+    }
+    return fin === null ? null : fin + attenteMaximaleMs;
+  };
+
   const candidatDeLaPiste = (piste: Piste, ignorerSources: boolean): Candidat | null => {
     const libre = libreDe(piste);
     let differe: Candidat | null = null;
+    let premier: Candidat | null = null;
+    let urgent: { candidat: Candidat; echeance: number } | null = null;
     for (const file of piste.files) {
       const combat = file.tours[file.position]?.[0];
       if (combat === undefined) continue;
       const evaluation = evaluer(piste, combat, ignorerSources);
       if (evaluation.bloque) continue;
       const suivant: Candidat = { piste, file, combat, evaluation };
-      if (evaluation.debutMs <= libre) return suivant;
+      if (evaluation.debutMs <= libre) {
+        if (premier === null) premier = suivant;
+        const echeance = echeanceDe(combat);
+        if (echeance !== null) {
+          const mieuxPlace =
+            urgent === null ||
+            echeance < urgent.echeance ||
+            (echeance === urgent.echeance &&
+              comparerChaines(combat.id, urgent.candidat.combat.id) < 0);
+          if (mieuxPlace) urgent = { candidat: suivant, echeance };
+        }
+        continue;
+      }
       if (differe === null || evaluation.debutMs < differe.evaluation.debutMs) {
         differe = suivant;
       }
+    }
+    // ORD.1 A donne le tapis à la catégorie la mieux classée qui est prête ; un
+    // combat qui dépasserait son attente maximale pendant que celle-là se joue
+    // passe devant elle, et devant elle seulement (le reste de l'ordre tient).
+    if (premier !== null) {
+      if (
+        urgent !== null &&
+        urgent.candidat.combat.id !== premier.combat.id &&
+        urgent.echeance < premier.evaluation.finMs + espacementMs
+      ) {
+        return urgent.candidat;
+      }
+      return premier;
     }
     if (!ignorerSources) {
       const devant = combatQuiPasseDevant(piste, libre);
