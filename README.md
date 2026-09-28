@@ -1313,10 +1313,11 @@ sous-équipe, et s'est retrouvé face à #14, de l'équipe principale, au premie
   entre deux ex æquo aucun n'est mieux classé que l'autre. C'est la lecture vérifiable de « ne
   pénalise aucun athlète mieux classé », et celle du §8 : le tirage n'intervient qu'entre des
   tableaux qui respectent les mêmes priorités.
-- **Rien d'impératif ne recule.** Un échange n'est retenu que si aucune contrainte du plan ne se
-  dégrade, palier par palier. Il ne touche ni un tour blanc (deux athlètes de même statut au
-  premier tour) ni une position figée, et #1 et #2 restent dans deux moitiés. Le rang affiché ne
-  change pas.
+- **Rien de ce que le plan a décidé ne change.** #1 et #2 ne bougent jamais ; aucun tour blanc ne
+  change de main (deux athlètes de même statut au premier tour) ; aucune position figée ne bouge ;
+  aucune paire en défaut d'une contrainte du plan n'apparaît, ne disparaît ni ne change d'athlètes
+  (quand une séparation impérative est impossible, la paire que la réparation a laissée ensemble
+  reste celle-là) ; aucun échange de la réparation n'est défait. Le rang affiché ne change pas.
 - **Au plus tard possible.** Les rencontres de même origine avant la finale reculent, dans cet
   ordre : moins au premier tour, puis moins au deuxième, jusqu'aux demi-finales. La paire qui se
   rencontrerait le plus tôt passe d'abord ; le moins bien classé des deux est déplacé en premier,
@@ -1325,13 +1326,17 @@ sous-équipe, et s'est retrouvé face à #14, de l'équipe principale, au premie
 - **Mesuré sur les inscrits de l'Open Île-de-France** (quatre compétitions, 101 catégories de
   quatre et plus, 30 tirages chacune, scores de placement réels) : rencontres de même origine au
   premier tour par génération complète, 6,87 avant, 1,03 après ; avant les demi-finales, 30,83
-  puis 13,13 ; aucune séparation d'équipe attribuée dégradée ; 4,5 ms au plus pour un tableau. Les
-  deux catégories qui gardent une rencontre possible au premier tour ne l'éviteraient qu'en
-  déplaçant un tour blanc.
-- **Verrou** (`tests/equipe-d-origine.test.ts`) : le tableau du ticket, son témoin, et 3 000
-  tableaux au hasard de 4 à 40 inscrits où rien d'impératif ne se dégrade, aucun tour blanc ne
-  change de main, #1 et #2 restent opposés, chaque bloc garde ses scores et les rencontres de même
-  origine ne font que reculer.
+  puis 13,13 ; aucune séparation d'équipe attribuée dégradée ; 2,6 ms au plus pour un tableau. Les
+  deux catégories qui gardent une rencontre possible au premier tour n'ont qu'un combat au premier
+  tour : elles ne l'éviteraient qu'en déplaçant un tour blanc. Au pire, 128 inscrits tous de la même
+  origine, la recherche prend 170 ms : chaque échange s'évalue par différence.
+- **Verrou** (`tests/equipe-d-origine.test.ts`) : le tableau du ticket et son témoin, #1 et #2 ex
+  æquo et exemptés qui ne bougent pas, puis 3 000 tableaux au hasard de 4 à 40 inscrits et 3 000
+  petites catégories dominées par une équipe (des paires impératives inévitables) : aucune paire en
+  défaut ne change, aucun tour blanc ne change de main, #1 et #2 restent en place, aucun échange de
+  la réparation n'est défait, chaque bloc garde ses scores, et les rencontres de même origine ne
+  font que reculer. Une recherche locale : sur de petits tableaux tirés au hasard, elle manque
+  parfois un placement meilleur qui demanderait deux échanges à la fois.
 
 ### Pour les consommateurs
 

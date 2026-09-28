@@ -158,6 +158,35 @@ describe("même équipe d'origine : ce que la recherche ne fait jamais", () => {
     expect(echanges).toEqual([]);
   });
 
+  it("#1 et #2 ne bougent jamais, même ex æquo et exemptés tous les deux", () => {
+    // Six inscrits dans huit, tous ex æquo sauf #6 : #2 et #6 (même origine O) sont dans la
+    // même moitié. Échanger #2 avec #1, exempté comme lui, les séparerait : c'est interdit.
+    const cles: Record<number, [string | null, string]> = {
+      1: [null, "c1"],
+      2: ["O-0", "O"],
+      3: ["P-0", "P"],
+      4: [null, "c4"],
+      5: ["P-2", "P"],
+      6: ["O-1", "O"],
+    };
+    const entries = Array.from({ length: 6 }, (_, i): BracketEntry => {
+      const [teamId, originTeamId] = cles[i + 1]!;
+      return {
+        registrationId: `r${i + 1}`,
+        clubId: `c${i + 1}`,
+        teamId,
+        originTeamId,
+        rank: i + 1,
+        tieGroup: i + 1 === 6 ? 6 : 1,
+      };
+    });
+    const avant = applySeedingPlan(entries, 8, SANS_TIRAGE, SANS_RECHERCHE);
+    const apres = applySeedingPlan(entries, 8, SANS_TIRAGE, RANG_SPORTIF_SEEDING_PLAN);
+    expect(feuilleDe(apres.leaves, "r1")).toBe(0);
+    expect(feuilleDe(apres.leaves, "r2")).toBe(feuilleDe(avant.leaves, "r2"));
+    expect(apres.echanges).toEqual(avant.echanges);
+  });
+
   it("une entrée sans équipe d'origine ni groupe d'ex æquo laisse le placement de v0.35.0", () => {
     const entries = tableauDuTicket(true).map(
       ({ originTeamId: _o, tieGroup: _g, ...reste }): BracketEntry => reste,
@@ -185,10 +214,16 @@ describe("même équipe d'origine : ce que la recherche ne fait jamais", () => {
 
 /**
  * LE VERROU : sur des tableaux tirés au hasard (4 à 40 inscrits, équipes de deux réunies
- * en équipes d'origine, ex æquo par séries), la séparation recherchée :
- * - ne dégrade aucune contrainte du plan, palier par palier ;
+ * en équipes d'origine, ex æquo par séries ; puis de petites catégories dominées par une
+ * équipe, dont des équipes attribuées de trois qu'aucun placement ne sépare toutes), la
+ * séparation recherchée :
+ * - ne change aucune paire en défaut du plan : ni ajoutée, ni retirée, ni remplacée par
+ *   une autre (relecture du 28/09 : sur les catégories dominées, une paire inévitable
+ *   passait à d'autres athlètes, parfois mieux classés) ;
  * - ne fait jamais avancer les rencontres de même origine, et les recule souvent ;
- * - ne change aucun tour blanc de main, garde #1 et #2 dans deux moitiés ;
+ * - ne change aucun tour blanc de main, ne déplace ni #1 ni #2 (relecture du 28/09 : #1
+ *   et #2 ex æquo et exemptés s'échangeaient) ;
+ * - ne défait aucun échange de la réparation ;
  * - ne change le parcours de personne : dans chaque bloc de chaque tour, les scores
  *   présents (les groupes d'ex æquo) sont exactement ceux d'avant. C'est la forme
  *   vérifiable de « ne pénalise aucun athlète mieux classé ».
@@ -204,7 +239,7 @@ function mulberry(seed: number): () => number {
   };
 }
 
-function tableauAuHasard(n: number, rng: () => number): BracketEntry[] {
+function tableauAuHasard(n: number, rng: () => number, parEquipe = 2): BracketEntry[] {
   // Les ex æquo : des séries de rangs consécutifs.
   const groupes: number[] = [];
   let tete = 1;
@@ -212,7 +247,7 @@ function tableauAuHasard(n: number, rng: () => number): BracketEntry[] {
     if (rang === 1 || rng() < 0.35) tete = rang;
     groupes.push(tete);
   }
-  // Des équipes attribuées de deux au plus, réunies par origines de deux ou trois équipes.
+  // Des équipes attribuées de `parEquipe` au plus, réunies par origines de deux ou trois.
   const ordre = Array.from({ length: n }, (_, i) => i + 1).sort(() => rng() - 0.5);
   const equipe = new Map<number, string>();
   const origine = new Map<number, string>();
@@ -221,7 +256,7 @@ function tableauAuHasard(n: number, rng: () => number): BracketEntry[] {
   while (k < ordre.length && rng() < 0.85) {
     const equipes = 2 + Math.floor(rng() * 2);
     for (let e = 0; e < equipes && k < ordre.length; e++) {
-      const taille = 1 + Math.floor(rng() * 2);
+      const taille = 1 + Math.floor(rng() * parEquipe);
       for (let m = 0; m < taille && k < ordre.length; m++, k++) {
         equipe.set(ordre[k]!, `o${o}-e${e}`);
         origine.set(ordre[k]!, `o${o}`);
@@ -244,17 +279,21 @@ function tableauAuHasard(n: number, rng: () => number): BracketEntry[] {
 
 const tailleDe = (n: number): number => 2 ** Math.ceil(Math.log2(Math.max(2, n)));
 
-function penalites(feuilles: Feuilles): number[] {
-  const out = [0, 0];
+/** Les paires en défaut du plan, athlète par athlète : même équipe attribuée au premier tour, puis dans une même moitié. */
+function pairesEnDefaut(feuilles: Feuilles): string[] {
+  const out: string[] = [];
   for (let f = 0; f < feuilles.length; f++) {
     for (let g = f + 1; g < feuilles.length; g++) {
-      const a = feuilles[f]?.teamId ?? null;
-      if (a === null || a !== (feuilles[g]?.teamId ?? null)) continue;
-      if (tourDeRencontre(f, g) === 1) out[0]! += 1;
-      if (f < feuilles.length / 2 === g < feuilles.length / 2) out[1]! += 1;
+      const a = feuilles[f] ?? null;
+      const b = feuilles[g] ?? null;
+      if (a === null || b === null || (a.teamId ?? null) === null || a.teamId !== b.teamId)
+        continue;
+      const ids = [a.registrationId, b.registrationId].sort().join("|");
+      if (tourDeRencontre(f, g) === 1) out.push(`premier-tour:${ids}`);
+      if (f < feuilles.length / 2 === g < feuilles.length / 2) out.push(`moitie:${ids}`);
     }
   }
-  return out;
+  return out.sort();
 }
 
 function rencontresDOrigine(feuilles: Feuilles): number[] {
@@ -293,38 +332,77 @@ function blocs(feuilles: Feuilles): string[] {
   return out;
 }
 
-describe("même équipe d'origine : le verrou", () => {
-  it("3 000 tableaux au hasard : rien de dégradé, personne de pénalisé, les rencontres reculent", () => {
-    const rng = mulberry(20260928);
-    let reculs = 0;
-    for (let essai = 0; essai < 3000; essai++) {
-      const n = 4 + Math.floor(rng() * 37);
-      const entries = tableauAuHasard(n, rng);
-      const taille = tailleDe(n);
-      const avant = applySeedingPlan(entries, taille, SANS_TIRAGE, SANS_RECHERCHE);
-      const apres = applySeedingPlan(entries, taille, SANS_TIRAGE, RANG_SPORTIF_SEEDING_PLAN);
-      const cas = `essai ${essai}, ${n} inscrits`;
+// Deux recherches exhaustives de quelques secondes sur un runner de CI chargé.
+const VERROU = 60_000;
 
-      expect(compare(penalites(apres.leaves), penalites(avant.leaves)), cas).toBeLessThanOrEqual(0);
-      const recul = compare(rencontresDOrigine(apres.leaves), rencontresDOrigine(avant.leaves));
-      expect(recul, cas).toBeLessThanOrEqual(0);
-      if (recul < 0) reculs += 1;
-      expect(exemptes(apres.leaves), cas).toEqual(exemptes(avant.leaves));
-      const moitieDe = (id: string) => feuilleDe(apres.leaves, id) < taille / 2;
-      expect(moitieDe("r1") !== moitieDe("r2"), cas).toBe(true);
-      expect(blocs(apres.leaves), cas).toEqual(blocs(avant.leaves));
-      // Les échanges de la recherche : entre ex æquo, jamais avec soi-même.
-      const groupeDe = new Map(entries.map((e) => [e.registrationId, e.tieGroup] as const));
-      for (const e of apres.echanges.slice(avant.echanges.length)) {
-        expect(e.contrainte, cas).toBe("meme-equipe-d-origine");
-        expect(groupeDe.get(e.deplace), cas).toBe(groupeDe.get(e.avec));
-        expect(e.deplace, cas).not.toBe(e.avec);
-      }
-      expect(apres.echanges.slice(0, avant.echanges.length), cas).toEqual(avant.echanges);
+describe("même équipe d'origine : le verrou", () => {
+  function verifier(
+    entries: readonly BracketEntry[],
+    cas: string,
+  ): { recul: boolean; inevitable: boolean } {
+    const taille = tailleDe(entries.length);
+    const avant = applySeedingPlan(entries, taille, SANS_TIRAGE, SANS_RECHERCHE);
+    const apres = applySeedingPlan(entries, taille, SANS_TIRAGE, RANG_SPORTIF_SEEDING_PLAN);
+
+    expect(pairesEnDefaut(apres.leaves), cas).toEqual(pairesEnDefaut(avant.leaves));
+    const recul = compare(rencontresDOrigine(apres.leaves), rencontresDOrigine(avant.leaves));
+    expect(recul, cas).toBeLessThanOrEqual(0);
+    expect(exemptes(apres.leaves), cas).toEqual(exemptes(avant.leaves));
+    for (const id of ["r1", "r2"]) {
+      expect(feuilleDe(apres.leaves, id), cas).toBe(feuilleDe(avant.leaves, id));
     }
-    // Le verrou n'est pas vide : la recherche a réellement éloigné des équipes d'origine.
-    expect(reculs).toBeGreaterThan(300);
-  });
+    expect(blocs(apres.leaves), cas).toEqual(blocs(avant.leaves));
+    // Les échanges de la recherche : entre ex æquo, jamais avec soi-même, jamais le
+    // retour d'un échange de la réparation.
+    const groupeDe = new Map(entries.map((e) => [e.registrationId, e.tieGroup] as const));
+    const paire = (x: string, y: string) => [x, y].sort().join("|");
+    const reparation = new Set(avant.echanges.map((e) => paire(e.deplace, e.avec)));
+    for (const e of apres.echanges.slice(avant.echanges.length)) {
+      expect(e.contrainte, cas).toBe("meme-equipe-d-origine");
+      expect(groupeDe.get(e.deplace), cas).toBe(groupeDe.get(e.avec));
+      expect(e.deplace, cas).not.toBe(e.avec);
+      expect(reparation.has(paire(e.deplace, e.avec)), cas).toBe(false);
+    }
+    expect(apres.echanges.slice(0, avant.echanges.length), cas).toEqual(avant.echanges);
+    return { recul: recul < 0, inevitable: pairesEnDefaut(avant.leaves).length > 0 };
+  }
+
+  it(
+    "3 000 tableaux au hasard : rien de ce que le plan a décidé ne change, personne de pénalisé, les rencontres reculent",
+    () => {
+      const rng = mulberry(20260928);
+      let reculs = 0;
+      for (let essai = 0; essai < 3000; essai++) {
+        const n = 4 + Math.floor(rng() * 37);
+        if (verifier(tableauAuHasard(n, rng), `essai ${essai}, ${n} inscrits`).recul) reculs += 1;
+      }
+      // Le verrou n'est pas vide : la recherche a réellement éloigné des équipes d'origine.
+      expect(reculs).toBeGreaterThan(300);
+    },
+    VERROU,
+  );
+
+  it(
+    "3 000 petites catégories dominées par une équipe : une paire inévitable reste la même",
+    () => {
+      const rng = mulberry(280926);
+      let reculs = 0;
+      let inevitables = 0;
+      for (let essai = 0; essai < 3000; essai++) {
+        const n = 4 + Math.floor(rng() * 9);
+        const { recul, inevitable } = verifier(
+          tableauAuHasard(n, rng, 3),
+          `catégorie dominée ${essai}, ${n} inscrits`,
+        );
+        if (recul) reculs += 1;
+        if (inevitable) inevitables += 1;
+      }
+      // Le décor n'est pas vide : des paires inévitables, et des rencontres qui reculent.
+      expect(inevitables).toBeGreaterThan(100);
+      expect(reculs).toBeGreaterThan(300);
+    },
+    VERROU,
+  );
 });
 
 describe("groupesDExAequo", () => {
