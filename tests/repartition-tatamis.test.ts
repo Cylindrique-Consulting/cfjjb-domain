@@ -9,6 +9,7 @@ import {
   partiesDuCombat,
   plafondDeRepartition,
   proposerLaRepartition,
+  tatamisSelonLaDureeDuTour,
   repartirLesCombats,
   tatamisApresArbitrage,
   tatamisSelonLEffectif,
@@ -608,5 +609,121 @@ describe("l'affectation des catégories aux tatamis", () => {
 
   it("refuse une compétition sans tatami", () => {
     expect(() => affecterLesTatamis([], [])).toThrow();
+  });
+});
+
+describe("le dimensionnement sur la durée d'un tour (validé le 28/09/2026)", () => {
+  // Une blanche adulte : 5 minutes de combat, 2 de rotation, soit 7 minutes par
+  // combat. Quatre combats tiennent dans les 30 minutes, huit non.
+  const blanche = (combats: number) =>
+    tatamisSelonLaDureeDuTour({
+      combatsDuPremierTour: combats,
+      dureeSecondes: 300,
+      espacementSecondes: 120,
+    });
+
+  it("garde un tapis tant que le tour tient dans les 30 minutes", () => {
+    expect(blanche(1)).toBe(1);
+    expect(blanche(4)).toBe(1);
+  });
+
+  it("répartit dès que le tour déborde, sur un nombre équilibré", () => {
+    // Cinq combats font 35 minutes : deux tapis suffisent à repasser dessous.
+    expect(blanche(5)).toBe(2);
+    // Un tableau de 16 : huit combats, 56 minutes, deux tapis.
+    expect(blanche(8)).toBe(2);
+    // Un tableau de 32 : seize combats, 112 minutes, quatre tapis.
+    expect(blanche(16)).toBe(4);
+    // Un tableau de 64 : trente-deux combats, huit tapis.
+    expect(blanche(32)).toBe(8);
+  });
+
+  it("ne propose que 1, 2, 4 ou 8 : les autres comptent comme un déséquilibre au §18", () => {
+    for (const combats of [1, 2, 3, 5, 7, 9, 11, 13, 17, 23, 32, 64]) {
+      expect([1, 2, 4, 8]).toContain(blanche(combats));
+    }
+  });
+
+  it("demande plus de tapis quand les combats sont longs", () => {
+    // Une noire adulte : 10 minutes de combat, 12 avec la rotation. Deux
+    // combats seulement tiennent dans les 30 minutes.
+    const noire = (combats: number) =>
+      tatamisSelonLaDureeDuTour({
+        combatsDuPremierTour: combats,
+        dureeSecondes: 600,
+        espacementSecondes: 120,
+      });
+    expect(noire(2)).toBe(1);
+    expect(noire(4)).toBe(2);
+    expect(noire(8)).toBe(4);
+    // À effectif égal, une noire demande deux fois plus de tapis qu'une blanche.
+    expect(noire(8)).toBeGreaterThan(blanche(8));
+  });
+
+  it("obéit à la durée maximale que l'appelant donne", () => {
+    expect(
+      tatamisSelonLaDureeDuTour({
+        combatsDuPremierTour: 8,
+        dureeSecondes: 300,
+        espacementSecondes: 120,
+        dureeMaximaleDuTourSecondes: 60 * 60,
+      }),
+    ).toBe(1);
+  });
+
+  it("ne dit rien d'un tour vide", () => {
+    expect(blanche(0)).toBe(1);
+  });
+});
+
+describe("la proposition de répartition et la durée du tour", () => {
+  it("ne change rien tant que l'appelant ne donne pas le premier tour", () => {
+    expect(proposerLaRepartition({ inscrits: 16, tatamisDeLaCompetition: 8 })).toMatchObject({
+      proposition: 1,
+      motif: "effectif",
+    });
+  });
+
+  it("ajoute les tatamis que la durée du tour réclame, et le dit", () => {
+    // 16 inscrits : l'effectif propose un seul tapis, où le tour dure 56 min.
+    expect(
+      proposerLaRepartition({
+        inscrits: 16,
+        tatamisDeLaCompetition: 8,
+        premierTour: { combats: 8, dureeSecondes: 300, espacementSecondes: 120 },
+      }),
+    ).toMatchObject({ proposition: 2, motif: "duree_du_tour" });
+  });
+
+  it("n'enlève jamais de tatami à ce que l'effectif propose", () => {
+    // 64 inscrits, mais des combats courts : l'effectif en veut 4, la durée 2.
+    expect(
+      proposerLaRepartition({
+        inscrits: 64,
+        tatamisDeLaCompetition: 8,
+        premierTour: { combats: 8, dureeSecondes: 120, espacementSecondes: 60 },
+      }),
+    ).toMatchObject({ proposition: 4, motif: "effectif" });
+  });
+
+  it("reste borné par les tatamis de la compétition", () => {
+    expect(
+      proposerLaRepartition({
+        inscrits: 16,
+        tatamisDeLaCompetition: 1,
+        premierTour: { combats: 8, dureeSecondes: 300, espacementSecondes: 120 },
+      }),
+    ).toMatchObject({ proposition: 1, motif: "plafonne_par_la_competition" });
+  });
+
+  it("laisse les poules de côté, comme avant", () => {
+    expect(
+      proposerLaRepartition({
+        inscrits: 3,
+        tatamisDeLaCompetition: 8,
+        format: "pools",
+        premierTour: { combats: 3, dureeSecondes: 600, espacementSecondes: 120 },
+      }),
+    ).toMatchObject({ proposition: 1, motif: "format_non_reparti" });
   });
 });
