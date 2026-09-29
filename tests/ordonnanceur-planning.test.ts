@@ -527,6 +527,75 @@ describe("l'ordonnanceur au combat", () => {
     expect(parBorne[1]).toEqual(parBorne[0]);
   });
 
+  // UN TOUR COMMENCÉ NE SE LAISSE PAS ÉTALER SUR DEUX HEURES. Le plafond ne
+  // tenait que les combats reliés par une source : deux combats du MÊME tour
+  // n'en ont aucune entre eux, si bien qu'un tapis pouvait jouer un combat du
+  // tour, passer deux heures sur la catégorie mieux classée, puis revenir
+  // finir le tour — et le vainqueur du premier attendait tout l'étalement.
+  // Un tour commencé donne donc son échéance à ses combats restants.
+  it("finit un tour commencé au lieu de le reprendre deux heures plus tard", () => {
+    const montage = monter([
+      {
+        id: "A",
+        fights: tableau(16, "a"),
+        tatamis: tatamis(1),
+        dureeSecondes: 300,
+        rangDePlanning: 0,
+      },
+      {
+        id: "B",
+        fights: tableau(8, "b"),
+        tatamis: tatamis(1),
+        dureeSecondes: 300,
+        rangDePlanning: 1,
+      },
+    ]);
+    // A ne prend le tapis qu'à 09:06 : B commence son tour à l'ouverture, et A
+    // le lui reprend ensuite pour son tableau entier. C'est la situation que
+    // le client a vue le 28/09, un combat du tour isolé loin devant les autres.
+    const categories = montage.categories.map((c) =>
+      c.id === "A" ? { ...c, debutAuPlusTotParTatami: { t1: heure("09:06") } } : c,
+    );
+    const planifier = (attenteMaximaleSecondes: number | null | undefined) =>
+      planifierCombats({
+        espacementSecondes: UNE_MINUTE,
+        ...(attenteMaximaleSecondes === undefined ? {} : { attenteMaximaleSecondes }),
+        tatamis: unTatami(),
+        categories,
+        combats: montage.combats,
+      });
+    const premierTour = (resultat: ResultatDePlanification) =>
+      parRang(resultat.combats)
+        .filter((p) => p.categorieId === "B" && p.fightId.startsWith("B:3:"))
+        .map((p) => hhmm(p.debutMs));
+    const pireAttente = (resultat: ResultatDePlanification) =>
+      Math.max(
+        0,
+        ...controlerLePlanning({
+          combats: versControle(montage, resultat, { A: 300, B: 300 }),
+        })
+          .filter((c) => c.type === "attente_excessive")
+          .map((c) => c.ecartMinutes ?? 0),
+      );
+    const fin = (resultat: ResultatDePlanification) =>
+      Math.max(...[...resultat.combats.values()].map((p) => p.finMs));
+
+    const sansBorne = planifier(null);
+    const avecBorne = planifier(undefined);
+
+    // Sans elle, le tour de B tient sur 1 h 48 : un combat à l'ouverture, les
+    // trois autres après le tableau de A.
+    expect(premierTour(sansBorne)).toEqual(["09:00", "10:30", "10:36", "10:48"]);
+    // Avec elle, le tour se finit dans la demi-heure qui suit son premier
+    // combat, sans que le tapis chôme ni que la journée s'allonge.
+    expect(premierTour(avecBorne)).toEqual(["09:00", "09:30", "09:36", "09:42"]);
+    expect(fin(avecBorne)).toBe(fin(sansBorne));
+    // Sur un seul tapis saturé, le plafond ne supprime pas l'attente : il la
+    // ramène de 1 h 49 à 1 h 07, en la répartissant sur les deux tableaux.
+    expect(pireAttente(sansBorne)).toBe(109);
+    expect(pireAttente(avecBorne)).toBe(67);
+  });
+
   // UN GRAND TABLEAU SUR UN SEUL TAPIS NE PEUT PAS TENIR LE PLAFOND, et aucun
   // ordre ne l'y aiderait : son premier tour dure à lui seul plus de trente
   // minutes, et le tour suivant attend qu'il soit joué. C'est la RÉPARTITION
