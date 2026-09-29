@@ -127,6 +127,13 @@ type FileDeCategorie = {
   tours: CombatAPlanifier[][];
   position: number;
   restants: number;
+  /**
+   * Fin du PREMIER combat placé du tour en cours, remise à null quand la file
+   * passe au tour suivant. C'est elle qui donne son échéance au reste du tour :
+   * un tour commencé doit se finir dans l'attente maximale, sinon le vainqueur
+   * du premier combat attend tout l'étalement du tour avant de revoir le tapis.
+   */
+  finDuPremierDuTour: number | null;
 };
 
 type Piste = {
@@ -290,6 +297,7 @@ export function planifierCombats(entree: EntreeDePlanification): ResultatDePlani
         tours: [[]],
         position: 0,
         restants: 0,
+        finDuPremierDuTour: null,
       };
       piste.files.push(file);
     }
@@ -389,29 +397,38 @@ export function planifierCombats(entree: EntreeDePlanification): ResultatDePlani
   };
 
   /**
-   * L'HEURE À PARTIR DE LAQUELLE UN COMBAT A TROP ATTENDU : la fin du PREMIER
-   * de ses combats sources, plus l'attente maximale.
+   * L'HEURE À PARTIR DE LAQUELLE UN COMBAT A TROP ATTENDU. Deux échéances, dont
+   * on garde la plus contraignante.
    *
-   * Le premier, et non le dernier : les deux athlètes d'une demi-finale sortent
-   * de deux quarts différents, et celui qui a gagné le plus tôt est celui qui
-   * attend le plus longtemps. C'est son attente à lui que le plafond vise, et
-   * c'est elle que `controlerLePlanning` mesure, source par source.
+   * 1. SES COMBATS SOURCES, à partir du PREMIER d'entre eux. Le premier et non
+   *    le dernier : les deux athlètes d'une demi-finale sortent de deux quarts
+   *    différents, et celui qui a gagné le plus tôt est celui qui attend le plus
+   *    longtemps. C'est son attente à lui que le plafond vise, et c'est elle que
+   *    `controlerLePlanning` mesure, source par source. Les sources sont les
+   *    combats de son propre tableau : c'est ce qui borne la règle à un tableau.
    *
-   * Les sources sont les combats de son propre tableau : c'est ce qui borne la
-   * règle à un tableau, et ce qui laisse un premier tour (personne n'a encore
-   * combattu) sans échéance.
+   * 2. SON PROPRE TOUR, dès qu'un combat de ce tour est placé. Sans cette
+   *    seconde échéance, le plafond ne voyait rien de l'étalement d'un tour :
+   *    deux combats d'un même tour n'ont aucun lien de source, donc aucune
+   *    échéance, et rien ne les empêchait d'être séparés de trois heures. Or une
+   *    catégorie ne propose son tour suivant que lorsque tout son tour en cours
+   *    est placé : le vainqueur du premier combat attendait donc l'étalement
+   *    entier avant de revoir le tapis. Mesuré sur l'Open Île-de-France : un
+   *    tour de trois combats étalé sur 188 minutes, et 190 minutes d'attente
+   *    pour le vainqueur du premier.
    */
-  const echeanceDe = (combat: CombatAPlanifier): number | null => {
+  const echeanceDe = (file: FileDeCategorie, combat: CombatAPlanifier): number | null => {
     if (attenteMaximaleMs === null) return null;
-    const sourcesDuCombat = sources.get(combat.id);
-    if (sourcesDuCombat === undefined) return null;
     let fin: number | null = null;
-    for (const source of sourcesDuCombat) {
+    const retenir = (valeur: number) => {
+      fin = fin === null || valeur < fin ? valeur : fin;
+    };
+    for (const source of sources.get(combat.id) ?? []) {
       if (source === null) continue;
       const place = places.get(source);
-      if (place === undefined) continue;
-      fin = fin === null || place.finMs < fin ? place.finMs : fin;
+      if (place !== undefined) retenir(place.finMs);
     }
+    if (file.finDuPremierDuTour !== null) retenir(file.finDuPremierDuTour);
     return fin === null ? null : fin + attenteMaximaleMs;
   };
 
@@ -428,7 +445,7 @@ export function planifierCombats(entree: EntreeDePlanification): ResultatDePlani
       const suivant: Candidat = { piste, file, combat, evaluation };
       if (evaluation.debutMs <= libre) {
         if (premier === null) premier = suivant;
-        const echeance = echeanceDe(combat);
+        const echeance = echeanceDe(file, combat);
         if (echeance !== null) {
           const mieuxPlace =
             urgent === null ||
@@ -523,7 +540,10 @@ export function planifierCombats(entree: EntreeDePlanification): ResultatDePlani
       if (index >= 0) tour.splice(index, 1);
     }
     file.restants -= 1;
+    if (file.finDuPremierDuTour === null) file.finDuPremierDuTour = evaluation.finMs;
+    const tourAvant = file.position;
     avancerLaFile(file);
+    if (file.position !== tourAvant) file.finDuPremierDuTour = null;
     perimer(piste);
     for (const dependant of dependants.get(combat.id) ?? []) {
       perimer(pisteDuCombat.get(dependant));
