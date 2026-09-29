@@ -43,18 +43,30 @@ export const DUREE_MAXIMALE_D_UN_TOUR_SECONDES = 30 * 60;
 const REPARTITIONS_EQUILIBREES: readonly number[] = [1, 2, 4, 8];
 
 /**
- * Le nombre de tatamis qu'il faut pour qu'un tour tienne dans la durée
- * maximale. Les combats du PREMIER tour font foi (le plus long), byes exclus
- * puisqu'ils ne s'y jouent pas, et le cycle d'un combat comprend la rotation
- * du tapis. Seules les répartitions équilibrées sont proposées.
+ * Le nombre de tatamis qu'il faut pour que le tour le plus long tienne dans la
+ * durée maximale. Byes exclus puisqu'ils ne se jouent pas, et le cycle d'un
+ * combat comprend la rotation du tapis. Seules les répartitions équilibrées
+ * sont proposées.
+ *
+ * ┌─ LE TOUR LE PLUS LONG N'EST PAS LE PREMIER ───────────────────────────────┐
+ * │ Dès que l'effectif n'est pas une puissance de deux, les byes vident le    │
+ * │ premier tour et reportent la charge sur le suivant. Mesuré sur les        │
+ * │ tableaux de l'Open Île-de-France : à 33 inscrits le premier tour ne       │
+ * │ compte qu'UN combat quand le deuxième en compte SEIZE, à 36 inscrits      │
+ * │ quatre contre seize, à 20 inscrits quatre contre huit.                    │
+ * │                                                                            │
+ * │ Dimensionner sur le premier tour revenait donc à ne rien dimensionner du  │
+ * │ tout sur la moitié des tableaux, et à laisser sur un seul tapis ceux qui  │
+ * │ en avaient le plus besoin.                                                │
+ * └───────────────────────────────────────────────────────────────────────────┘
  */
 export function tatamisSelonLaDureeDuTour(entree: {
-  combatsDuPremierTour: number;
+  combatsDuTourLePlusLong: number;
   dureeSecondes: number;
   espacementSecondes: number;
   dureeMaximaleDuTourSecondes?: number;
 }): number {
-  const combats = Math.max(0, Math.floor(entree.combatsDuPremierTour));
+  const combats = Math.max(0, Math.floor(entree.combatsDuTourLePlusLong));
   const cycle = Math.max(0, entree.dureeSecondes) + Math.max(0, entree.espacementSecondes);
   const borne = Math.max(
     1,
@@ -88,12 +100,12 @@ export type EntreeDeProposition = {
   tatamisDeLaCompetition: number;
   format?: DrawFormat;
   /**
-   * La durée du premier tour, quand l'appelant la connaît : elle ne fait
+   * La durée du tour le plus long, quand l'appelant la connaît : elle ne fait
    * qu'AJOUTER des tatamis à ce que l'effectif propose, jamais en retirer.
    * Absente, la proposition reste celle des seuils d'effectif, exactement
    * comme avant le 28/09/2026.
    */
-  premierTour?: {
+  tourLePlusLong?: {
     combats: number;
     dureeSecondes: number;
     espacementSecondes: number;
@@ -121,15 +133,15 @@ export function proposerLaRepartition(entree: EntreeDeProposition): PropositionD
   }
   const selonEffectif = tatamisSelonLEffectif(entree.inscrits);
   const selonLaDuree =
-    entree.premierTour === undefined
+    entree.tourLePlusLong === undefined
       ? 0
       : tatamisSelonLaDureeDuTour({
-          combatsDuPremierTour: entree.premierTour.combats,
-          dureeSecondes: entree.premierTour.dureeSecondes,
-          espacementSecondes: entree.premierTour.espacementSecondes,
-          ...(entree.premierTour.dureeMaximaleSecondes === undefined
+          combatsDuTourLePlusLong: entree.tourLePlusLong.combats,
+          dureeSecondes: entree.tourLePlusLong.dureeSecondes,
+          espacementSecondes: entree.tourLePlusLong.espacementSecondes,
+          ...(entree.tourLePlusLong.dureeMaximaleSecondes === undefined
             ? {}
-            : { dureeMaximaleDuTourSecondes: entree.premierTour.dureeMaximaleSecondes }),
+            : { dureeMaximaleDuTourSecondes: entree.tourLePlusLong.dureeMaximaleSecondes }),
         });
   const voulu = Math.max(selonEffectif, selonLaDuree);
   const proposition = Math.min(voulu, plafond);

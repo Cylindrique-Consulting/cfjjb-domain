@@ -617,7 +617,7 @@ describe("le dimensionnement sur la durée d'un tour (validé le 28/09/2026)", (
   // combat. Quatre combats tiennent dans les 30 minutes, huit non.
   const blanche = (combats: number) =>
     tatamisSelonLaDureeDuTour({
-      combatsDuPremierTour: combats,
+      combatsDuTourLePlusLong: combats,
       dureeSecondes: 300,
       espacementSecondes: 120,
     });
@@ -649,7 +649,7 @@ describe("le dimensionnement sur la durée d'un tour (validé le 28/09/2026)", (
     // combats seulement tiennent dans les 30 minutes.
     const noire = (combats: number) =>
       tatamisSelonLaDureeDuTour({
-        combatsDuPremierTour: combats,
+        combatsDuTourLePlusLong: combats,
         dureeSecondes: 600,
         espacementSecondes: 120,
       });
@@ -663,7 +663,7 @@ describe("le dimensionnement sur la durée d'un tour (validé le 28/09/2026)", (
   it("obéit à la durée maximale que l'appelant donne", () => {
     expect(
       tatamisSelonLaDureeDuTour({
-        combatsDuPremierTour: 8,
+        combatsDuTourLePlusLong: 8,
         dureeSecondes: 300,
         espacementSecondes: 120,
         dureeMaximaleDuTourSecondes: 60 * 60,
@@ -690,7 +690,7 @@ describe("la proposition de répartition et la durée du tour", () => {
       proposerLaRepartition({
         inscrits: 16,
         tatamisDeLaCompetition: 8,
-        premierTour: { combats: 8, dureeSecondes: 300, espacementSecondes: 120 },
+        tourLePlusLong: { combats: 8, dureeSecondes: 300, espacementSecondes: 120 },
       }),
     ).toMatchObject({ proposition: 2, motif: "duree_du_tour" });
   });
@@ -701,7 +701,7 @@ describe("la proposition de répartition et la durée du tour", () => {
       proposerLaRepartition({
         inscrits: 64,
         tatamisDeLaCompetition: 8,
-        premierTour: { combats: 8, dureeSecondes: 120, espacementSecondes: 60 },
+        tourLePlusLong: { combats: 8, dureeSecondes: 120, espacementSecondes: 60 },
       }),
     ).toMatchObject({ proposition: 4, motif: "effectif" });
   });
@@ -711,7 +711,7 @@ describe("la proposition de répartition et la durée du tour", () => {
       proposerLaRepartition({
         inscrits: 16,
         tatamisDeLaCompetition: 1,
-        premierTour: { combats: 8, dureeSecondes: 300, espacementSecondes: 120 },
+        tourLePlusLong: { combats: 8, dureeSecondes: 300, espacementSecondes: 120 },
       }),
     ).toMatchObject({ proposition: 1, motif: "plafonne_par_la_competition" });
   });
@@ -722,8 +722,25 @@ describe("la proposition de répartition et la durée du tour", () => {
         inscrits: 3,
         tatamisDeLaCompetition: 8,
         format: "pools",
-        premierTour: { combats: 3, dureeSecondes: 600, espacementSecondes: 120 },
+        tourLePlusLong: { combats: 3, dureeSecondes: 600, espacementSecondes: 120 },
       }),
     ).toMatchObject({ proposition: 1, motif: "format_non_reparti" });
+  });
+
+  it("se cale sur le tour le plus long, que les byes déplacent", () => {
+    // Une noire de 20 inscrits : son PREMIER tour ne compte que quatre combats,
+    // mais le deuxième en compte huit. À 12 minutes par combat, rotation
+    // comprise, quatre combats tiennent sur deux tapis quand huit en demandent
+    // quatre. C'est le tour le plus long qui dimensionne.
+    const noire = (combats: number) =>
+      proposerLaRepartition({
+        inscrits: 20,
+        tatamisDeLaCompetition: 8,
+        tourLePlusLong: { combats, dureeSecondes: 600, espacementSecondes: 120 },
+      });
+    expect(noire(8)).toMatchObject({ proposition: 4, motif: "duree_du_tour" });
+    // Sur le premier tour seul, le tableau serait resté aux deux tapis de
+    // l'effectif : le dimensionnement n'aurait rien ajouté là où il fallait.
+    expect(noire(4)).toMatchObject({ proposition: 2, motif: "effectif" });
   });
 });
