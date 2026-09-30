@@ -5,21 +5,34 @@ import { AGE_GROUPS, WEIGHT_CLASSES, isChildAgeGroup, type AgeGroup } from "./re
 /**
  * L'ORDRE DE DÉPART DES CATÉGORIES ET LEUR PRIORITÉ SUR LES MEILLEURS TATAMIS.
  *
- * Réponses du client du 25/09/2026 (générateur de planning) :
- *   - ORD.1 A : l'ordre des ceintures (§7) décide de ce qu'un tatami libéré
- *     peut prendre : bleues et noires, puis violettes et marrons, puis
- *     blanches. La liste du §8 ne sert qu'à répartir les tatamis entre les
- *     catégories prêtes (`rangTatamiPrioritaire`).
- *   - ORD.4 A : les Masters de couleur passent au moment de leur ceinture,
- *     comme les adultes ; les adultes gardent les meilleurs tatamis.
- *   - ORD.5 C : les juvéniles en début de programme, avant les adultes.
- *   - ORD.6 B : chez les Kids, les plus jeunes d'abord (U7, puis U9… U15).
- *   - ORD.7 B : à priorité égale, la catégorie de plus longue durée prévue.
- *   - ORD.11 B : à durée égale, du poids le plus léger au plus lourd, sans
- *     distinction entre hommes et femmes (le sexe n'entre pas dans la clé).
+ * Décision du client du 30/09/2026 : hors Kids, les catégories partent par
+ * groupes, dans cet ordre (`groupeDeDepart`) :
+ *
+ *   1. les blanches adultes ;
+ *   2. les bleues adultes ;
+ *   3. les juvéniles de couleur (les bleues juvéniles) ;
+ *   4. les violettes, marrons et noires adultes ;
+ *   5. les violettes, marrons et noires Masters ;
+ *   6. les bleues Masters ;
+ *   7. les blanches juvéniles ;
+ *   8. les blanches Masters.
+ *
+ * Elle remplace les vagues de ceinture d'ORD.1 A (bleues et noires, puis
+ * violettes et marrons, puis blanches), les juvéniles en début de programme
+ * (ORD.5 C) et les Masters au moment de leur ceinture (ORD.4 A). Le reste des
+ * réponses du client du 25/09/2026 tient :
  *   - JRS.4 A et SEP.4 A : les Kids d'abord, Kids Gi puis Kids No-Gi, puis le
  *     Gi, puis le No-Gi. « Les Kids passent toujours en premier sur une
- *     compétition. »
+ *     compétition. » ;
+ *   - ORD.6 B : chez les Kids, les plus jeunes d'abord (U7, puis U9… U15) ;
+ *   - ORD.7 B : dans un groupe, la catégorie de plus longue durée prévue
+ *     d'abord ; violettes, marrons et noires y restent mêlées ;
+ *   - ORD.11 B : à durée égale, du poids le plus léger au plus lourd, sans
+ *     distinction entre hommes et femmes (le sexe n'entre pas dans la clé).
+ *
+ * La liste du §8 (`rangTatamiPrioritaire`) ne change pas : elle ne sert qu'à
+ * répartir les meilleurs tatamis entre des catégories qui partent au même
+ * instant (ORD.1 A, ORD.2 A).
  *
  * `rangSportifDeCategorie` (ordre-sportif.ts) reste l'ordre d'AFFICHAGE ;
  * cette clé-ci est l'ordre de PLANNING.
@@ -36,16 +49,12 @@ export type CategoriePourPriorite = {
 
 const CEINTURES_NOIRES: readonly string[] = ["black", "coral", "red"];
 
-const PREMIERE_VAGUE: readonly string[] = [
-  "blue",
-  ...CEINTURES_NOIRES,
-  "grey",
-  "yellow",
-  "orange",
-  "green",
-];
+const VIOLETTES_ET_MARRONS: readonly string[] = ["purple", "brown"];
 
-const DEUXIEME_VAGUE: readonly string[] = ["purple", "brown"];
+const CEINTURES_KIDS: readonly string[] = ["grey", "yellow", "orange", "green"];
+
+/** Le groupe d'une tranche d'âge ou d'une ceinture inconnue : après les huit groupes. */
+export const GROUPE_DE_DEPART_INCONNU = 8;
 
 const RANG_ADULTE: Readonly<Record<string, number>> = {
   noire: 1,
@@ -88,12 +97,27 @@ function comparerChaines(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-/** 0 : bleues, noires (corail et rouge compris) et ceintures Kids ; 1 : violettes et marrons ; 2 : blanches (et ceinture inconnue). */
-export function vagueDeCeinture(belt: string): 0 | 1 | 2 {
-  const code = codeDeCeinture(belt);
-  if (PREMIERE_VAGUE.includes(code)) return 0;
-  if (DEUXIEME_VAGUE.includes(code)) return 1;
-  return 2;
+/**
+ * Le groupe de départ d'une catégorie hors Kids, de 0 (blanches adultes) à 7
+ * (blanches Masters) : voir l'en-tête. Une ceinture de couleur Kids (grise,
+ * jaune, orange, verte) compte avec les bleues ; corail et rouge avec les
+ * noires. Une tranche d'âge ou une ceinture inconnue, ou une tranche Kids,
+ * rend `GROUPE_DE_DEPART_INCONNU` : les Kids partent avant tous les groupes
+ * (`cleDeDepart`), une catégorie inconnue après.
+ */
+export function groupeDeDepart(cat: Pick<CategoriePourPriorite, "ageGroup" | "belt">): number {
+  const tranche = resolveAgeGroup(cat.ageGroup);
+  if (tranche === null || isChildAgeGroup(tranche)) return GROUPE_DE_DEPART_INCONNU;
+  const code = codeDeCeinture(cat.belt);
+  const adulte = tranche === "Adulte";
+  const juvenile = tranche === "Juvénile";
+  const bleue = code === "blue" || CEINTURES_KIDS.includes(code);
+  const superieure = VIOLETTES_ET_MARRONS.includes(code) || CEINTURES_NOIRES.includes(code);
+  if (code === "white") return adulte ? 0 : juvenile ? 6 : 7;
+  if (juvenile) return bleue || superieure ? 2 : GROUPE_DE_DEPART_INCONNU;
+  if (bleue) return adulte ? 1 : 5;
+  if (superieure) return adulte ? 3 : 4;
+  return GROUPE_DE_DEPART_INCONNU;
 }
 
 /**
@@ -116,22 +140,18 @@ export function rangTatamiPrioritaire(
 
 /**
  * Clé de départ, comparée composante par composante (la plus petite part la
- * première) : Kids d'abord ; Gi puis No-Gi ; chez les Kids l'âge, ailleurs les
- * juvéniles avant les autres ; la vague de ceinture (hors Kids) ; les noires
- * adultes en tête de leur vague ; la plus longue durée prévue ; le poids.
+ * première) : Kids d'abord ; Gi puis No-Gi ; chez les Kids l'âge, ailleurs le
+ * groupe de départ ; la plus longue durée prévue ; le poids.
  */
 export function cleDeDepart(cat: CategoriePourPriorite): number[] {
   const tranche = resolveAgeGroup(cat.ageGroup);
   const kids = estKids(tranche);
-  const noireAdulte = tranche === "Adulte" && CEINTURES_NOIRES.includes(codeDeCeinture(cat.belt));
   const classe = resolveWeightClass(cat.weightClass);
   const duree = Number.isFinite(cat.dureePrevueSecondes) ? cat.dureePrevueSecondes : 0;
   return [
     kids ? 0 : 1,
     cat.discipline === "gi" ? 0 : 1,
-    kids ? AGE_GROUPS.indexOf(tranche) : tranche === "Juvénile" ? 0 : 1,
-    kids ? 0 : vagueDeCeinture(cat.belt),
-    noireAdulte ? 0 : 1,
+    kids ? AGE_GROUPS.indexOf(tranche) : groupeDeDepart(cat),
     0 - duree,
     classe === null ? WEIGHT_CLASSES.length : WEIGHT_CLASSES.indexOf(classe),
   ];
