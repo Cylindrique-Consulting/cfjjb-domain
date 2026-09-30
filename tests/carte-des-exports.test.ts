@@ -56,8 +56,9 @@ import {
   cleDeDepart,
   comparerPourLeDepart,
   rangTatamiPrioritaire,
+  GROUPE_DE_DEPART_INCONNU,
+  groupeDeDepart,
   trierPourLeDepart,
-  vagueDeCeinture,
 } from "../src/priorite-de-planning";
 import { rangsDeQualiteParDefaut } from "../src/hierarchie-tatamis";
 import { affecterParListe } from "../src/affectation-par-liste";
@@ -237,7 +238,8 @@ describe("la carte des exports", () => {
       expect(modules).toContain(module);
       expect(manifeste.exports?.[`./${module}`]).toBe(`./src/${module}.ts`);
     }
-    expect(domaine.vagueDeCeinture).toBe(vagueDeCeinture);
+    expect(domaine.groupeDeDepart).toBe(groupeDeDepart);
+    expect(domaine.GROUPE_DE_DEPART_INCONNU).toBe(GROUPE_DE_DEPART_INCONNU);
     expect(domaine.rangTatamiPrioritaire).toBe(rangTatamiPrioritaire);
     expect(domaine.cleDeDepart).toBe(cleDeDepart);
     expect(domaine.comparerPourLeDepart).toBe(comparerPourLeDepart);

@@ -44,8 +44,8 @@ const lire = (affectations: Map<string, AffectationParListe>) =>
     ]),
   );
 
-describe("l'affectation par liste (ORD.1 A, ORD.8 A)", () => {
-  it("à 9 h, donne les meilleurs tatamis aux noires adultes et les autres aux bleues, puis chaque tatami libéré prend la suivante", () => {
+describe("l'affectation par liste (ORD.1 A, ORD.8 A, décision du 30/09/2026)", () => {
+  it("à 9 h, les blanches adultes partent en tête de file, la liste du §8 répartit les meilleurs tatamis du lot, puis chaque tatami libéré prend la suivante", () => {
     const affectations = affecterParListe(
       [
         categorie("bleue-d", { dureePrevueSecondes: 1800 }),
@@ -60,14 +60,14 @@ describe("l'affectation par liste (ORD.1 A, ORD.8 A)", () => {
       salle(6),
     );
     expect(lire(affectations)).toEqual({
-      "noire-a": "t1 0-3000 #0",
-      "noire-b": "t6 0-2400 #1",
-      "bleue-a": "t2 0-3600 #2",
-      "bleue-b": "t5 0-3000 #3",
-      "bleue-c": "t3 0-2400 #4",
-      "bleue-d": "t4 0-1800 #5",
-      violette: "t4 1800-5800 #6",
-      blanche: "t6 2400-7400 #7",
+      blanche: "t4 0-5000 #0",
+      "bleue-a": "t6 0-3600 #1",
+      "bleue-b": "t2 0-3000 #2",
+      "bleue-c": "t5 0-2400 #3",
+      "bleue-d": "t3 0-1800 #4",
+      violette: "t1 0-4000 #5",
+      "noire-a": "t3 1800-4800 #6",
+      "noire-b": "t5 2400-4800 #7",
     });
   });
 
@@ -85,7 +85,7 @@ describe("l'affectation par liste (ORD.1 A, ORD.8 A)", () => {
     expect(affectations.get("bleue-2")?.tatamiIds).toEqual(["t2"]);
   });
 
-  it("fait partir les Masters au moment de leur ceinture, mais laisse les meilleurs tatamis aux adultes (ORD.4 A)", () => {
+  it("fait partir les bleues adultes avant les Masters de couleur, et laisse les meilleurs tatamis aux adultes", () => {
     const affectations = affecterParListe(
       [
         categorie("adulte-bleue", { dureePrevueSecondes: 1000 }),
@@ -101,8 +101,8 @@ describe("l'affectation par liste (ORD.1 A, ORD.8 A)", () => {
       ],
     );
     expect(lire(affectations)).toEqual({
-      "master-noire": "central 0-4000 #0",
-      "adulte-bleue": "bord 0-1000 #1",
+      "adulte-bleue": "bord 0-1000 #0",
+      "master-noire": "central 0-4000 #1",
     });
   });
 
@@ -110,12 +110,12 @@ describe("l'affectation par liste (ORD.1 A, ORD.8 A)", () => {
     const affectations = affecterParListe(
       [
         categorie("bleue", { chargeSecondes: 4800, parties: 4 }),
-        categorie("noire", { belt: "black", chargeSecondes: 1200 }),
+        categorie("blanche", { belt: "white", chargeSecondes: 1200 }),
       ],
       salle(4),
     );
     expect(lire(affectations)).toEqual({
-      noire: "t1 0-1200 #0",
+      blanche: "t1 0-1200 #0",
       bleue: "t1+t2+t3+t4 1200-2400 #1",
     });
   });
@@ -125,30 +125,30 @@ describe("l'affectation par liste (ORD.1 A, ORD.8 A)", () => {
       [
         categorie("petite", { dureePrevueSecondes: 600, chargeSecondes: 600 }),
         categorie("grande", { dureePrevueSecondes: 5000, chargeSecondes: 2000, parties: 2 }),
-        categorie("noire", { belt: "black", chargeSecondes: 2000, parties: 2 }),
+        categorie("blanche", { belt: "white", chargeSecondes: 2000, parties: 2 }),
       ],
       salle(3),
     );
     expect(lire(affectations)).toEqual({
-      noire: "t1+t3 0-1000 #0",
+      blanche: "t1+t3 0-1000 #0",
       grande: "t1+t2 1000-2000 #1",
       petite: "t3 1000-1600 #2",
     });
   });
 
-  it("forme un lot des catégories de tête qui tiennent ensemble dans les tatamis libres", () => {
+  it("forme un lot des catégories de tête qui tiennent ensemble dans les tatamis libres, et y donne le meilleur tatami à la mieux placée de la liste du §8", () => {
     const affectations = affecterParListe(
       [
-        categorie("noire", { belt: "black", chargeSecondes: 2000, parties: 2 }),
+        categorie("blanche", { belt: "white", chargeSecondes: 2000, parties: 2 }),
         categorie("bleue-1", { dureePrevueSecondes: 4000 }),
         categorie("bleue-2", { dureePrevueSecondes: 3000, parties: 2, chargeSecondes: 3000 }),
       ],
       salle(4),
     );
     expect(lire(affectations)).toEqual({
-      noire: "t1+t4 0-1000 #0",
-      "bleue-1": "t2 0-4000 #1",
-      "bleue-2": "t1+t3 1000-2500 #2",
+      blanche: "t2+t4 0-1000 #0",
+      "bleue-1": "t1 0-4000 #1",
+      "bleue-2": "t3+t4 1000-2500 #2",
     });
   });
 

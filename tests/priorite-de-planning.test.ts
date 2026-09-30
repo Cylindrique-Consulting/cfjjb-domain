@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  GROUPE_DE_DEPART_INCONNU,
   cleDeDepart,
   comparerPourLeDepart,
+  groupeDeDepart,
   rangTatamiPrioritaire,
   trierPourLeDepart,
-  vagueDeCeinture,
   type CategoriePourPriorite,
 } from "../src/priorite-de-planning";
 
@@ -24,26 +25,46 @@ const categorie = (
 const ids = (categories: readonly CategoriePourPriorite[]) =>
   trierPourLeDepart(categories).map((c) => c.id);
 
-describe("la vague de ceinture (ORD.1 A)", () => {
-  it("fait partir les bleues et les noires, puis les violettes et les marrons, puis les blanches", () => {
-    expect(vagueDeCeinture("blue")).toBe(0);
-    expect(vagueDeCeinture("black")).toBe(0);
-    expect(vagueDeCeinture("purple")).toBe(1);
-    expect(vagueDeCeinture("brown")).toBe(1);
-    expect(vagueDeCeinture("white")).toBe(2);
-  });
-
-  it("range corail et rouge avec les noires, et les ceintures Kids dans la première vague", () => {
-    for (const belt of ["coral", "red", "grey", "yellow", "orange", "green"]) {
-      expect(vagueDeCeinture(belt), belt).toBe(0);
+describe("les groupes de départ (décision du client du 30/09/2026)", () => {
+  it("range les huit groupes dans l'ordre de la décision", () => {
+    const liste: [string, string, number][] = [
+      ["Adulte", "white", 0],
+      ["Adulte", "blue", 1],
+      ["Juvénile", "blue", 2],
+      ["Adulte", "purple", 3],
+      ["Adulte", "brown", 3],
+      ["Adulte", "black", 3],
+      ["Master 1", "purple", 4],
+      ["Master 3", "brown", 4],
+      ["Master 5+", "black", 4],
+      ["Master 2", "blue", 5],
+      ["Juvénile", "white", 6],
+      ["Master 1", "white", 7],
+      ["Master 4", "white", 7],
+    ];
+    for (const [ageGroup, belt, groupe] of liste) {
+      expect(groupeDeDepart({ ageGroup, belt }), `${ageGroup} ${belt}`).toBe(groupe);
     }
   });
 
-  it("lit le code de la base sans casse ni espaces, et renvoie une ceinture inconnue avec les blanches", () => {
-    expect(vagueDeCeinture(" Blue ")).toBe(0);
-    expect(vagueDeCeinture("PURPLE")).toBe(1);
-    expect(vagueDeCeinture("")).toBe(2);
-    expect(vagueDeCeinture("bleue")).toBe(2);
+  it("range corail et rouge avec les noires, et une ceinture de couleur Kids avec les bleues", () => {
+    expect(groupeDeDepart({ ageGroup: "Adulte", belt: "coral" })).toBe(3);
+    expect(groupeDeDepart({ ageGroup: "Master 5+", belt: "red" })).toBe(4);
+    expect(groupeDeDepart({ ageGroup: "Juvénile", belt: "green" })).toBe(2);
+    expect(groupeDeDepart({ ageGroup: "Juvénile", belt: "purple" })).toBe(2);
+  });
+
+  it("lit les codes de la base, sans casse ni espaces", () => {
+    expect(groupeDeDepart({ ageGroup: "adult", belt: " White " })).toBe(0);
+    expect(groupeDeDepart({ ageGroup: "juvenil", belt: "BLUE" })).toBe(2);
+    expect(groupeDeDepart({ ageGroup: "master_3_4", belt: "white" })).toBe(7);
+  });
+
+  it("met une tranche d'âge ou une ceinture inconnue après les huit groupes", () => {
+    expect(GROUPE_DE_DEPART_INCONNU).toBe(8);
+    expect(groupeDeDepart({ ageGroup: "", belt: "white" })).toBe(GROUPE_DE_DEPART_INCONNU);
+    expect(groupeDeDepart({ ageGroup: "Adulte", belt: "bleue" })).toBe(GROUPE_DE_DEPART_INCONNU);
+    expect(groupeDeDepart({ ageGroup: "Juvénile", belt: "" })).toBe(GROUPE_DE_DEPART_INCONNU);
   });
 });
 
@@ -91,12 +112,12 @@ describe("la liste du §8 : qui prend les meilleurs tatamis (ORD.1 A, ORD.4 A)",
 });
 
 describe("la clé de départ", () => {
-  it("compose ses sept rangs dans l'ordre du contrat", () => {
+  it("compose ses cinq rangs dans l'ordre du contrat", () => {
     expect(
       cleDeDepart(
         categorie("a", { belt: "black", weightClass: "Pena", dureePrevueSecondes: 1800 }),
       ),
-    ).toEqual([1, 0, 1, 0, 0, -1800, 2]);
+    ).toEqual([1, 0, 3, -1800, 2]);
     expect(
       cleDeDepart(
         categorie("k", {
@@ -107,7 +128,7 @@ describe("la clé de départ", () => {
           dureePrevueSecondes: 600,
         }),
       ),
-    ).toEqual([0, 1, 2, 0, 1, -600, 0]);
+    ).toEqual([0, 1, 2, -600, 0]);
     expect(
       cleDeDepart(
         categorie("j", {
@@ -117,12 +138,12 @@ describe("la clé de départ", () => {
           dureePrevueSecondes: 0,
         }),
       ),
-    ).toEqual([1, 0, 0, 2, 1, 0, 8]);
+    ).toEqual([1, 0, 6, 0, 8]);
   });
 
   it("lit la classe de poids stockée en index, et range un poids inconnu après le plus lourd", () => {
-    expect(cleDeDepart(categorie("i", { weightClass: "3" }))[6]).toBe(3);
-    expect(cleDeDepart(categorie("abs", { weightClass: "Absolut Leve" }))[6]).toBe(9);
+    expect(cleDeDepart(categorie("i", { weightClass: "3" }))[4]).toBe(3);
+    expect(cleDeDepart(categorie("abs", { weightClass: "Absolut Leve" }))[4]).toBe(9);
   });
 
   it("ne tient pas compte du sexe", () => {
@@ -133,7 +154,7 @@ describe("la clé de départ", () => {
   });
 
   it("compte une durée prévue illisible comme nulle", () => {
-    expect(cleDeDepart(categorie("n", { dureePrevueSecondes: Number.NaN }))[5]).toBe(0);
+    expect(cleDeDepart(categorie("n", { dureePrevueSecondes: Number.NaN }))[3]).toBe(0);
   });
 });
 
@@ -150,8 +171,8 @@ describe("l'ordre de départ", () => {
     ).toEqual([
       "kids-gi",
       "kids-nogi",
-      "gi-adulte-noire",
       "gi-adulte-blanche",
+      "gi-adulte-noire",
       "nogi-adulte-noire",
     ]);
   });
@@ -171,42 +192,66 @@ describe("l'ordre de départ", () => {
     ).toEqual(["u7", "u11-longue-blanche", "u11-courte", "u15-longue"]);
   });
 
-  it("place les juvéniles en début de programme, avant les adultes et les Masters (ORD.5 C)", () => {
+  it("fait partir les huit groupes dans l'ordre de la décision, quelle que soit leur durée", () => {
     expect(
       ids([
-        categorie("adulte-noire", { belt: "black" }),
-        categorie("master-bleue", { ageGroup: "Master 2" }),
-        categorie("juvenile-blanche", { ageGroup: "Juvénile", belt: "white" }),
-      ]),
-    ).toEqual(["juvenile-blanche", "adulte-noire", "master-bleue"]);
-  });
-
-  it("fait partir chaque vague de ceinture, Masters compris, avant la suivante (ORD.1 A, ORD.4 A)", () => {
-    expect(
-      ids([
-        categorie("adulte-blanche", { belt: "white", dureePrevueSecondes: 9000 }),
-        categorie("master-blanche", { ageGroup: "Master 1", belt: "white" }),
-        categorie("adulte-marron", { belt: "brown", dureePrevueSecondes: 8000 }),
-        categorie("master-violette", { ageGroup: "Master 3", belt: "purple" }),
-        categorie("master-bleue", { ageGroup: "Master 1", dureePrevueSecondes: 5000 }),
-        categorie("adulte-bleue", { dureePrevueSecondes: 4000 }),
-        categorie("master-noire", {
-          ageGroup: "Master 2",
-          belt: "black",
-          dureePrevueSecondes: 600,
+        categorie("master-blanche", {
+          ageGroup: "Master 1",
+          belt: "white",
+          dureePrevueSecondes: 9000,
         }),
-        categorie("adulte-noire", { belt: "black", dureePrevueSecondes: 300 }),
+        categorie("juvenile-blanche", {
+          ageGroup: "Juvénile",
+          belt: "white",
+          dureePrevueSecondes: 8500,
+        }),
+        categorie("master-bleue", { ageGroup: "Master 2", dureePrevueSecondes: 8000 }),
+        categorie("master-violette", {
+          ageGroup: "Master 3",
+          belt: "purple",
+          dureePrevueSecondes: 7500,
+        }),
+        categorie("adulte-noire", { belt: "black", dureePrevueSecondes: 7000 }),
+        categorie("juvenile-bleue", { ageGroup: "Juvénile", dureePrevueSecondes: 6500 }),
+        categorie("adulte-bleue", { dureePrevueSecondes: 6000 }),
+        categorie("adulte-blanche", { belt: "white", dureePrevueSecondes: 300 }),
       ]),
     ).toEqual([
-      "adulte-noire",
-      "master-bleue",
-      "adulte-bleue",
-      "master-noire",
-      "adulte-marron",
-      "master-violette",
       "adulte-blanche",
+      "adulte-bleue",
+      "juvenile-bleue",
+      "adulte-noire",
+      "master-violette",
+      "master-bleue",
+      "juvenile-blanche",
       "master-blanche",
     ]);
+  });
+
+  it("ne place plus les juvéniles en tête : les bleues juvéniles après les bleues adultes, les blanches juvéniles après les bleues Masters", () => {
+    expect(
+      ids([
+        categorie("juvenile-blanche", { ageGroup: "Juvénile", belt: "white" }),
+        categorie("master-bleue", { ageGroup: "Master 2" }),
+        categorie("juvenile-bleue", { ageGroup: "Juvénile" }),
+        categorie("adulte-bleue"),
+      ]),
+    ).toEqual(["adulte-bleue", "juvenile-bleue", "master-bleue", "juvenile-blanche"]);
+  });
+
+  it("mêle violettes, marrons et noires dans leur groupe, la plus longue d'abord (ORD.7 B)", () => {
+    expect(
+      ids([
+        categorie("noire-courte", { belt: "black", dureePrevueSecondes: 1200 }),
+        categorie("violette-moyenne", { belt: "purple", dureePrevueSecondes: 2400 }),
+        categorie("marron-longue", { belt: "brown", dureePrevueSecondes: 3600 }),
+        categorie("master-noire-longue", {
+          ageGroup: "Master 1",
+          belt: "black",
+          dureePrevueSecondes: 9000,
+        }),
+      ]),
+    ).toEqual(["marron-longue", "violette-moyenne", "noire-courte", "master-noire-longue"]);
   });
 
   it("à priorité égale, fait partir la catégorie de plus longue durée prévue (ORD.7 B)", () => {
