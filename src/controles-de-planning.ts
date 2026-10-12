@@ -64,6 +64,13 @@ export type CombatControle = {
   type: BracketFightType;
   dureeSecondes: number;
   sources?: readonly (string | null)[];
+  /**
+   * Un créneau RÉSERVÉ plutôt qu'un combat : celui d'un absolut prévu, dont les
+   * tatamis ne se décident que le jour J (ticket du 11/10/2026). Il compte dans
+   * le dépassement de journée, pas dans le déséquilibre entre tatamis, qui se
+   * mesure « hors absolutes ». Absent : un combat comme les autres.
+   */
+  creneauReserve?: boolean;
 };
 
 export type EngagementControle = {
@@ -285,6 +292,11 @@ function controlerLesHorairesDeJournee(
   journees: readonly JourneeControlee[],
 ): Constat[] {
   const fins = finsDeTatami(combats);
+  // Le déséquilibre se lit sur les seuls combats : un créneau réservé (absolut
+  // prévu) ne fait ni finir un tatami plus tard, ni compter un tatami de plus.
+  const finsSansCreneaux = combats.some((c) => c.creneauReserve === true)
+    ? finsDeTatami(combats.filter((c) => c.creneauReserve !== true))
+    : fins;
   const finDeJournee = new Map(journees.map((j) => [j.jour, j.finMs]));
   const constats: Constat[] = [];
 
@@ -301,9 +313,9 @@ function controlerLesHorairesDeJournee(
     );
   }
 
-  const jours = [...new Set(fins.map((f) => f.jour))].sort((a, b) => a - b);
+  const jours = [...new Set(finsSansCreneaux.map((f) => f.jour))].sort((a, b) => a - b);
   for (const jour of jours) {
-    const duJour = fins.filter((f) => f.jour === jour);
+    const duJour = finsSansCreneaux.filter((f) => f.jour === jour);
     if (duJour.length < 2) continue;
     for (const fin of duJour) {
       const autres = duJour.filter((f) => f.tatamiId !== fin.tatamiId);

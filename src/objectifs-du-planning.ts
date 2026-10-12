@@ -31,6 +31,26 @@ import { estNombreDeTatamisAdmis, partiesDuCombat } from "./repartition-tatamis"
  * l'écart des branches du 3) gardent la même marge : un écart de moins de 5
  * minutes y compte pour une égalité, comme pour l'heure de fin. Les autres se
  * comparent exactement. Si tout est égal, la fin la plus précoce l'emporte.
+ *
+ * ┌─ L'ÉQUILIBRE DES TATAMIS (v0.42.0, ticket du 11/10/2026) ─────────────────┐
+ * │ « Le générateur cherche à minimiser l'écart entre les heures de fin       │
+ * │ prévisionnelles des tatamis, hors absolutes. » Sur demande de             │
+ * │ l'appelant (`equilibre`), un objectif s'insère juste après la fin de la   │
+ * │ journée, avec la même marge de 5 minutes : `equilibre_des_tatamis`,       │
+ * │ l'écart entre le tatami qui finit le plus tard et celui qui finit le plus │
+ * │ tôt (`ecartDesFinsMs`). Sans l'option, l'ordre et le verdict de           │
+ * │ `comparerLesPlans` sont exactement ceux d'avant.                          │
+ * │                                                                            │
+ * │ L'écart ne voit que ce que l'ordonnanceur a placé : pour qu'il soit « hors │
+ * │ absolutes », l'appelant ne lui donne que les catégories de poids, et      │
+ * │ mesure la fin de la journée de la même façon.                             │
+ * │                                                                            │
+ * │ La somme des attentes de fin de journée (le dernier tatami moins chacun)  │
+ * │ n'est PAS un objectif : elle vaut le nombre de tatamis fois la fin de la  │
+ * │ journée, moins la somme des fins, que le changement de tatami d'une       │
+ * │ catégorie ne fait presque pas bouger. Elle départagerait donc à la minute │
+ * │ deux fins que la marge d'ORD.9 B déclare égales.                          │
+ * └───────────────────────────────────────────────────────────────────────────┘
  */
 
 /** ORD.9 B : deux fins de journée à moins de 5 minutes l'une de l'autre sont départagées par les objectifs suivants. */
@@ -48,7 +68,33 @@ export const OBJECTIFS_DU_PLANNING = [
   "repos_de_confort",
 ] as const;
 
-export type ObjectifDuPlanning = (typeof OBJECTIFS_DU_PLANNING)[number];
+/**
+ * Les objectifs dans l'ordre que suit `comparerLesPlans` avec l'option
+ * `equilibre` : l'équilibre des tatamis juste après la fin de la journée.
+ */
+export const OBJECTIFS_DU_PLANNING_AVEC_EQUILIBRE = [
+  "fin_de_journee",
+  "equilibre_des_tatamis",
+  "tatami_inutilise",
+  "repartition_des_tableaux",
+  "hierarchie_des_tatamis",
+  "continuite_des_branches",
+  "repos_de_confort",
+] as const;
+
+export type ObjectifDuPlanning = (typeof OBJECTIFS_DU_PLANNING_AVEC_EQUILIBRE)[number];
+
+/** Les options de la comparaison de deux plans. */
+export type OptionsDeComparaison = {
+  /** La marge d'ORD.9 B, en millisecondes (5 minutes par défaut). */
+  margeMs?: number;
+  /**
+   * Insère `equilibre_des_tatamis` juste après la fin de la journée
+   * (`OBJECTIFS_DU_PLANNING_AVEC_EQUILIBRE`). Absent ou faux : l'ordre du §18
+   * d'avant v0.42.0.
+   */
+  equilibre?: boolean;
+};
 
 /** Le dernier rang de la liste du §8 (`rangTatamiPrioritaire` : ceinture ou tranche inconnue). */
 const DERNIER_RANG_PRIORITAIRE = 13;
@@ -63,6 +109,13 @@ export type EvaluationDeJournee = {
   combatsSansHoraire: number;
   /** 1. Fin du dernier combat de la journée, null sans combat. */
   finMs: number | null;
+  /**
+   * 1 bis (option `equilibre`). Écart entre la fin du tatami qui finit le plus
+   * tard et celle du tatami qui finit le plus tôt, parmi les tatamis de la
+   * journée (`ContexteDEvaluation.tatamisDuJour`) : un tatami sans aucun combat
+   * ce jour-là compte à son début. Nul sans combat, ou avec un seul tatami.
+   */
+  ecartDesFinsMs: number;
   /**
    * 2. Temps pendant lequel un tatami reste vide alors qu'un combat de sa file
    * pourrait commencer : ses sources sont jouées et ses athlètes ont eu le
@@ -103,6 +156,11 @@ export type ContexteDEvaluation = {
   partiesParCategorie?: ReadonlyMap<string, number>;
   /** Sources de chaque combat (`sourcesDesCombats`), quand l'appelant les garde déjà. */
   sources?: ReadonlyMap<string, readonly (string | null)[]>;
+  /**
+   * Les tatamis de la journée, ceux dont la fin entre dans `ecartDesFinsMs` :
+   * ceux que la salle offre ce jour-là. Absent : tous ceux de l'entrée.
+   */
+  tatamisDuJour?: readonly string[];
 };
 
 export type CombatPourLesSources = Pick<
@@ -327,6 +385,31 @@ export function evaluerLaJournee(
     }
   }
 
+  // 1 bis. L'écart entre les fins des tatamis de la journée.
+  const finParTatami = new Map<string, number>();
+  for (const { place } of places) {
+    const avant = finParTatami.get(place.tatamiId);
+    finParTatami.set(
+      place.tatamiId,
+      avant === undefined ? place.finMs : Math.max(avant, place.finMs),
+    );
+  }
+  const finsDesTatamis: number[] = [];
+  for (const tatamiId of contexte.tatamisDuJour ?? entree.tatamis.map((t) => t.id)) {
+    const fin = finParTatami.get(tatamiId);
+    if (fin !== undefined) {
+      finsDesTatamis.push(fin);
+      continue;
+    }
+    const prevu = tatamis.get(tatamiId)?.debutParJour[jour];
+    if (prevu === undefined) continue;
+    finsDesTatamis.push(Math.max(prevu, entree.debutAuPlusTotMs ?? prevu));
+  }
+  const ecartDesFinsMs =
+    places.length === 0 || finsDesTatamis.length < 2
+      ? 0
+      : Math.max(0, Math.max(...finsDesTatamis) - Math.min(...finsDesTatamis));
+
   const categoriesDuJour = new Set(
     entree.categories.filter((c) => c.jour === jour).map((c) => c.id),
   );
@@ -341,6 +424,7 @@ export function evaluerLaJournee(
     jour,
     combatsSansHoraire,
     finMs: resultat.finParJour.get(jour) ?? null,
+    ecartDesFinsMs,
     tatamiInutiliseMs,
     repartitionsDesequilibrees,
     ecartDesBranchesMs: ecartDesBranches,
@@ -369,12 +453,13 @@ function signe(valeur: number): number {
  * ORD.9 B : compare deux évaluations d'une même journée dans l'ordre du §18.
  * Une fin plus précoce d'au moins la marge (5 minutes) l'emporte ; en deçà,
  * les objectifs suivants départagent, dans l'ordre, et à égalité sur tous, la
- * fin la plus précoce. `ordre` < 0 quand `a` est préféré.
+ * fin la plus précoce. Avec `equilibre`, l'écart entre les fins des tatamis
+ * départage le premier, avec la même marge. `ordre` < 0 quand `a` est préféré.
  */
 export function comparerLesPlans(
   a: EvaluationDeJournee,
   b: EvaluationDeJournee,
-  options: { margeMs?: number } = {},
+  options: OptionsDeComparaison = {},
 ): ComparaisonDePlans {
   const marge = Math.max(0, options.margeMs ?? MARGE_ENTRE_PLANS_MINUTES * MINUTE_MS);
   if (a.combatsSansHoraire !== b.combatsSansHoraire) {
@@ -386,7 +471,12 @@ export function comparerLesPlans(
   if (Math.abs(ecartDeFin) >= marge && ecartDeFin !== 0) {
     return { ordre: signe(ecartDeFin), objectif: "fin_de_journee" };
   }
+  const equilibre: Array<[ObjectifDuPlanning, number, number]> =
+    options.equilibre === true
+      ? [["equilibre_des_tatamis", a.ecartDesFinsMs - b.ecartDesFinsMs, marge]]
+      : [];
   const departages: Array<[ObjectifDuPlanning, number, number]> = [
+    ...equilibre,
     ["tatami_inutilise", a.tatamiInutiliseMs - b.tatamiInutiliseMs, marge],
     ["repartition_des_tableaux", a.repartitionsDesequilibrees - b.repartitionsDesequilibrees, 0],
     ["repartition_des_tableaux", a.ecartDesBranchesMs - b.ecartDesBranchesMs, marge],
@@ -408,12 +498,12 @@ export function comparerLesPlans(
  * Une retouche que le client n'accepte que si elle ne coûte rien (REP.5 C,
  * REP.6 A, RPS.5 A) : la journée ne finit pas plus tard, aucun combat de plus
  * ne reste sans horaire, et l'ordre du §18 (ORD.9 B) la préfère au plan
- * courant.
+ * courant, avec l'équilibre des tatamis quand l'appelant le demande.
  */
 export function retoucheSansRetard(
   candidat: EvaluationDeJournee,
   courant: EvaluationDeJournee,
-  options: { margeMs?: number } = {},
+  options: OptionsDeComparaison = {},
 ): boolean {
   if (candidat.finMs === null || courant.finMs === null) return false;
   if (candidat.finMs > courant.finMs) return false;

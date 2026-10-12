@@ -5,6 +5,7 @@ import {
   evaluerLaJournee,
   MARGE_ENTRE_PLANS_MINUTES,
   OBJECTIFS_DU_PLANNING,
+  OBJECTIFS_DU_PLANNING_AVEC_EQUILIBRE,
   retoucheSansRetard,
   sourcesDesCombats,
   type EvaluationDeJournee,
@@ -19,6 +20,7 @@ function evaluation(partiel: Partial<EvaluationDeJournee> = {}): EvaluationDeJou
     jour: 0,
     combatsSansHoraire: 0,
     finMs: heure("18:00"),
+    ecartDesFinsMs: 0,
     tatamiInutiliseMs: 0,
     repartitionsDesequilibrees: 0,
     ecartDesBranchesMs: 0,
@@ -120,6 +122,77 @@ describe("l'ordre des objectifs du §18 et la marge de 5 minutes (ORD.9 B)", () 
     const complet = evaluation({ finMs: heure("20:00") });
     const troue = evaluation({ finMs: heure("17:00"), combatsSansHoraire: 1 });
     expect(comparerLesPlans(complet, troue).ordre).toBeLessThan(0);
+  });
+});
+
+describe("l'équilibre des tatamis, sur demande (v0.42.0, ticket du 11/10/2026)", () => {
+  it("s'insère juste après la fin de la journée ; l'ordre par défaut ne change pas", () => {
+    expect(OBJECTIFS_DU_PLANNING_AVEC_EQUILIBRE).toEqual([
+      "fin_de_journee",
+      "equilibre_des_tatamis",
+      ...OBJECTIFS_DU_PLANNING.slice(1),
+    ]);
+  });
+
+  it("à fin égale (moins de 5 minutes), l'écart plus petit d'au moins 5 minutes l'emporte sur tous les objectifs suivants", () => {
+    const equilibre = evaluation({
+      finMs: heure("18:04"),
+      ecartDesFinsMs: 10 * MINUTE,
+      tatamiInutiliseMs: 30 * MINUTE,
+      ecartALaHierarchie: 100,
+      parcoursSurTroisTatamis: 8,
+      reposDeConfortManques: 30,
+    });
+    const desequilibre = evaluation({ finMs: heure("18:00"), ecartDesFinsMs: 46 * MINUTE });
+    expect(comparerLesPlans(equilibre, desequilibre, { equilibre: true })).toEqual({
+      ordre: -1,
+      objectif: "equilibre_des_tatamis",
+    });
+    expect(comparerLesPlans(desequilibre, equilibre, { equilibre: true })).toEqual({
+      ordre: 1,
+      objectif: "equilibre_des_tatamis",
+    });
+    // Témoin : sans l'option, l'écart ne compte pas et le tatami inutilisé départage.
+    expect(comparerLesPlans(equilibre, desequilibre)).toEqual({
+      ordre: 1,
+      objectif: "tatami_inutilise",
+    });
+  });
+
+  it("garde la marge : 4 minutes d'écart en moins ne départagent pas", () => {
+    const a = evaluation({ ecartDesFinsMs: 20 * MINUTE, parcoursSurTroisTatamis: 3 });
+    const b = evaluation({ ecartDesFinsMs: 24 * MINUTE });
+    expect(comparerLesPlans(a, b, { equilibre: true })).toEqual({
+      ordre: 1,
+      objectif: "continuite_des_branches",
+    });
+    const c = evaluation({ ecartDesFinsMs: 19 * MINUTE, parcoursSurTroisTatamis: 3 });
+    expect(comparerLesPlans(c, b, { equilibre: true })).toEqual({
+      ordre: -1,
+      objectif: "equilibre_des_tatamis",
+    });
+  });
+
+  it("ne passe jamais devant la fin de la journée : 5 minutes plus tôt l'emportent, même plus déséquilibrées", () => {
+    const tot = evaluation({ finMs: heure("18:00"), ecartDesFinsMs: 90 * MINUTE });
+    const equilibre = evaluation({ finMs: heure("18:05"), ecartDesFinsMs: 0 });
+    expect(comparerLesPlans(tot, equilibre, { equilibre: true })).toEqual({
+      ordre: -1,
+      objectif: "fin_de_journee",
+    });
+  });
+
+  it("une retouche sans retard passe l'option : gardée pour l'équilibre seul, refusée sans elle", () => {
+    const courant = evaluation({ ecartDesFinsMs: 40 * MINUTE });
+    const candidat = evaluation({ ecartDesFinsMs: 15 * MINUTE });
+    expect(retoucheSansRetard(candidat, courant, { equilibre: true })).toBe(true);
+    expect(retoucheSansRetard(candidat, courant)).toBe(false);
+    // Même plus équilibrée, une journée qui finit plus tard reste refusée.
+    expect(
+      retoucheSansRetard(evaluation({ finMs: heure("18:01"), ecartDesFinsMs: 0 }), courant, {
+        equilibre: true,
+      }),
+    ).toBe(false);
   });
 });
 
@@ -272,6 +345,47 @@ describe("les mesures d'une journée", () => {
         partiesParCategorie: new Map([["c", 3]]),
       }).repartitionsDesequilibrees,
     ).toBe(1);
+  });
+
+  it("l'écart entre les fins des tatamis : le plus tardif moins le plus précoce ; un tatami de la journée sans combat compte à son début", () => {
+    const montage = monter([
+      {
+        id: "long",
+        fights: tableau(8),
+        tatamis: tatamis(1, "t"),
+        dureeSecondes: 300,
+        rangDePlanning: 0,
+      },
+      {
+        id: "court",
+        fights: tableau(2, "b"),
+        tatamis: [{ id: "t2", numero: 2 }],
+        dureeSecondes: 300,
+        rangDePlanning: 1,
+      },
+    ]);
+    const trois = tatamis(3).map((t) => ({ ...t, debutParJour: { 0: NEUF_HEURES } }));
+    const entree: EntreeDePlanification = {
+      espacementSecondes: 60,
+      tatamis: trois,
+      categories: montage.categories,
+      combats: montage.combats,
+    };
+    const resultat = planifierCombats(entree);
+    const finDe = (id: string) => resultat.tatamis.get(`${id}|0`)?.finMs as number;
+    expect(finDe("t1")).toBeGreaterThan(finDe("t2"));
+    // Les deux tatamis qui travaillent.
+    expect(
+      evaluerLaJournee(entree, resultat, 0, { tatamisDuJour: ["t1", "t2"] }).ecartDesFinsMs,
+    ).toBe(finDe("t1") - finDe("t2"));
+    // Par défaut, tous les tatamis de l'entrée : t3, vide, finit à son début.
+    const tous = evaluerLaJournee(entree, resultat, 0);
+    expect(tous.ecartDesFinsMs).toBe(finDe("t1") - NEUF_HEURES);
+    expect(tous.finMs).toBe(finDe("t1"));
+    // Un seul tatami : aucun écart.
+    expect(evaluerLaJournee(entree, resultat, 0, { tatamisDuJour: ["t1"] }).ecartDesFinsMs).toBe(0);
+    // Une journée sans combat : aucun écart.
+    expect(evaluerLaJournee(entree, resultat, 1).ecartDesFinsMs).toBe(0);
   });
 
   it("les sources sont celles que lit l'ordonnanceur", () => {
