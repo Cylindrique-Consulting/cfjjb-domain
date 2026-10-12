@@ -262,6 +262,10 @@ Quatre points valent d'être connus avant d'y toucher :
   deux requêtes (`registration_a`, puis `registration_b`) dont l'union se fait par
   concaténation côté appelant : le dédoublonnage par `fightId` est dans le module, pas
   dans la discipline de l'appelant.
+- **Un forfait n'est pas un combat disputé** (v0.42.0, réponse Q3 du client du
+  10/10/2026). Une victoire par forfait compte au palmarès (`victoires`), jamais dans
+  `combats`, les soumissions, les temps, les points ni les adversaires. Voir la release
+  v0.42.0 ci-dessous.
 
 ## Règlement de référence
 
@@ -1415,6 +1419,50 @@ incomplète.
   par cycle ; `deplace` prend la place de `avec`, jamais un couple échangé par la réparation.
 - `groupesDExAequo` rend les mêmes groupes pour une liste de rangs complète, comme celle que la
   plateforme lui passe.
+
+## Release v0.42.0 : un forfait compte au palmarès, pas comme un combat disputé
+
+Réponses du client du 10/10/2026 au ticket « forfait sur blessure » (T10). À l'Open
+d'Île-de-France, des athlètes qui renonçaient avant leur combat ont été enregistrés par une
+« Soumission » d'une seconde : un combat de plus, une soumission de plus, un record faussé.
+La table de marque enregistre désormais un « Forfait (blessure) » sans lancer le chrono, et
+un « Arrêt (blessure) » pour un combat commencé puis interrompu sans soumission.
+
+| Réponse | Règle                                                                                                                             |
+| ------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Q3      | une victoire par forfait (absence ou blessure) compte au palmarès, pas comme un combat disputé, ni dans les temps, ni aux records |
+| Q3      | les statistiques distinguent les victoires en combat, par forfait sur absence, par forfait sur blessure                           |
+| Q4      | « Arrêt (blessure) » (`abandon`) est un combat disputé, jamais une soumission                                                     |
+
+- **Le motif d'un forfait** vient de `competition_fight_states.forfeit_reason`, que l'appelant
+  passe dans `FightRecord.forfeitReason` : `absence` (« Absent » au check-in, après les trois
+  appels) ou `blessure` (« Déclarer forfait » à la table). Tout autre forfait (hors poids,
+  identité refusée, sanction, adversaire impossible) a un motif nul et tombe dans la case
+  `autre`, jamais dans l'une des deux premières. `caseDeForfaitDe(winMethod, forfeitReason)`
+  rend la case, ou `null` quand le combat n'est pas un forfait : un motif posé sur une autre
+  méthode est ignoré.
+- **`combats` ne compte plus que les combats disputés** : `wo` et `double_wo` en sortent,
+  comme `bye` et `designation` avant eux. `victoires` et `defaites` restent le palmarès
+  officiel ; `victoiresEnCombat` / `defaitesEnCombat` et `victoiresParForfait` /
+  `defaitesParForfait` (`absence`, `blessure`, `autre`) en sont la décomposition exacte. La
+  case `forfait` de `victoiresParMethode` est la somme des trois motifs.
+- **Un double forfait** n'est ni un combat, ni une défaite, ni un « sans vainqueur » disputé :
+  il se compte dans `doublesForfaits`.
+- **Un forfait n'est pas une rencontre** : il n'entre ni dans `adversaires`, ni dans
+  `faceAFace`, ni dans `combatsSansJournal`, ni dans les points.
+- **L'état vide ne bouge pas** : `{ aDesCombats: false }` tant qu'aucun combat n'est retenu.
+  Un athlète qui n'a gagné que par forfait a donc un bilan avec `combats: 0` : il a un
+  palmarès, il n'a pas combattu.
+
+### Pour les consommateurs
+
+- `combats` diminue du nombre de forfaits et de doubles forfaits ; `sansVainqueur` ne compte
+  plus les doubles forfaits ; `adversairesDistincts` ne compte plus un adversaire rencontré
+  seulement par forfait. Aucun consommateur n'importait `fight-stats` à la publication de
+  cette version : les statistiques du palmarès de la plateforme (drapeau
+  `palmares-statistiques-combat`, éteint en production) l'adopteront avec leur montée d'épingle.
+- Aucun type de `WinMethod` ne change : le forfait sur blessure reste un `wo`, l'arrêt sur
+  blessure reste un `abandon`.
 
 ## Pureté, vérifiée et non recommandée
 

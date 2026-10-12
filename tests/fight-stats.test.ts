@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  caseDeForfaitDe,
+  CASES_DE_FORFAIT,
+  estUnForfait,
   faceAFace,
   foldScores,
+  isMotifDeForfait,
   isSubmissionType,
   methodeVictoireDe,
+  MOTIFS_DE_FORFAIT,
   statistiquesCombattant,
   SUBMISSION_TYPES,
   type FightRecord,
@@ -129,12 +134,17 @@ describe("victoires, défaites, et la méthode rangée dans sa case", () => {
     }),
   ];
 
-  it("compte les combats terminés, victoires, défaites et sans-vainqueur", () => {
+  it("compte les combats DISPUTÉS, les victoires et défaites du palmarès, et les forfaits à part", () => {
     const r = bilan("ANA", F);
-    expect(r.combats).toBe(7);
+    expect(r.combats).toBe(5);
     expect(r.victoires).toBe(4);
     expect(r.defaites).toBe(2);
-    expect(r.sansVainqueur).toBe(1);
+    expect(r.victoiresEnCombat).toBe(3);
+    expect(r.defaitesEnCombat).toBe(2);
+    expect(r.victoiresParForfait).toEqual({ absence: 0, blessure: 0, autre: 1 });
+    expect(r.defaitesParForfait).toEqual({ absence: 0, blessure: 0, autre: 0 });
+    expect(r.doublesForfaits).toBe(1);
+    expect(r.sansVainqueur).toBe(0);
     expect(Object.values(r.victoiresParMethode).reduce((s, v) => s + v, 0)).toBe(4);
     expect(Object.values(r.defaitesParMethode).reduce((s, v) => s + v, 0)).toBe(2);
   });
@@ -183,12 +193,13 @@ describe("victoires, défaites, et la méthode rangée dans sa case", () => {
     expect(Object.values(r.victoiresParMethode).reduce((s, v) => s + v, 0)).toBe(0);
   });
 
-  it("les adversaires sont comptés une fois, quel que soit le nombre de combats", () => {
+  it("les adversaires sont comptés une fois, et un forfait n'en fait pas un", () => {
     const r = bilan("ANA", F);
-    expect(r.adversairesDistincts).toBe(7);
+    expect(r.adversairesDistincts).toBe(5);
     expect(r.adversaires.get("BOB")).toEqual({ combats: 1, victoires: 1, defaites: 0 });
     expect(r.adversaires.get("FLO")).toEqual({ combats: 1, victoires: 0, defaites: 1 });
-    expect(r.adversaires.get("HUG")).toEqual({ combats: 1, victoires: 0, defaites: 0 });
+    expect(r.adversaires.get("DAN")).toBeUndefined();
+    expect(r.adversaires.get("HUG")).toBeUndefined();
     expect(r.adversaires.get("ZOE")).toBeUndefined();
   });
 
@@ -239,22 +250,22 @@ describe("l'historique entre deux combattants", () => {
     gagne("F5", "BOB", "DAN", "BOB", "points"),
   ];
 
-  it("ne retient que les combats où les DEUX figurent, chacun d'un côté", () => {
+  it("ne retient que les combats où les DEUX figurent, chacun d'un côté, et jamais un forfait", () => {
     const ff = faceAFace("ANA", "BOB", F);
     expect(ff).toMatchObject({
       seSontRencontres: true,
-      combats: 3,
+      combats: 2,
       victoiresA: 1,
       victoiresB: 1,
-      sansVainqueur: 1,
+      sansVainqueur: 0,
     });
-    expect(ff.seSontRencontres && ff.rencontres.map((r) => r.fightId)).toEqual(["F1", "F2", "F3"]);
+    expect(ff.seSontRencontres && ff.rencontres.map((r) => r.fightId)).toEqual(["F1", "F2"]);
   });
 
   it("est symétrique : inverser les deux inverse les colonnes, rien d'autre", () => {
     const direct = faceAFace("ANA", "BOB", F);
     const inverse = faceAFace("BOB", "ANA", F);
-    expect(inverse).toMatchObject({ combats: 3, victoiresA: 1, victoiresB: 1, sansVainqueur: 1 });
+    expect(inverse).toMatchObject({ combats: 2, victoiresA: 1, victoiresB: 1, sansVainqueur: 0 });
     expect(direct.seSontRencontres && direct.victoiresA).toBe(
       inverse.seSontRencontres && inverse.victoiresB,
     );
@@ -272,6 +283,15 @@ describe("l'historique entre deux combattants", () => {
       submissionType: "triangle",
     });
     expect(parCombat.get("F2")?.submissionType).toBeNull();
+  });
+
+  it("un forfait entre les deux n'est pas une rencontre, quel qu'en soit le motif", () => {
+    const f = [
+      gagne("F1", "ANA", "BOB", "ANA", "wo", { forfeitReason: "blessure" }),
+      gagne("F2", "BOB", "ANA", "BOB", "wo", { forfeitReason: "absence" }),
+      gagne("F3", "ANA", "BOB", "ANA", "wo"),
+    ];
+    expect(faceAFace("ANA", "BOB", f)).toEqual({ seSontRencontres: false });
   });
 
   it("un bye entre les deux n'est pas une rencontre", () => {
@@ -569,5 +589,165 @@ describe("release B : les fins sans vainqueur et la désignation entre coéquipi
     ];
     expect(bilan("ANA", f).combats).toBe(1);
     expect(statistiquesCombattant("CLE", f)).toEqual({ aDesCombats: false });
+  });
+});
+
+describe("les forfaits : au palmarès, jamais comme des combats disputés (réponse Q3 du 10/10/2026)", () => {
+  it("les trois motifs : absence, blessure, et autre pour tout forfait sans motif relevé", () => {
+    expect([...MOTIFS_DE_FORFAIT]).toEqual(["absence", "blessure"]);
+    expect([...CASES_DE_FORFAIT]).toEqual(["absence", "blessure", "autre"]);
+    expect(isMotifDeForfait("blessure")).toBe(true);
+    expect(isMotifDeForfait("autre")).toBe(false);
+    expect(isMotifDeForfait(null)).toBe(false);
+    expect(caseDeForfaitDe("wo", "blessure")).toBe("blessure");
+    expect(caseDeForfaitDe("wo", "absence")).toBe("absence");
+    expect(caseDeForfaitDe("wo", null)).toBe("autre");
+    expect(caseDeForfaitDe("wo", "hors poids")).toBe("autre");
+    expect(caseDeForfaitDe("double_wo", null)).toBe("autre");
+    expect(caseDeForfaitDe("points", "blessure")).toBeNull();
+    expect(caseDeForfaitDe("abandon", "blessure")).toBeNull();
+    expect(caseDeForfaitDe(null, "blessure")).toBeNull();
+    expect(estUnForfait("wo")).toBe(true);
+    expect(estUnForfait("double_wo")).toBe(true);
+    expect(estUnForfait("abandon")).toBe(false);
+    expect(estUnForfait("bye")).toBe(false);
+    expect(estUnForfait("designation")).toBe(false);
+  });
+
+  const F: FightRecord[] = [
+    gagne("F1", "ANA", "BOB", "ANA", "points"),
+    gagne("F2", "ANA", "CLE", "ANA", "wo", { forfeitReason: "absence" }),
+    gagne("F3", "DAN", "ANA", "ANA", "wo", { forfeitReason: "blessure" }),
+    gagne("F4", "ANA", "ELI", "ANA", "wo", { forfeitReason: null }),
+    gagne("F5", "ANA", "FLO", "FLO", "wo", { forfeitReason: "blessure" }),
+    gagne("F6", "ANA", "GAB", "GAB", "submission", { submissionType: "armbar" }),
+  ];
+
+  it("une victoire par forfait compte au palmarès, pas dans les combats disputés", () => {
+    const r = bilan("ANA", F);
+    expect(r.combats).toBe(2);
+    expect(r.victoires).toBe(4);
+    expect(r.victoiresEnCombat).toBe(1);
+    expect(r.victoiresParForfait).toEqual({ absence: 1, blessure: 1, autre: 1 });
+    expect(r.victoiresParMethode.forfait).toBe(3);
+    expect(r.defaites).toBe(2);
+    expect(r.defaitesEnCombat).toBe(1);
+    expect(r.defaitesParForfait).toEqual({ absence: 0, blessure: 1, autre: 0 });
+    expect(r.defaitesParMethode.forfait).toBe(1);
+  });
+
+  it("victoires = en combat + par forfait, et la somme des motifs est la case « forfait »", () => {
+    for (const id of ["ANA", "BOB", "CLE", "DAN", "FLO", "GAB"]) {
+      const r = statistiquesCombattant(id, F);
+      if (!r.aDesCombats) continue;
+      const parForfait = (o: Readonly<Record<string, number>>) =>
+        Object.values(o).reduce((s, v) => s + v, 0);
+      expect(r.victoires).toBe(r.victoiresEnCombat + parForfait(r.victoiresParForfait));
+      expect(r.defaites).toBe(r.defaitesEnCombat + parForfait(r.defaitesParForfait));
+      expect(parForfait(r.victoiresParForfait)).toBe(r.victoiresParMethode.forfait);
+      expect(parForfait(r.defaitesParForfait)).toBe(r.defaitesParMethode.forfait);
+    }
+  });
+
+  it("le forfaitaire porte la défaite par forfait, avec son motif", () => {
+    expect(bilan("DAN", F)).toMatchObject({
+      combats: 0,
+      victoires: 0,
+      defaites: 1,
+      defaitesEnCombat: 0,
+      defaitesParForfait: { absence: 0, blessure: 1, autre: 0 },
+    });
+    expect(bilan("CLE", F).defaitesParForfait).toEqual({ absence: 1, blessure: 0, autre: 0 });
+  });
+
+  it("un athlète qui n'a gagné que par forfait a un palmarès, et zéro combat disputé", () => {
+    const r = bilan("ANA", [gagne("F1", "ANA", "BOB", "ANA", "wo", { forfeitReason: "blessure" })]);
+    expect(r.combats).toBe(0);
+    expect(r.victoires).toBe(1);
+    expect(r.victoiresEnCombat).toBe(0);
+    expect(r.adversairesDistincts).toBe(0);
+    expect(r.soumissions.total).toBe(0);
+  });
+
+  it("un forfait n'entre ni dans les soumissions, ni dans les temps, ni dans les points, ni dans le journal", () => {
+    const r = bilan("ANA", [
+      gagne("F1", "ANA", "BOB", "ANA", "submission", {
+        submissionType: "armbar",
+        finishClockMs: 90_000,
+        scores: scores({ pointsA: 2 }),
+      }),
+      gagne("F2", "ANA", "CLE", "ANA", "wo", {
+        forfeitReason: "blessure",
+        finishClockMs: 1_000,
+        submissionType: "kimura",
+        scores: scores({ pointsA: 50 }),
+      }),
+      gagne("F3", "ANA", "DAN", "ANA", "wo", { forfeitReason: "absence" }),
+    ]);
+    expect(r.soumissions.total).toBe(1);
+    expect(r.soumissions.tempsMesures).toBe(1);
+    expect(r.soumissions.plusRapideMs).toBe(90_000);
+    expect(r.soumissions.parType.get("kimura")).toBeUndefined();
+    expect(r.pointsMarques).toBe(2);
+    expect(r.combatsSansJournal).toBe(0);
+  });
+
+  it("un double forfait n'est ni un combat, ni une défaite, ni un « sans vainqueur » disputé", () => {
+    const r = bilan("ANA", [
+      combat({
+        fightId: "F1",
+        registrationA: "ANA",
+        registrationB: "BOB",
+        winner: null,
+        winMethod: "double_wo",
+      }),
+    ]);
+    expect(r).toMatchObject({
+      combats: 0,
+      victoires: 0,
+      defaites: 0,
+      sansVainqueur: 0,
+      doublesForfaits: 1,
+    });
+  });
+
+  it("un motif de forfait posé sur un combat qui n'est pas un forfait est ignoré", () => {
+    const r = bilan("ANA", [
+      gagne("F1", "ANA", "BOB", "ANA", "points", { forfeitReason: "blessure" }),
+    ]);
+    expect(r.combats).toBe(1);
+    expect(r.victoiresEnCombat).toBe(1);
+    expect(r.victoiresParForfait).toEqual({ absence: 0, blessure: 0, autre: 0 });
+  });
+});
+
+describe("« Arrêt (blessure) » : un combat disputé, jamais une soumission (réponse Q4 du 10/10/2026)", () => {
+  it("compte comme un combat disputé gagné ou perdu, rangé dans la case `abandon`", () => {
+    const F = [
+      gagne("F1", "ANA", "BOB", "ANA", "abandon", {
+        finishClockMs: 3_000,
+        scores: scores({ pointsA: 2 }),
+      }),
+      gagne("F2", "CLE", "ANA", "CLE", "abandon"),
+    ];
+    const r = bilan("ANA", F);
+    expect(r.combats).toBe(2);
+    expect(r.victoiresEnCombat).toBe(1);
+    expect(r.defaitesEnCombat).toBe(1);
+    expect(r.victoiresParMethode.abandon).toBe(1);
+    expect(r.defaitesParMethode.abandon).toBe(1);
+    expect(r.soumissions.total).toBe(0);
+    expect(r.soumissions.tempsMesures).toBe(0);
+    expect(r.soumissions.plusRapideMs).toBeNull();
+    expect(r.adversairesDistincts).toBe(2);
+    expect(r.pointsMarques).toBe(2);
+  });
+
+  it("l'arrêt est une rencontre au face-à-face, un forfait non", () => {
+    const ff = faceAFace("ANA", "BOB", [
+      gagne("F1", "ANA", "BOB", "ANA", "abandon"),
+      gagne("F2", "ANA", "BOB", "BOB", "wo", { forfeitReason: "blessure" }),
+    ]);
+    expect(ff).toMatchObject({ seSontRencontres: true, combats: 1, victoiresA: 1, victoiresB: 0 });
   });
 });

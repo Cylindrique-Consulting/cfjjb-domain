@@ -99,7 +99,41 @@ export type FightRecord = {
   readonly submissionType?: SubmissionType | null;
   readonly scores?: FightScores | null;
   readonly finishClockMs?: number | null;
+  readonly forfeitReason?: MotifDeForfait | null;
 };
+
+export type MotifDeForfait = "absence" | "blessure";
+
+export const MOTIFS_DE_FORFAIT = [
+  "absence",
+  "blessure",
+] as const satisfies readonly MotifDeForfait[];
+
+export function isMotifDeForfait(value: string | null | undefined): value is MotifDeForfait {
+  return value != null && (MOTIFS_DE_FORFAIT as readonly string[]).includes(value);
+}
+
+export type CaseDeForfait = MotifDeForfait | "autre";
+
+export const CASES_DE_FORFAIT = [
+  "absence",
+  "blessure",
+  "autre",
+] as const satisfies readonly CaseDeForfait[];
+
+export const METHODES_DE_FORFAIT: readonly WinMethod[] = ["wo", "double_wo"];
+
+export function estUnForfait(win: WinMethod | null | undefined): boolean {
+  return win != null && METHODES_DE_FORFAIT.includes(win);
+}
+
+export function caseDeForfaitDe(
+  win: WinMethod | null | undefined,
+  forfeitReason: string | null | undefined,
+): CaseDeForfait | null {
+  if (!estUnForfait(win)) return null;
+  return isMotifDeForfait(forfeitReason) ? forfeitReason : "autre";
+}
 
 export type MethodeVictoire =
   "points" | "soumission" | "decision" | "abandon" | "disqualification" | "forfait";
@@ -161,6 +195,11 @@ export type StatistiquesCombattant =
       readonly combats: number;
       readonly victoires: number;
       readonly defaites: number;
+      readonly victoiresEnCombat: number;
+      readonly defaitesEnCombat: number;
+      readonly victoiresParForfait: Readonly<Record<CaseDeForfait, number>>;
+      readonly defaitesParForfait: Readonly<Record<CaseDeForfait, number>>;
+      readonly doublesForfaits: number;
       readonly sansVainqueur: number;
       readonly victoiresParMethode: Readonly<Record<MethodeVictoire, number>>;
       readonly defaitesParMethode: Readonly<Record<MethodeVictoire, number>>;
@@ -185,6 +224,12 @@ const compteursVides = (): Record<MethodeVictoire, number> => ({
   abandon: 0,
   disqualification: 0,
   forfait: 0,
+});
+
+const forfaitsVides = (): Record<CaseDeForfait, number> => ({
+  absence: 0,
+  blessure: 0,
+  autre: 0,
 });
 
 function coteDe(f: FightRecord, combattantId: string): FightSide | null {
@@ -214,12 +259,18 @@ export function statistiquesCombattant(
 
   const victoiresParMethode = compteursVides();
   const defaitesParMethode = compteursVides();
+  const victoiresParForfait = forfaitsVides();
+  const defaitesParForfait = forfaitsVides();
   const adversaires = new Map<string, BilanContre>();
   const parType = new Map<SubmissionType, number>();
   const tempsSoumission: number[] = [];
 
+  let combats = 0;
   let victoires = 0;
   let defaites = 0;
+  let victoiresEnCombat = 0;
+  let defaitesEnCombat = 0;
+  let doublesForfaits = 0;
   let sansVainqueur = 0;
   let victoiresSansMethode = 0;
   let defaitesSansMethode = 0;
@@ -241,13 +292,32 @@ export function statistiquesCombattant(
     const gagne = f.winner != null && f.winner === combattantId;
     const perdu = f.winner != null && f.winner !== combattantId;
     const methode = methodeVictoireDe(f.winMethod);
+    const forfait = caseDeForfaitDe(f.winMethod, f.forfeitReason);
 
+    if (forfait !== null) {
+      if (gagne) {
+        victoires++;
+        victoiresParMethode.forfait++;
+        victoiresParForfait[forfait]++;
+      } else if (perdu) {
+        defaites++;
+        defaitesParMethode.forfait++;
+        defaitesParForfait[forfait]++;
+      } else {
+        doublesForfaits++;
+      }
+      continue;
+    }
+
+    combats++;
     if (gagne) {
       victoires++;
+      victoiresEnCombat++;
       if (methode) victoiresParMethode[methode]++;
       else victoiresSansMethode++;
     } else if (perdu) {
       defaites++;
+      defaitesEnCombat++;
       if (methode) defaitesParMethode[methode]++;
       else defaitesSansMethode++;
     } else {
@@ -297,9 +367,14 @@ export function statistiquesCombattant(
 
   return {
     aDesCombats: true,
-    combats: retenus.length,
+    combats,
     victoires,
     defaites,
+    victoiresEnCombat,
+    defaitesEnCombat,
+    victoiresParForfait,
+    defaitesParForfait,
+    doublesForfaits,
     sansVainqueur,
     victoiresParMethode,
     defaitesParMethode,
@@ -370,6 +445,7 @@ export function faceAFace(
   let sansVainqueur = 0;
 
   for (const f of combatsRetenus(fights)) {
+    if (estUnForfait(f.winMethod)) continue;
     const coteA = coteDe(f, combattantA);
     const coteB = coteDe(f, combattantB);
     if (coteA === null || coteB === null || coteA === coteB) continue;
