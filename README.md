@@ -1423,21 +1423,24 @@ prévisionnelles des tatamis, hors absolutes, tout en respectant les contraintes
 catégories et de repos des athlètes ». Tout est sur demande de l'appelant : sans les nouvelles
 options, chaque fonction rend exactement ce qu'elle rendait en v0.41.0.
 
-| Ce qui change                                         | Rôle                                                                                                            |
-| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `repartirLesCombats({ convergence: "moins_charge" })` | un combat de convergence va sur le tatami le moins chargé ; chacun ajoute `cycleSecondes` au tatami qu'il prend |
-| `EvaluationDeJournee.ecartDesFinsMs`                  | le tatami qui finit le plus tard moins celui qui finit le plus tôt, sur `ContexteDEvaluation.tatamisDuJour`     |
-| `comparerLesPlans(a, b, { equilibre: true })`         | `equilibre_des_tatamis` juste après la fin de la journée, avec la marge de 5 minutes (ORD.9 B)                  |
-| `retoucheSansRetard(c, p, { equilibre: true })`       | la même option, transmise à la comparaison                                                                      |
-| `CombatControle.creneauReserve`                       | un créneau d'absolut prévu : compté dans le dépassement de journée, pas dans le déséquilibre entre tatamis      |
+| Ce qui change                                         | Rôle                                                                                                        |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `repartirLesCombats({ convergence: "moins_charge" })` | un combat de convergence va sur le moins chargé des tatamis de ses sources ; il lui ajoute `cycleSecondes`  |
+| `EvaluationDeJournee.ecartDesFinsMs`                  | le tatami qui finit le plus tard moins celui qui finit le plus tôt, sur `ContexteDEvaluation.tatamisDuJour` |
+| `comparerLesPlans(a, b, { equilibre: true })`         | `equilibre_des_tatamis` juste après la fin de la journée, avec la marge de 5 minutes (ORD.9 B)              |
+| `retoucheSansRetard(c, p, { equilibre: true })`       | la même option, transmise à la comparaison                                                                  |
+| `CombatControle.creneauReserve`                       | un créneau d'absolut prévu : compté dans le dépassement de journée, pas dans le déséquilibre entre tatamis  |
 
 - **La convergence au moins chargé.** Avant, un quart, une demie ou une finale d'une catégorie
   répartie allait sur celui de ses tatamis qui finit le PLUS tard, d'après une charge fixe : il
   chargeait encore le tatami déjà le plus chargé. En `moins_charge`, les combats se traitent du
-  premier tour à la finale, et la charge monte à chaque combat de convergence placé : deux quarts
-  réunis ne tombent plus sur le même tatami. La charge reçue n'est jamais modifiée ; un combat
-  exempt ne charge rien ; à égalité, le plus petit numéro ; sans charge ni cycle, le tapis de la
-  console absolut, comme le mode par défaut.
+  premier tour à la finale, et la charge monte à chaque combat de convergence placé. Le choix se
+  fait entre les tatamis de ses combats sources joués (§12) : une finale se joue sur le tatami de
+  l'une de ses demi-finales, et ses finalistes ne changent pas tous deux de tatami pour elle ; ce
+  n'est qu'à défaut de source jouée parmi les combats reçus que tous les tatamis réunis
+  concourent. La charge reçue n'est jamais modifiée ; un combat exempt ne charge rien et n'est
+  pas une source ; à égalité, le plus petit numéro ; sans charge ni cycle (et sans exempt parmi
+  les sources), le tapis de la console absolut, comme le mode par défaut.
 - **L'écart entre les fins.** Mesuré sur les tatamis de la journée que l'appelant donne (ceux que
   la salle offre ce jour-là) : un tatami qui n'a aucun combat compte à son début, puisqu'il est
   libre toute la journée. L'écart ne voit que les combats que l'ordonnanceur a placés : il est
@@ -1455,9 +1458,11 @@ options, chaque fonction rend exactement ce qu'elle rendait en v0.41.0.
   l'heure de fin de journée les compte toujours.
 - **Le banc** (`tests/equilibre-des-tatamis.test.ts`) : huit journées synthétiques de 60
   catégories sur 8 tatamis, réparties et affectées comme la plateforme le fait, placées par
-  l'ordonnanceur. Écart cumulé entre les fins : 2 584 minutes en `plus_tardif`, 419 en
+  l'ordonnanceur. Écart cumulé entre les fins : 2 584 minutes en `plus_tardif`, 518 en
   `moins_charge`. Sur chacune, l'écart baisse, la journée ne finit pas plus tard, aucun repos
-  insuffisant, pas plus d'attentes excessives.
+  insuffisant, pas plus d'attentes excessives, aucune finale loin de ses demi-finales, et les
+  changements de tatami des athlètes restent ceux du mode par défaut à quelques unités près
+  (4 117 avant, 4 126 après).
 
 ### Pour les consommateurs
 

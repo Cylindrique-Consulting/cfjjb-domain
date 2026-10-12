@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { tapisDuCombatAbsolut, TAPIS_ADMIS_ABSOLUT } from "../src/absolut-regles";
+import { mulberry32 } from "../src/prng";
 import {
   affecterLesTatamis,
   estNombreDeTatamisAdmis,
@@ -549,37 +550,66 @@ describe("le combat de convergence sur le tatami le moins chargé (v0.42.0, « m
   const tatamiDe = (places: ReturnType<typeof repartirLesCombats>, id: string) =>
     places.get(id)?.tatamiId;
 
-  it("chaque combat de convergence charge le tatami qu'il prend : quarts, demies et finale se répartissent", () => {
-    const fights = identifier(tableau(16, "seize"));
+  it("la finale reste sur le tatami de l'une de ses demi-finales (16 inscrits sur 4 tatamis)", () => {
+    const fights = identifier(tableau(16, "revue"));
     const places = repartirLesCombats({
-      tatamis: tatamis(8),
+      tatamis: tatamis(4),
       combats: fights,
       convergence: "moins_charge",
       cycleSecondes: 420,
     });
-    expect(["3:0", "3:1", "3:2", "3:3"].map((k) => tatamiDe(places, `${k}:BraketFight`))).toEqual([
+    expect(["2:0", "2:1"].map((k) => tatamiDe(places, `${k}:BraketFight`))).toEqual(["t1", "t3"]);
+    // Choisie parmi les quatre tatamis, elle partait sur t2, où aucune demie ne s'était jouée.
+    expect(tatamiDe(places, "1:0:BraketFight")).toBe("t1");
+    // Témoin : le mode par défaut fait de même.
+    const fixe = repartirLesCombats({ tatamis: tatamis(4), combats: fights });
+    expect(["2:0", "2:1", "1:0"].map((k) => tatamiDe(fixe, `${k}:BraketFight`))).toEqual([
       "t1",
       "t3",
-      "t5",
-      "t7",
+      "t1",
     ]);
-    // Les demi-finales voient les quarts : t1 et t5 ont déjà un combat, t2 et t6 aucun.
-    expect(tatamiDe(places, "2:0:BraketFight")).toBe("t2");
-    expect(tatamiDe(places, "2:1:BraketFight")).toBe("t6");
-    // La finale prend le premier tatami resté sans combat de convergence.
-    expect(tatamiDe(places, "1:0:BraketFight")).toBe("t4");
-    // Témoin : à charge fixe, tout revient au plus petit numéro des tatamis réunis.
-    const fixe = repartirLesCombats({ tatamis: tatamis(8), combats: fights });
-    expect(tatamiDe(fixe, "2:0:BraketFight")).toBe("t1");
-    expect(tatamiDe(fixe, "2:1:BraketFight")).toBe("t5");
-    expect(tatamiDe(fixe, "1:0:BraketFight")).toBe("t1");
+  });
+
+  it("chaque combat de convergence se joue sur le tatami de l'une de ses sources jouées, quelle que soit la charge", () => {
+    const hasard = mulberry32(1210);
+    for (const nombre of [2, 3, 4, 5, 6, 7, 8]) {
+      for (const inscrits of [9, 16, 23, 32, 45, 64]) {
+        const fights = identifier(tableau(inscrits, `s${nombre}-${inscrits}`));
+        const liste = tatamis(nombre);
+        const chargeParTatami = Object.fromEntries(
+          liste.map((t) => [t.id, Math.floor(hasard() * 3600)] as const),
+        );
+        const places = repartirLesCombats({
+          tatamis: liste,
+          combats: fights,
+          chargeParTatami,
+          convergence: "moins_charge",
+          cycleSecondes: 420,
+        });
+        const parPosition = new Map(fights.map((f) => [`${f.division}:${f.indexInDivision}`, f]));
+        for (const fight of fights) {
+          if (places.get(fight.id)?.convergence !== true) continue;
+          const sources = [0, 1]
+            .map((rang) =>
+              parPosition.get(`${fight.division + 1}:${fight.indexInDivision * 2 + rang}`),
+            )
+            .filter((f) => f !== undefined && !f.isBye)
+            .map((f) => tatamiDe(places, f?.id ?? ""));
+          if (sources.length === 0) continue;
+          expect(sources, `${nombre} tatamis, ${inscrits} inscrits, ${fight.id}`).toContain(
+            tatamiDe(places, fight.id),
+          );
+        }
+      }
+    }
   });
 
   it("part de la charge connue, le moins chargé d'abord, et la met à jour combat par combat", () => {
+    // Sur 3 tatamis, la demie du haut réunit t1 et t2, celle du bas se joue sur t3.
     const fights = identifier(tableau(8));
-    const chargeParTatami = { t1: 10, t2: 99, t3: 10, t4: 50 };
+    const chargeParTatami = { t1: 10, t2: 99, t3: 60 };
     const places = repartirLesCombats({
-      tatamis: tatamis(4),
+      tatamis: tatamis(3),
       combats: fights,
       chargeParTatami,
       convergence: "moins_charge",
@@ -587,21 +617,20 @@ describe("le combat de convergence sur le tatami le moins chargé (v0.42.0, « m
     });
     expect(tatamiDe(places, "2:0:BraketFight")).toBe("t1");
     expect(tatamiDe(places, "2:1:BraketFight")).toBe("t3");
-    // t1 et t3 sont passés à 110 : la finale va sur t4 (50).
-    expect(tatamiDe(places, "1:0:BraketFight")).toBe("t4");
-    // Sans cycle, la charge ne bouge pas : à égalité entre t1 et t3, le plus petit numéro.
+    // t1 est passé à 110 : la finale va sur t3 (60), le tatami de l'autre demie.
+    expect(tatamiDe(places, "1:0:BraketFight")).toBe("t3");
+    // Sans cycle, la charge ne bouge pas : la finale reste sur t1 (10).
     const sansCycle = repartirLesCombats({
-      tatamis: tatamis(4),
+      tatamis: tatamis(3),
       combats: fights,
       chargeParTatami,
       convergence: "moins_charge",
     });
     expect(tatamiDe(sansCycle, "1:0:BraketFight")).toBe("t1");
     // Témoin : le mode par défaut met tout sur le plus chargé.
-    const parDefaut = repartirLesCombats({ tatamis: tatamis(4), combats: fights, chargeParTatami });
-    expect(["2:0", "2:1", "1:0"].map((k) => tatamiDe(parDefaut, `${k}:BraketFight`))).toEqual([
+    const parDefaut = repartirLesCombats({ tatamis: tatamis(3), combats: fights, chargeParTatami });
+    expect(["2:0", "1:0"].map((k) => tatamiDe(parDefaut, `${k}:BraketFight`))).toEqual([
       "t2",
-      "t4",
       "t2",
     ]);
   });
@@ -635,56 +664,58 @@ describe("le combat de convergence sur le tatami le moins chargé (v0.42.0, « m
     }
   });
 
-  it("un tatami imposé compte dans la charge comme un autre", () => {
+  it("un tatami imposé compte dans la charge comme un autre, et comme source", () => {
     const fights = identifier(tableau(8));
+    const chargeParTatami = { t1: 0, t2: 30, t3: 0, t4: 60 };
     const libre = repartirLesCombats({
       tatamis: tatamis(4),
       combats: fights,
+      chargeParTatami,
       convergence: "moins_charge",
       cycleSecondes: 100,
     });
     expect(["2:0", "2:1", "1:0"].map((k) => tatamiDe(libre, `${k}:BraketFight`))).toEqual([
       "t1",
       "t3",
-      "t2",
+      "t1",
     ]);
     const impose = repartirLesCombats({
       tatamis: tatamis(4),
       combats: fights,
+      chargeParTatami,
       convergence: "moins_charge",
       cycleSecondes: 100,
       tatamiParCombat: { "2:0:BraketFight": "t2" },
     });
-    // t2 et t3 portent une demi-finale : la finale revient à t1.
+    // La demie imposée porte t2 à 130, l'autre t3 à 100 : la finale va sur t3.
     expect(["2:0", "2:1", "1:0"].map((k) => tatamiDe(impose, `${k}:BraketFight`))).toEqual([
       "t2",
       "t3",
-      "t1",
+      "t3",
     ]);
   });
 
-  it("un combat exempt ne charge aucun tatami", () => {
-    const combats = (exempt: boolean) => [
-      {
-        id: "demie-a",
-        division: 2,
-        indexInDivision: 0,
-        type: "BraketFight" as const,
-        isBye: exempt,
-      },
-      { id: "demie-b", division: 2, indexInDivision: 1, type: "BraketFight" as const },
-      { id: "finale", division: 1, indexInDivision: 0, type: "BraketFight" as const },
-    ];
-    const repartir = (exempt: boolean) =>
+  it("un combat exempt n'est pas une source, et ne charge aucun tatami", () => {
+    const combats = (exempts: readonly string[]) =>
+      [
+        { id: "demie-a", division: 2, indexInDivision: 0, type: "BraketFight" as const },
+        { id: "demie-b", division: 2, indexInDivision: 1, type: "BraketFight" as const },
+        { id: "finale", division: 1, indexInDivision: 0, type: "BraketFight" as const },
+      ].map((c) => ({ ...c, isBye: exempts.includes(c.id) }));
+    const repartir = (exempts: readonly string[]) =>
       repartirLesCombats({
         tatamis: tatamis(4),
-        combats: combats(exempt),
+        combats: combats(exempts),
+        chargeParTatami: { t1: 0, t2: 50, t3: 0, t4: 50 },
         convergence: "moins_charge",
         cycleSecondes: 100,
       });
-    // Jouée, la demie de t1 le charge : la finale part sur t2. Exempte, elle ne le charge pas.
-    expect(tatamiDe(repartir(false), "finale")).toBe("t2");
-    expect(tatamiDe(repartir(true), "finale")).toBe("t1");
+    // Jouées, les demies vont sur t1 et t3, chacune à 100 : la finale sur t1.
+    expect(tatamiDe(repartir([]), "finale")).toBe("t1");
+    // Exempte, la demie de t1 n'est pas une source : la finale suit celle de t3.
+    expect(tatamiDe(repartir(["demie-a"]), "finale")).toBe("t3");
+    // Sans source jouée, la finale prend le moins chargé de tous : t1, que les exempts n'ont pas chargé.
+    expect(tatamiDe(repartir(["demie-a", "demie-b"]), "finale")).toBe("t1");
   });
 });
 

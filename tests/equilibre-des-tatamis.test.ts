@@ -18,12 +18,14 @@
  *     placé, catégorie après catégorie dans l'ordre de départ.
  *
  * L'ordonnanceur du noyau place ensuite chaque combat ; l'écart entre les fins
- * des tatamis se lit sur `evaluerLaJournee`.
+ * des tatamis se lit sur `evaluerLaJournee`, la continuité des branches (§12)
+ * sur `controlerLaContinuite` et sur les changements de tatami des athlètes.
  */
 import { describe, expect, it } from "vitest";
 import { affecterParListe } from "../src/affectation-par-liste";
 import type { GeneratedFight } from "../src/bracket-generator";
 import { structuralKey } from "../src/bracket-propagation";
+import { controlerLaContinuite } from "../src/continuite-des-tatamis";
 import { controlerLePlanning, type CombatControle } from "../src/controles-de-planning";
 import { evaluerLaJournee, sourcesDesCombats } from "../src/objectifs-du-planning";
 import {
@@ -107,6 +109,11 @@ type MesureDuBanc = {
   combatsSansHoraire: number;
   attentesExcessives: number;
   reposInsuffisants: number;
+  /** §12 : finales jouées sur un tatami où aucune de leurs demi-finales ne s'est jouée. */
+  finalesLoinDesDemiFinales: number;
+  /** §18, objectif 5 : changements de tatami des athlètes jusqu'à leur finale. */
+  changementsDeTatami: number;
+  parcoursSurTroisTatamis: number;
 };
 
 function planifierLaJournee(
@@ -205,7 +212,9 @@ function planifierLaJournee(
     combats,
   };
   const resultat = planifierCombats(entree);
-  const evaluation = evaluerLaJournee(entree, resultat, 0);
+  const evaluation = evaluerLaJournee(entree, resultat, 0, {
+    partiesParCategorie: new Map(categories.map((c) => [c.id, tatamisDe(c.id).length] as const)),
+  });
 
   const duree = new Map(categories.map((c) => [c.id, c.dureeSecondes] as const));
   const sources = sourcesDesCombats(combats);
@@ -228,12 +237,29 @@ function planifierLaJournee(
     });
   }
   const constats = controlerLePlanning({ combats: controles });
+  const continuite = controlerLaContinuite({
+    combats: controles.map((c) => ({
+      fightId: c.fightId,
+      categorieId: c.categorieId,
+      tatamiId: c.tatamiId,
+      jour: c.jour,
+      division: c.division,
+      indexInDivision: combats.find((f) => f.id === c.fightId)?.indexInDivision ?? 0,
+      type: c.type,
+      sources: c.sources ?? [],
+    })),
+    categories: categories.map((c) => ({ id: c.id, tatamisDesParties: tatamisDe(c.id) })),
+  });
   return {
     finMs: evaluation.finMs ?? NEUF_HEURES,
     ecartDesFinsMs: evaluation.ecartDesFinsMs,
     combatsSansHoraire: evaluation.combatsSansHoraire,
     attentesExcessives: constats.filter((c) => c.type === "attente_excessive").length,
     reposInsuffisants: constats.filter((c) => c.type === "repos_insuffisant").length,
+    finalesLoinDesDemiFinales: continuite.filter((c) => c.type === "finale_loin_des_demi_finales")
+      .length,
+    changementsDeTatami: evaluation.changementsDeTatami,
+    parcoursSurTroisTatamis: evaluation.parcoursSurTroisTatamis,
   };
 }
 
@@ -253,7 +279,7 @@ describe("le banc de l'équilibre des tatamis : une journée synthétique de 60 
     for (const { graine, avant, apres } of mesures) {
       expect(apres.ecartDesFinsMs, `graine ${graine}`).toBeLessThan(avant.ecartDesFinsMs);
     }
-    // Mesuré sur les huit journées : 2 584 minutes d'écart cumulé avant, 419 après.
+    // Mesuré sur les huit journées : 2 584 minutes d'écart cumulé avant, 518 après.
     const total = (cle: "avant" | "apres") =>
       mesures.reduce((somme, m) => somme + m[cle].ecartDesFinsMs, 0) / MINUTE;
     expect(total("apres")).toBeLessThan(0.25 * total("avant"));
@@ -274,6 +300,38 @@ describe("le banc de l'équilibre des tatamis : une journée synthétique de 60 
         avant.attentesExcessives,
       );
     }
+  });
+
+  it("sans éloigner une finale de ses demi-finales, ni faire changer les athlètes de tatami plus souvent (§12)", () => {
+    // Chaque combat de convergence reste sur le tatami de l'une de ses sources :
+    // un athlète ne change de tatami qu'au combat qui réunit sa branche à une
+    // autre. Selon le côté retenu, ce sont les athlètes de l'une ou de l'autre
+    // branche qui changent : à effectifs inégaux (exempts, répartitions sur 3,
+    // 5, 6 ou 7 tatamis), le compte bouge de quelques unités dans un sens ou
+    // dans l'autre. Mesuré : 4 117 changements avant, 4 126 après, et au plus
+    // 3 % de plus sur une journée ; 943 parcours sur trois tatamis avant, 938
+    // après.
+    for (const { graine, avant, apres } of mesures) {
+      expect(avant.finalesLoinDesDemiFinales, `graine ${graine}`).toBe(0);
+      expect(apres.finalesLoinDesDemiFinales, `graine ${graine}`).toBe(0);
+      expect(apres.changementsDeTatami, `graine ${graine}`).toBeLessThanOrEqual(
+        1.05 * avant.changementsDeTatami,
+      );
+      expect(apres.parcoursSurTroisTatamis, `graine ${graine}`).toBeLessThanOrEqual(
+        1.05 * avant.parcoursSurTroisTatamis,
+      );
+    }
+    const total = (
+      cle: "avant" | "apres",
+      mesure: "changementsDeTatami" | "parcoursSurTroisTatamis",
+    ) => mesures.reduce((somme, m) => somme + m[cle][mesure], 0);
+    expect(total("avant", "changementsDeTatami")).toBeGreaterThan(0);
+    expect(total("apres", "changementsDeTatami")).toBeLessThanOrEqual(
+      1.01 * total("avant", "changementsDeTatami"),
+    );
+    expect(total("apres", "parcoursSurTroisTatamis")).toBeLessThanOrEqual(
+      1.01 * total("avant", "parcoursSurTroisTatamis"),
+    );
   });
 
   it("la même graine donne la même journée et la même mesure", () => {

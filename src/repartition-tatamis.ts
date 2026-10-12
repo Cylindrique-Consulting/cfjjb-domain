@@ -268,15 +268,32 @@ export type EntreeDeRepartition = {
  *   · `plus_tardif` (défaut, et la console absolut) : celui qui finit le plus
  *     tard d'après `chargeParTatami`, une charge FIXE pour tous les combats ;
  *   · `moins_charge` : celui qui a le MOINS de charge, mise à jour combat par
- *     combat. Les combats se prennent dans l'ordre des tours (quarts, puis
- *     demi-finales, puis finale) et chaque combat de convergence ajoute
- *     `cycleSecondes` au tatami qu'il prend : le quart suivant voit cette
- *     charge. C'est ce qui rapproche les heures de fin des tatamis (ticket du
- *     11/10/2026 : « les tatamis terminent leur programme à des horaires
- *     proches, hors absolutes »).
+ *     combat, parmi les tatamis de ses combats sources joués. Les combats se
+ *     prennent dans l'ordre des tours (quarts, puis demi-finales, puis
+ *     finale) et chaque combat de convergence ajoute `cycleSecondes` au
+ *     tatami qu'il prend : le combat suivant voit cette charge. C'est ce qui
+ *     rapproche les heures de fin des tatamis (ticket du 11/10/2026 : « les
+ *     tatamis terminent leur programme à des horaires proches, hors
+ *     absolutes »).
+ *
+ * ┌─ LA CONTINUITÉ D'ABORD (§12, revue du 12/10/2026) ────────────────────────┐
+ * │ Choisi parmi TOUS les tatamis réunis, le moins chargé envoyait une finale │
+ * │ sur un tatami où aucune de ses demi-finales ne s'était jouée : ses deux   │
+ * │ finalistes changeaient de tatami pour elle, et le contrôle                │
+ * │ `finale_loin_des_demi_finales` le signalait. En `moins_charge`, un combat │
+ * │ de convergence reste donc sur le tatami de l'un de ses combats sources    │
+ * │ joués (un exempt n'en est pas un), le moins chargé des deux. Ce n'est     │
+ * │ qu'à défaut de source jouée parmi les combats reçus qu'il prend le moins  │
+ * │ chargé de tous les tatamis réunis.                                        │
+ * │                                                                           │
+ * │ `plus_tardif` le fait sans le dire : avec une charge fixe, le plus chargé │
+ * │ des tatamis réunis est aussi le plus chargé de la moitié qui le contient, │
+ * │ donc celui de la demi-finale de cette moitié.                             │
+ * └───────────────────────────────────────────────────────────────────────────┘
  *
  * À charge égale, le plus petit numéro, dans les deux modes. Sans charge
- * connue ni cycle, les deux modes rendent le même tatami.
+ * connue ni cycle, et sans exempt parmi les sources, les deux modes rendent le
+ * même tatami.
  */
 export type ModeDeConvergence = "plus_tardif" | "moins_charge";
 
@@ -317,11 +334,11 @@ function tatamiLePlusTardif(
 
 function tatamiLeMoinsCharge(
   tatamis: readonly TatamiDeRepartition[],
-  partiesReunies: readonly number[],
+  parties: readonly number[],
   chargeParTatami: Readonly<Record<string, number>>,
 ): TatamiDeRepartition | null {
   let choix: TatamiDeRepartition | null = null;
-  for (const partie of partiesReunies) {
+  for (const partie of parties) {
     const candidat = tatamis[partie];
     if (candidat === undefined) continue;
     if (choix === null) {
@@ -340,8 +357,9 @@ function tatamiLeMoinsCharge(
  * Le tatami de chaque combat d'une catégorie répartie : celui de sa partie, ou,
  * pour un combat de convergence, l'un des tatamis que ses parties réunissent
  * (`ModeDeConvergence`). Un tatami imposé (`tatamiParCombat`) l'emporte s'il
- * est l'un d'eux, et compte alors dans la charge comme les autres. La carte
- * rendue suit l'ordre des combats reçus, quel que soit le mode.
+ * est l'un d'eux, et compte alors dans la charge comme les autres, et comme
+ * tatami de source pour le tour suivant. La carte rendue suit l'ordre des
+ * combats reçus, quel que soit le mode.
  */
 export function repartirLesCombats(entree: EntreeDeRepartition): Map<string, PlaceDeCombat> {
   const parties = entree.tatamis.length;
@@ -367,6 +385,32 @@ export function repartirLesCombats(entree: EntreeDeRepartition): Map<string, Pla
   }
   const calculees = new Map<string, PlaceDeCombat>();
 
+  // Les combats de tableau, par position : les sources d'un combat du tour d
+  // sont les combats 2i et 2i + 1 du tour d + 1 (`findFeederFight`).
+  const parPosition = new Map<string, CombatARepartir & { id: string; isBye?: boolean }>();
+  if (moinsCharge) {
+    for (const combat of entree.combats) {
+      if (combat.type !== "BraketFight") continue;
+      parPosition.set(`${combat.division}:${combat.indexInDivision}`, combat);
+    }
+  }
+  /** Les parties réunies où se joue l'une des sources jouées du combat, sinon toutes. */
+  const partiesDesSources = (combat: CombatARepartir, partiesReunies: readonly number[]) => {
+    if (combat.type !== "BraketFight") return partiesReunies;
+    const tatamisDesSources = new Set<string>();
+    for (const rang of [0, 1]) {
+      const source = parPosition.get(`${combat.division + 1}:${combat.indexInDivision * 2 + rang}`);
+      if (source === undefined || source.isBye === true) continue;
+      const tatami = calculees.get(source.id)?.tatamiId;
+      if (tatami !== undefined) tatamisDesSources.add(tatami);
+    }
+    const retenues = partiesReunies.filter((partie) => {
+      const id = entree.tatamis[partie]?.id;
+      return id !== undefined && tatamisDesSources.has(id);
+    });
+    return retenues.length > 0 ? retenues : partiesReunies;
+  };
+
   for (const { combat } of ordre) {
     const decoupe = partiesDuCombat(combat, parties);
     const admis = new Set(
@@ -388,7 +432,11 @@ export function repartirLesCombats(entree: EntreeDeRepartition): Map<string, Pla
       const defaut = !decoupe.convergence
         ? (entree.tatamis[decoupe.partie] ?? null)
         : moinsCharge
-          ? tatamiLeMoinsCharge(entree.tatamis, decoupe.partiesReunies, charge)
+          ? tatamiLeMoinsCharge(
+              entree.tatamis,
+              partiesDesSources(combat, decoupe.partiesReunies),
+              charge,
+            )
           : tatamiLePlusTardif(entree.tatamis, decoupe.partiesReunies, charge);
       if (defaut === null) {
         throw new RangeError(`aucun tatami disponible pour le combat ${combat.id}`);
