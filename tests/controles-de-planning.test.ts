@@ -533,6 +533,60 @@ describe("le contrôle des horaires de journée", () => {
     });
     expect(constats).toEqual([]);
   });
+
+  describe("un créneau réservé à un absolut prévu (v0.43.0)", () => {
+    // T1 et T2 finissent leurs catégories à 17:00 ; l'absolut prévu occupe T2 jusqu'à 19:30.
+    const creneau = (creneauReserve?: boolean): CombatControle =>
+      combat({
+        fightId: "absolut:noire:t2",
+        categorieId: "absolut:noire",
+        tatamiId: "t2",
+        debutMs: heure("17:20"),
+        finMs: heure("19:30"),
+        ...(creneauReserve === undefined ? {} : { creneauReserve }),
+      });
+    const avec = (creneauReserve?: boolean) =>
+      controlerLePlanning({
+        combats: [finDeTatami("t1", "17:00"), finDeTatami("t2", "17:00"), creneau(creneauReserve)],
+        journees: [{ jour: 0, finMs: heure("19:00") }],
+      });
+
+    it("compte dans le dépassement de journée, pas dans le déséquilibre entre tatamis", () => {
+      expect(avec(true).map((c) => [c.type, c.tatamiId, c.ecartMinutes])).toEqual([
+        ["depassement_de_journee", "t2", 30],
+      ]);
+    });
+
+    it("sans la marque, un créneau compte comme un combat (témoin)", () => {
+      expect(avec().map((c) => [c.type, c.tatamiId, c.ecartMinutes])).toEqual([
+        ["depassement_de_journee", "t2", 30],
+        ["desequilibre_de_tatami", "t1", -150],
+        ["desequilibre_de_tatami", "t2", 150],
+      ]);
+      expect(avec(false)).toEqual(avec());
+    });
+
+    it("un tatami qui ne porte que des créneaux réservés n'entre pas dans le déséquilibre", () => {
+      const constats = controlerLePlanning({
+        combats: [
+          finDeTatami("t1", "17:00"),
+          finDeTatami("t2", "15:30"),
+          combat({
+            fightId: "absolut:noire:t3",
+            categorieId: "absolut:noire",
+            tatamiId: "t3",
+            debutMs: heure("09:00"),
+            finMs: heure("10:00"),
+            creneauReserve: true,
+          }),
+        ],
+      }).filter((c) => c.type === "desequilibre_de_tatami");
+      expect(constats.map((c) => [c.tatamiId, c.ecartMinutes])).toEqual([
+        ["t1", 90],
+        ["t2", -90],
+      ]);
+    });
+  });
 });
 
 describe("le contrôle des propositions de répartition", () => {
