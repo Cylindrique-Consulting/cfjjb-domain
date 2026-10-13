@@ -1,5 +1,5 @@
 /**
- * LE BANC DE L'ÉQUILIBRE DES TATAMIS (v0.42.0, ticket du 11/10/2026 : « les
+ * LE BANC DE L'ÉQUILIBRE DES TATAMIS (v0.43.0, ticket du 11/10/2026 : « les
  * tatamis terminent leur programme à des horaires proches, hors absolutes »).
  *
  * Une journée synthétique, tirée d'une graine fixe, à la façon d'un Open :
@@ -11,7 +11,7 @@
  * départ et charge), puis les combats de convergence des catégories réparties
  * sont placés de deux façons :
  *
- *   · `plus_tardif` (avant v0.42.0) : sur le tatami le plus chargé, d'après une
+ *   · `plus_tardif` (avant v0.43.0) : sur le tatami le plus chargé, d'après une
  *     charge fixe, celle des catégories partagée également entre leurs tatamis ;
  *   · `moins_charge` : sur le tatami le moins chargé, la charge partant des
  *     combats qui ne convergent pas et montant à chaque combat de convergence
@@ -146,7 +146,7 @@ function planifierLaJournee(
   );
   const tatamisDe = (id: string) => affectations.get(id)?.tatamiIds ?? [];
 
-  // La charge fixe d'avant v0.42.0, et celle qui part des combats sans convergence.
+  // La charge fixe d'avant v0.43.0, et celle qui part des combats sans convergence.
   const chargeFixe: Record<string, number> = {};
   const chargeCourante: Record<string, number> = {};
   for (const c of categories) {

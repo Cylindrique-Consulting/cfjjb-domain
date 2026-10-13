@@ -1464,12 +1464,12 @@ un « Arrêt (blessure) » pour un combat commencé puis interrompu sans soumiss
 - Aucun type de `WinMethod` ne change : le forfait sur blessure reste un `wo`, l'arrêt sur
   blessure reste un `abandon`.
 
-## Release v0.42.0 : l'équilibre des fins de tatami, hors absoluts
+## Release v0.43.0 : l'équilibre des fins de tatami, hors absoluts
 
 Le ticket du 11/10/2026 : « le générateur cherche à minimiser l'écart entre les heures de fin
 prévisionnelles des tatamis, hors absolutes, tout en respectant les contraintes de déroulement des
 catégories et de repos des athlètes ». Tout est sur demande de l'appelant : sans les nouvelles
-options, chaque fonction rend exactement ce qu'elle rendait en v0.41.0.
+options, chaque fonction rend exactement ce qu'elle rendait en v0.42.0.
 
 | Ce qui change                                         | Rôle                                                                                                        |
 | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |

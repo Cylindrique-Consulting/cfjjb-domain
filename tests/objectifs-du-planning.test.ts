@@ -125,7 +125,7 @@ describe("l'ordre des objectifs du §18 et la marge de 5 minutes (ORD.9 B)", () 
   });
 });
 
-describe("l'équilibre des tatamis, sur demande (v0.42.0, ticket du 11/10/2026)", () => {
+describe("l'équilibre des tatamis, sur demande (v0.43.0, ticket du 11/10/2026)", () => {
   it("s'insère juste après la fin de la journée ; l'ordre par défaut ne change pas", () => {
     expect(OBJECTIFS_DU_PLANNING_AVEC_EQUILIBRE).toEqual([
       "fin_de_journee",

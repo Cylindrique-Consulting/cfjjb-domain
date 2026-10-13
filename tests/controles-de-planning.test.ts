@@ -534,7 +534,7 @@ describe("le contrôle des horaires de journée", () => {
     expect(constats).toEqual([]);
   });
 
-  describe("un créneau réservé à un absolut prévu (v0.42.0)", () => {
+  describe("un créneau réservé à un absolut prévu (v0.43.0)", () => {
     // T1 et T2 finissent leurs catégories à 17:00 ; l'absolut prévu occupe T2 jusqu'à 19:30.
     const creneau = (creneauReserve?: boolean): CombatControle =>
       combat({

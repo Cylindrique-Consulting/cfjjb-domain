@@ -32,7 +32,7 @@ import { estNombreDeTatamisAdmis, partiesDuCombat } from "./repartition-tatamis"
  * minutes y compte pour une égalité, comme pour l'heure de fin. Les autres se
  * comparent exactement. Si tout est égal, la fin la plus précoce l'emporte.
  *
- * ┌─ L'ÉQUILIBRE DES TATAMIS (v0.42.0, ticket du 11/10/2026) ─────────────────┐
+ * ┌─ L'ÉQUILIBRE DES TATAMIS (v0.43.0, ticket du 11/10/2026) ─────────────────┐
  * │ « Le générateur cherche à minimiser l'écart entre les heures de fin       │
  * │ prévisionnelles des tatamis, hors absolutes. » Sur demande de             │
  * │ l'appelant (`equilibre`), un objectif s'insère juste après la fin de la   │
@@ -91,7 +91,7 @@ export type OptionsDeComparaison = {
   /**
    * Insère `equilibre_des_tatamis` juste après la fin de la journée
    * (`OBJECTIFS_DU_PLANNING_AVEC_EQUILIBRE`). Absent ou faux : l'ordre du §18
-   * d'avant v0.42.0.
+   * d'avant v0.43.0.
    */
   equilibre?: boolean;
 };

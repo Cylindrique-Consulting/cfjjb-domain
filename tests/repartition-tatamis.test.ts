@@ -546,7 +546,7 @@ describe("l'affectation d'un combat à son tatami", () => {
   });
 });
 
-describe("le combat de convergence sur le tatami le moins chargé (v0.42.0, « moins_charge »)", () => {
+describe("le combat de convergence sur le tatami le moins chargé (v0.43.0, « moins_charge »)", () => {
   const tatamiDe = (places: ReturnType<typeof repartirLesCombats>, id: string) =>
     places.get(id)?.tatamiId;
 

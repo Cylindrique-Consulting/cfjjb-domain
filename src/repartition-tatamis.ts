@@ -251,7 +251,7 @@ export type EntreeDeRepartition = {
    */
   chargeParTatami?: Readonly<Record<string, number>>;
   tatamiParCombat?: Readonly<Record<string, string>>;
-  /** Absent : `plus_tardif`, le choix d'avant v0.42.0. */
+  /** Absent : `plus_tardif`, le choix d'avant v0.43.0. */
   convergence?: ModeDeConvergence;
   /**
    * En `moins_charge` : le temps qu'un combat occupe un tatami (durée
