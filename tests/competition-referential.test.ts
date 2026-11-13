@@ -120,7 +120,7 @@ describe("weight classes", () => {
   it("children limits are per age group, NoGi differs from Gi", () => {
     expect(getMaxWeightKg("gi", "U11", "male", "Pena")).toBe(36.2);
     expect(getMaxWeightKg("nogi", "U11", "male", "Pena")).toBe(34.8);
-    expect(getMaxWeightKg("nogi", "U9", "male", "Leve")).toBe(31.2);
+    expect(getMaxWeightKg("nogi", "U9", "male", "Leve")).toBe(31.8);
   });
 });
 

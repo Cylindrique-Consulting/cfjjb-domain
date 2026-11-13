@@ -1519,6 +1519,29 @@ options, chaque fonction rend exactement ce qu'elle rendait en v0.42.0.
   `ObjectifDuPlanning` admet `equilibre_des_tatamis` : un `switch` exhaustif doit le traiter.
 - Le module du jour J n'utilise aucune de ces fonctions : il peut rester sur sa version.
 
+## Release v0.44.0 : U9 No-Gi Leve à 31,80 kg (CFJJB-490)
+
+Correction du barème enfants No-Gi : le plafond U9 / Leve passe de **31,2 kg** à
+**31,8 kg**, aligné sur le tableau officiel IBJJF 2026 enfants No-Gi (Pee-wee 3 / Light).
+
+| Ce qui change                             | Avant | Après |
+| ----------------------------------------- | ----- | ----- |
+| `getMaxWeightKg("nogi", "U9", *, "Leve")` | 31.2  | 31.8  |
+
+Les 39 autres valeurs numériques du barème enfants No-Gi sont inchangées. Aucun type ni
+signature ne change : les consommateurs n'ont qu'à épingler `v0.44.0` pour que les
+inscriptions, les contrôles de poids et les libellés (« Leve · max 31,8 kg ») reprennent
+le bon seuil. Les catégories déjà créées stockent le nom de classe (`Leve`), pas le kg :
+aucun backfill de base n'est requis ; les résultats historiques ne sont pas modifiés.
+
+### Pour les consommateurs
+
+- `cfjjb-platform` (formulaires d'inscription, fiches, papiers, API publique
+  `weight_max_kg`) : épingler `v0.44.0`.
+- `cfjjb-competition-day` (pesée jour J via `resolveWeightLimit`) : épingler au moins
+  cette version avant le prochain événement kids No-Gi, ou accepter de rester sur
+  l'ancien seuil tant que l'épingle n'est pas montée.
+
 ## Pureté, vérifiée et non recommandée
 
 `eslint.config.mjs` interdit `node:*`, `fs`, `path`, `crypto`, `react`, `react-dom`,
